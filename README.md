@@ -4,7 +4,7 @@
 [![Flask](https://img.shields.io/badge/Flask-3.0.3-green.svg)](https://flask.palletsprojects.com/)
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
-个人/家庭人情往来礼金收支管理系统 —— **Docker & Docker Compose 一键式部署版本**。内置 Gunicorn WSGI 高性能服务器与 Nginx 自动化 SSL/HTTPS 反向代理（支持 1443 自定义安全端口）。
+> **最新更新说明**：更新并同步全站 CSRF 安全防护机制与最新前端模板，全面支持登录无操作超时动态设置、批量日志清空与账户密码/密保重置防护。
 
 ---
 
