@@ -106,6 +106,11 @@ python3 generate_ssl_certs.py
 # 2. 将反向代理配置拷贝至宿主机 Nginx 配置目录 (如 /etc/nginx/conf.d/gift_app_docker.conf)
 cp nginx_ssl.conf /etc/nginx/conf.d/gift_app_docker.conf
 
+# 💡 注意：如果服务器上同时存在非 Docker 版本，不能在 /etc/nginx/conf.d/ 下同时启用两个 listen 15001 的配置文件，
+# 否则 Nginx 默认会一直命中其中一个 Upstream，导致切换至另一个服务时报 502 Bad Gateway！
+# 切换至 Docker 版本时，请禁用非 Docker 版本的配置：
+mv /etc/nginx/conf.d/gift_app_native.conf /etc/nginx/conf.d/gift_app_native.conf.disabled 2>/dev/null || true
+
 # 3. 校验配置并加载生效
 nginx -t && nginx -s reload
 ```
