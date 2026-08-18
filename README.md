@@ -137,6 +137,38 @@ git pull origin main
 
 ---
 
+## 🐘 PostgreSQL 数据库切换与配置说明
+
+系统默认使用轻量级 **SQLite** 数据库，无需安装任何额外服务，适合单机/轻量部署。若需要切换为高并发、高可用的 **PostgreSQL** 数据库，请按以下说明配置：
+
+### 1. 在 `docker-compose.yml` 中开启 PostgreSQL
+`docker-compose.yml` 中已内置 `db` 服务（基于 `postgres:15-alpine`）。在 `web` 服务节点下解开 `DATABASE_URL` 环境变量配置：
+
+```yaml
+services:
+  web:
+    environment:
+      - SECRET_KEY=gift-bookkeeping-docker-prod-secret-key
+      - SESSION_COOKIE_SECURE=true
+      # 启用 PostgreSQL 数据库连接
+      - DATABASE_URL=postgresql://gift_user:gift_password@db:5432/gift_db
+```
+
+### 2. 外部独立 PostgreSQL 数据库配置
+如果您使用的是已有外部 PostgreSQL 服务器，仅需在环境变量或 `docker-compose.yml` 中将 `DATABASE_URL` 设置为您的独立数据库连接字符串即可：
+
+```bash
+DATABASE_URL=postgresql://<用户名>:<密码>@<数据库IP或域名>:<端口>/<数据库名>
+```
+*示例*：
+`DATABASE_URL=postgresql://postgres:MySecurePass123@192.168.1.100:5432/gift_db`
+
+### 3. 特性与无损迁移
+- 程序启动时，SQLAlchemy 会自动检测数据库连接。如果表结构不存在，系统将自动建表并初始化管理员账号。
+- `psycopg2-binary` 依赖包已内置在 `requirements.txt` 中，支持一键无缝连接 PostgreSQL。
+
+---
+
 ## 🔑 默认管理员账户与安全提醒
 - 系统启动时会自动根据配置初始化管理员账户，建议成功部署后登录并设置密保问题！
 
