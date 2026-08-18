@@ -22,6 +22,8 @@ services:
       dockerfile: Dockerfile
     container_name: gift_bookkeeping_web
     restart: always
+    ports:
+      - "15000:11443"   # 将宿主机 15000 端口映射到容器内 11443 端口 (宿主机 Nginx 15001 -> 127.0.0.1:15000)
     environment:
       - SECRET_KEY=gift-bookkeeping-docker-prod-secret-key
       - SESSION_COOKIE_SECURE=true
@@ -34,20 +36,20 @@ services:
     networks:
       - gift_network
 
-  # Nginx SSL 反向代理容器
-  nginx:
-    image: nginx:alpine
-    container_name: gift_bookkeeping_nginx
-    restart: always
-    ports:
-      - "15001:15001"   # 将宿主机 15001 端口映射到 Nginx 容器内的 15001 HTTPS 服务端口
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - web
-    networks:
-      - gift_network
+  # Nginx SSL 反向代理容器 (若宿主机无 Nginx，可解开注释使用此容器)
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: gift_bookkeeping_nginx
+  #   restart: always
+  #   ports:
+  #     - "15001:15001"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - ./ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - web
+  #   networks:
+  #     - gift_network
 
 volumes:
   gift_data:
