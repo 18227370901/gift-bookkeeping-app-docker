@@ -31,7 +31,7 @@ mkdir -p ssl
 ### 3. 一键启动 Docker 容器集群
 在项目根目录下运行：
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ### 4. 访问系统
@@ -86,20 +86,20 @@ chmod +x run.sh
 
 - **查看容器日志**：
   ```bash
-  docker-compose logs -f
+  docker compose logs -f
   ```
 - **停止服务**：
   ```bash
-  docker-compose down
+  docker compose down
   ```
 - **重启服务**：
   ```bash
-  docker-compose restart
+  docker compose restart
   ```
 - **更新版本重构**：
   ```bash
   git pull
-  docker-compose up -d --build
+  docker compose up -d --build
   ```
 
 ---
