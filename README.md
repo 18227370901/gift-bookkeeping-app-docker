@@ -4,7 +4,10 @@
 [![Flask](https://img.shields.io/badge/Flask-3.0.3-green.svg)](https://flask.palletsprojects.com/)
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
-> **最新更新说明**：优化账号安全与退出登录逻辑，修复包含静态页面与退出路由在内的 Session 超时无感处理，全局配置浏览器 `Cache-Control` 防缓存响应头，解决回退页面/登出 500 报错问题；同步更新 Docker 容器部署配置。
+> **最新更新说明**：
+> - 👑 **管理员用户管理增强**：管理员可实时启用/禁用/删除普通用户，被禁用账号无法登录并显示“联系管理员处理”提示，已登录用户在被禁用或删除后将被即时拦截强制下线。
+> - 🛠️ **自动化运维与依赖管理**：启动脚本 `run.sh` 自动判断并创建 Python 虚拟环境（`venv`）及安装 `requirements.txt` 依赖库，免除手动执行命令；支持通过环境变量自定义 admin 账号与密码。
+> - 🧹 **冗余清理**：项目已彻底清理打包 exe/apk 等不必要文件及历史构件，精简项目体积。
 
 ---
 
@@ -36,49 +39,29 @@ docker compose up -d --build
 
 ### 4. 访问系统
 - **HTTPS 端口**：打开浏览器访问 **`https://<您的服务器IP或域名>:1443`**
-- **HTTP 自动重定向**：访问 `http://<您的服务器IP或域名>:80` 将自动重定向至自定义 1443 端口。
 
 ---
 
-## 🐍 虚拟环境与自定义脚本运行
+## 🐍 运行脚本 `run.sh` 服务管理（非 Docker 环境）
 
-### 使用虚拟环境（推荐用于项目隔离）
-解决 Linux 运行 `python3` 报错：`ModuleNotFoundError: No module named 'flask'`：
+根目录下提供了服务管理脚本 `run.sh`。运行 `start` 指令时，脚本会**自动判断并创建 Python 虚拟环境（`venv`）**，并**自动安装 `requirements.txt` 中所需依赖**，无需手动执行繁琐命令。
 
 ```bash
-# 1. 创建虚拟环境（在你的项目目录下）
-python3 -m venv venv
-
-# 2. 激活虚拟环境
-source venv/bin/activate
-
-# 3. 在虚拟环境中安装 Flask
-pip install flask
-pip install flask_wtf
-pip install flask_sqlalchemy
-pip install flask_login
-
-# 4. 运行你的脚本（此时环境已包含 flask）
-python your_script.py
-```
-
-### 使用自定义运行脚本 `run.sh`
-根目录下提供了服务管理脚本 `run.sh`，可用于后台启动、停止、查看状态和重启服务：
-```bash
-# 赋予可执行权限
+# 1. 赋予可执行权限
 chmod +x run.sh
 
-# 服务管理指令
+# 2. 启动服务（自动创建 venv + 自动 install 依赖 + 后台启动 Flask）
+./run.sh start
+
+# 3. 服务管理指令
 ./run.sh start    # 启动服务
 ./run.sh stop     # 停止服务
 ./run.sh status   # 查看状态
 ./run.sh restart  # 重启服务
 ```
 
----
-
-- **`web` 容器**：基于 Python 3.11-slim，运行 Gunicorn 多进程 Web 服务器，处理 Flask 业务逻辑，数据存储于 Docker 挂载数据卷 `gift_data`。
-- **`nginx` 容器**：基于 Nginx Alpine 镜像，实现 SSL/TLS 卸载与反向代理转发（HTTP 80 -> HTTPS 1443），配置了完整的 Web 安全响应头（HSTS、X-Frame-Options 等）。
+> 💡 **自定义管理员账号密码与端口**：
+> 可在 `run.sh` 脚本头的环境变量配置区域修改 `ADMIN_USER` 和 `ADMIN_PASS`（支持特殊字符），启动时系统将自动初始化或更新该管理员账号。
 
 ---
 
@@ -104,5 +87,6 @@ chmod +x run.sh
 
 ---
 
-## 默认管理员账户与安全提醒
-- 系统初次启动时已预置默认管理员账户，建议成功部署后立即更改密码并设置密保问题！
+## 🔑 默认管理员账户与安全提醒
+- 系统启动时会自动根据配置初始化管理员账户，建议成功部署后登录并设置密保问题！
+
