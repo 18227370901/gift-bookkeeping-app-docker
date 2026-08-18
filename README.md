@@ -40,7 +40,42 @@ docker-compose up -d --build
 
 ---
 
-## 🛠️ Docker 容器架构
+## 🐍 虚拟环境与自定义脚本运行
+
+### 使用虚拟环境（推荐用于项目隔离）
+解决 Linux 运行 `python3` 报错：`ModuleNotFoundError: No module named 'flask'`：
+
+```bash
+# 1. 创建虚拟环境（在你的项目目录下）
+python3 -m venv venv
+
+# 2. 激活虚拟环境
+source venv/bin/activate
+
+# 3. 在虚拟环境中安装 Flask
+pip install flask
+pip install flask_wtf
+pip install flask_sqlalchemy
+pip install flask_login
+
+# 4. 运行你的脚本（此时环境已包含 flask）
+python your_script.py
+```
+
+### 使用自定义运行脚本 `run.sh`
+根目录下提供了服务管理脚本 `run.sh`，可用于后台启动、停止、查看状态和重启服务：
+```bash
+# 赋予可执行权限
+chmod +x run.sh
+
+# 服务管理指令
+./run.sh start    # 启动服务
+./run.sh stop     # 停止服务
+./run.sh status   # 查看状态
+./run.sh restart  # 重启服务
+```
+
+---
 
 - **`web` 容器**：基于 Python 3.11-slim，运行 Gunicorn 多进程 Web 服务器，处理 Flask 业务逻辑，数据存储于 Docker 挂载数据卷 `gift_data`。
 - **`nginx` 容器**：基于 Nginx Alpine 镜像，实现 SSL/TLS 卸载与反向代理转发（HTTP 80 -> HTTPS 1443），配置了完整的 Web 安全响应头（HSTS、X-Frame-Options 等）。
