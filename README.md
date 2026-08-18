@@ -79,11 +79,33 @@ chmod +x run.sh
   ```bash
   docker compose restart
   ```
-- **更新版本重构**：
+- **更新版本重构与代码更新**：
   ```bash
-  git pull
+  # 1. 进入服务器上的项目根目录
+  cd /opt/service/gift-bookkeeping-app
+
+  # 2. 拉取云端最新代码
+  git pull origin main
+
+  # 3. 重新构建并拉起 Docker 容器
   docker compose up -d --build
   ```
+
+---
+
+## 🔄 Linux 服务器更新最新代码指南（非 Docker / run.sh 方式）
+
+若您在 Linux 上使用 `run.sh` 脚本运行应用，拉取 GitHub 云端最新更新的步骤如下：
+
+```bash
+# 1. 进入项目目录并拉取最新代码
+cd /opt/service/gift-bookkeeping-app
+git pull origin main
+
+# 2. 重启服务（自动更新依赖与数据库结构）
+./run.sh restart
+```
+
 
 ---
 
