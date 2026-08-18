@@ -11,6 +11,10 @@ if [ ! -d "$APP_DIR" ]; then
     APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 fi
 
+# ===== 环境变量定义（导出给 Docker Compose） =====
+export ADMIN_USER="${ADMIN_USER:-admin}"
+export ADMIN_PASS="${ADMIN_PASS:-admin123}"
+
 # ===== 颜色输出 =====
 RED='\033[0;31m'
 GREEN='\033[0;32m'
