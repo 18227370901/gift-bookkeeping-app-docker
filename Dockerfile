@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app/
 
 # 暴露 Flask Gunicorn 端口
-EXPOSE 5000
+EXPOSE 11443
 
-# 运行 Gunicorn WSGI 服务器
-CMD ["gunicorn", "--workers=4", "--bind=0.0.0.0:5000", "app:app"]
+# 运行 Gunicorn WSGI 服务器 (监听 11443 端口)
+CMD ["gunicorn", "--workers=4", "--bind=0.0.0.0:11443", "app:app"]
