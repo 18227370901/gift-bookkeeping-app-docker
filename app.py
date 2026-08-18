@@ -49,7 +49,7 @@ if getattr(sys, 'frozen', False):
 else:
     db_path = os.path.join(BUNDLE_DIR, 'gift_bookkeeping.db')
 
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)

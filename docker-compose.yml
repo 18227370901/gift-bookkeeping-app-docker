@@ -1,6 +1,20 @@
 version: '3.8'
 
 services:
+  # PostgreSQL 数据库服务 (可选，配置 DATABASE_URL 后生效)
+  db:
+    image: postgres:15-alpine
+    container_name: gift_bookkeeping_db
+    restart: always
+    environment:
+      POSTGRES_DB: gift_db
+      POSTGRES_USER: gift_user
+      POSTGRES_PASSWORD: gift_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - gift_network
+
   # Flask 后端 Web 服务容器
   web:
     build:
@@ -11,8 +25,12 @@ services:
     environment:
       - SECRET_KEY=gift-bookkeeping-docker-prod-secret-key
       - SESSION_COOKIE_SECURE=true
+      # 如需使用 PostgreSQL，可解开下行注释并注释掉默认 SQLite
+      # - DATABASE_URL=postgresql://gift_user:gift_password@db:5432/gift_db
     volumes:
       - gift_data:/app/data
+    depends_on:
+      - db
     networks:
       - gift_network
 
@@ -22,8 +40,7 @@ services:
     container_name: gift_bookkeeping_nginx
     restart: always
     ports:
-      - "80:80"       # HTTP 重定向端口
-      - "1443:1443"   # 自定义 HTTPS 服务端口
+      - "15001:1443"   # 将宿主机 15001 端口映射到 Nginx 容器内的 1443 HTTPS 服务端口
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
@@ -34,6 +51,8 @@ services:
 
 volumes:
   gift_data:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:
