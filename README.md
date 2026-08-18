@@ -103,6 +103,7 @@ chmod +x run.sh
 
 在 Linux 服务器上应用 GitHub 云端最新代码的完整步骤如下：
 
+### 标准更新步骤（本地无未提交修改）
 ```bash
 # 1. 进入项目根目录
 cd /opt/service/gift-bookkeeping-app-docker
@@ -113,18 +114,81 @@ git pull origin main
 # 3. 使用 run.sh 一键重启并重构镜像容器
 ./run.sh restart
 ```
-docker compose up -d --build
-```
 
-### `run.sh` 脚本环境：
+---
+
+### ⚠️ 当本地有修改，拉取最新代码的冲突处理方案
+
+如果在服务器或本地修改了配置文件（如 `nginx.conf`、`run.sh` 或 `docker-compose.yml`），直接执行 `git pull origin main` 可能会提示冲突。请根据业务需求选择以下处理方案之一：
+
+#### 方案一：保留本地修改并合并（推荐）✅
+暂存本地修改，拉取远程更新后再恢复合并：
 ```bash
-# 1. 进入项目根目录
-cd /opt/service/gift-bookkeeping-app
+# 1. 暂存本地修改
+git stash push -m "保存本地配置变更"
 
 # 2. 拉取最新代码
 git pull origin main
 
-# 3. 执行重启服务
+# 3. 恢复本地修改（如遇到冲突需手动修改）
+git stash pop
+
+# 4. 手动解决冲突后提交（如需要）
+git add .
+git commit -m "fix: 合并远程更新并保留本地配置"
+
+# 5. 重启容器集群应用最新代码
+./run.sh restart
+```
+
+#### 方案二：放弃本地修改，使用远程版本
+丢弃特定的本地文件改动，直接同步远程代码：
+```bash
+# 1. 查看具体改动（确认是否要放弃）
+git diff nginx.conf run.sh docker-compose.yml
+
+# 2. 恢复这些文件到远程版本
+git checkout -- nginx.conf run.sh docker-compose.yml
+
+# 3. 拉取最新代码
+git pull origin main
+
+# 4. 重启容器集群
+./run.sh restart
+```
+
+#### 方案三：仅保留重要文件的本地修改
+备份重要配置文件后重置，拉取最新代码再手动比对合并：
+```bash
+# 1. 备份重要配置文件
+cp nginx.conf nginx.conf.backup
+cp run.sh run.sh.backup
+
+# 2. 放弃这些文件的修改
+git checkout -- nginx.conf run.sh docker-compose.yml
+
+# 3. 拉取最新代码
+git pull origin main
+
+# 4. 对比备份文件和最新代码，手动合并配置
+diff nginx.conf.backup nginx.conf
+diff run.sh.backup run.sh
+
+# 5. 合并完成后清理备份文件
+rm nginx.conf.backup run.sh.backup
+
+# 6. 重启容器集群
+./run.sh restart
+```
+
+#### 方案四：强制覆盖（谨慎使用）⚠️
+直接用远程最新代码强制覆盖本地所有改动（**未提交的本地修改将不可逆丢失**）：
+```bash
+# 1. 重置到远程最新状态
+git fetch origin main
+git reset --hard origin/main
+
+# 2. 重启容器集群
 ./run.sh restart
 ```
 
