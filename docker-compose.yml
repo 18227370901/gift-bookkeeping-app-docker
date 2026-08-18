@@ -27,6 +27,8 @@ services:
     environment:
       - SECRET_KEY=gift-bookkeeping-docker-prod-secret-key
       - SESSION_COOKIE_SECURE=true
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:-admin123}
       # 如需使用 PostgreSQL，可解开下行注释并注释掉默认 SQLite
       # - DATABASE_URL=postgresql://gift_user:gift_password@db:5432/gift_db
     volumes:
