@@ -1,9 +1,14 @@
 #!/bin/bash
 
+# ===== 确保使用 Bash 解释器运行（防止 sh run.sh 导致的 Bashisms 语法报错） =====
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
+fi
+
 # ===== 配置区域 =====
 APP_DIR="/opt/service/gift-bookkeeping-app-docker"
 if [ ! -d "$APP_DIR" ]; then
-    APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 fi
 
 # ===== 颜色输出 =====
@@ -14,14 +19,14 @@ NC='\033[0m' # No Color
 
 # ===== 依赖检查 =====
 check_docker() {
-    if ! command -v docker &> /dev/null; then
+    if ! command -v docker > /dev/null 2>&1; then
         echo -e "${RED}错误: 未找到 docker 命令，请先安装 Docker。${NC}"
         exit 1
     fi
 
-    if docker compose version &> /dev/null; then
+    if docker compose version > /dev/null 2>&1; then
         DOCKER_COMPOSE="docker compose"
-    elif command -v docker-compose &> /dev/null; then
+    elif command -v docker-compose > /dev/null 2>&1; then
         DOCKER_COMPOSE="docker-compose"
     else
         echo -e "${RED}错误: 未找到 docker compose 或 docker-compose，请先安装 Docker Compose。${NC}"
@@ -34,7 +39,7 @@ ensure_ssl_certs() {
     if [ ! -f "$APP_DIR/ssl/server.crt" ] || [ ! -f "$APP_DIR/ssl/server.key" ]; then
         echo -e "${YELLOW}检测到 SSL 证书缺失，正在自动生成自签名随机 SSL 证书...${NC}"
         mkdir -p "$APP_DIR/ssl"
-        if command -v python3 &> /dev/null; then
+        if command -v python3 > /dev/null 2>&1; then
             python3 "$APP_DIR/generate_ssl_certs.py"
         else
             echo -e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 ssl/server.crt 和 ssl/server.key${NC}"
