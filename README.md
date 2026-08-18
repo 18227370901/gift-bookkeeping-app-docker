@@ -4,7 +4,7 @@
 [![Flask](https://img.shields.io/badge/Flask-3.0.3-green.svg)](https://flask.palletsprojects.com/)
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
-> **最新更新说明**：更新并同步全站 CSRF 安全防护机制与最新前端模板，全面支持登录无操作超时动态设置、批量日志清空与账户密码/密保重置防护。
+> **最新更新说明**：优化账号安全与退出登录逻辑，修复包含静态页面与退出路由在内的 Session 超时无感处理，全局配置浏览器 `Cache-Control` 防缓存响应头，解决回退页面/登出 500 报错问题；同步更新 Docker 容器部署配置。
 
 ---
 
