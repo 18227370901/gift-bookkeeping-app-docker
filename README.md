@@ -60,8 +60,9 @@ chmod +x run.sh
 ./run.sh restart  # 重启服务
 ```
 
-> 💡 **自定义管理员账号密码与端口**：
-> 可在 `run.sh` 脚本头的环境变量配置区域修改 `ADMIN_USER` 和 `ADMIN_PASS`（支持特殊字符），系统端口默认为 `11443`（并支持通过 Nginx 映射 15001 端口到 11443 端口）。启动时系统将自动初始化或更新该管理员账号。
+> 💡 **自定义管理员账号密码与端口拓扑**：
+> 可在 `run.sh` 脚本头的环境变量配置区域修改 `ADMIN_USER` 和 `ADMIN_PASS`。
+> 端口转发链路拓扑为：**客户端 -> 宿主机 Nginx (HTTPS 15001端口) -> 宿主机映射端口 (127.0.0.1:15000) -> Web容器应用 (11443端口)**。
 
 ---
 
@@ -72,7 +73,7 @@ chmod +x run.sh
 ```bash
 chmod +x run.sh
 
-./run.sh start    # 自动检查/生成 SSL 证书，并使用 Docker Compose 启动容器集群
+./run.sh start    # 自动检查/生成 SSL 证书，并使用 Docker Compose 启动容器集群 (暴露宿主机 15000 端口)
 ./run.sh stop     # 停止并移除 Docker 容器集群
 ./run.sh restart  # 重启 Docker 容器集群
 ./run.sh status   # 查看 Docker 容器运行状态 (或 ./run.sh ps)
@@ -95,7 +96,19 @@ cd /opt/service/gift-bookkeeping-app-docker
 chmod +x run.sh
 ./run.sh start
 ```
-> 💡 **自动依赖与证书管理**：`run.sh` 启动时会自动识别 `docker compose`，如检测到 `ssl/` 目录下缺失证书，将自动生成随机 SSL 自签名证书，随后以后台守护模式构建并拉起 Docker 容器集群。
+> 💡 **端口暴露机制**：Web 容器内开放 `11443` 端口，通过 `docker-compose.yml` 映射暴露为宿主机的 `15000` 端口（避免占用宿主机 15001 端口）。
+
+### 3. 配置宿主机 Nginx SSL 反向代理 (监听 15001 端口)
+```bash
+# 1. 生成自签名 SSL 证书（用于测试环境）
+python3 generate_ssl_certs.py
+
+# 2. 将反向代理配置拷贝至宿主机 Nginx 配置目录 (如 /etc/nginx/conf.d/gift_app_docker.conf)
+cp nginx_ssl.conf /etc/nginx/conf.d/gift_app_docker.conf
+
+# 3. 校验配置并加载生效
+nginx -t && nginx -s reload
+```
 
 ---
 
