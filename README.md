@@ -79,32 +79,60 @@ chmod +x run.sh
   ```bash
   docker compose restart
   ```
-- **更新版本重构与代码更新**：
-  ```bash
-  # 1. 进入服务器上的项目根目录
-  cd /opt/service/gift-bookkeeping-app
+## 🚀 首次部署指导操作说明
 
-  # 2. 拉取云端最新代码
-  git pull origin main
+### 1. 克隆代码库到 Linux 服务器
+```bash
+git clone https://github.com/18227370901/gift-bookkeeping-app-docker.git /opt/service/gift-bookkeeping-app
+cd /opt/service/gift-bookkeeping-app
+```
 
-  # 3. 重新构建并拉起 Docker 容器
-  docker compose up -d --build
-  ```
+### 2. 方式 A：Docker Compose 自动化集群部署（推荐）
+```bash
+# 生成自签名 SSL 证书（仅内网测试）
+python3 generate_ssl_certs.py
+
+# 启动 Docker 容器集群
+docker compose up -d --build
+```
+
+### 3. 方式 B：使用 `run.sh` 独立服务部署
+```bash
+chmod +x run.sh
+./run.sh start
+```
+> 💡 **自动依赖管理机制**：`run.sh` 在启动时会自动校验虚拟环境及依赖。若虚拟环境或核心依赖库（`flask`, `flask-sqlalchemy` 等）缺失，将自动使用清华镜像源全自动安装/补全依赖。
 
 ---
 
-## 🔄 Linux 服务器更新最新代码指南（非 Docker / run.sh 方式）
+## 🔄 Linux 服务器更新最新代码指南
 
-若您在 Linux 上使用 `run.sh` 脚本运行应用，拉取 GitHub 云端最新更新的步骤如下：
+针对已经在 Linux 服务器上执行过 `git clone` 的项目，拉取并应用 GitHub 云端最新代码的完整步骤如下：
 
+### Docker Compose 环境：
 ```bash
-# 1. 进入项目目录并拉取最新代码
+# 1. 进入项目根目录
 cd /opt/service/gift-bookkeeping-app
+
+# 2. 拉取最新代码
 git pull origin main
 
-# 2. 重启服务（自动更新依赖与数据库结构）
+# 3. 重置并重新构建拉起容器
+docker compose up -d --build
+```
+
+### `run.sh` 脚本环境：
+```bash
+# 1. 进入项目根目录
+cd /opt/service/gift-bookkeeping-app
+
+# 2. 拉取最新代码
+git pull origin main
+
+# 3. 执行重启服务
 ./run.sh restart
 ```
+
 
 
 ---
