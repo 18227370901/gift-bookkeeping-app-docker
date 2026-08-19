@@ -9,7 +9,7 @@ services:
     container_name: gift_bookkeeping_web
     restart: always
     ports:
-      - "15000:11443"   # 将宿主机 15000 端口映射到容器内 11443 端口 (宿主机 Nginx 15001 -> 127.0.0.1:15000)
+      - "${HOST_PORT:-15000}:${PORT:-11443}"   # 将宿主机 HOST_PORT (默认 15000) 映射到容器内 PORT (默认 11443) 端口 (宿主机 Nginx 15001 -> 127.0.0.1:HOST_PORT)
     environment:
       - SECRET_KEY=gift-bookkeeping-docker-prod-secret-key
       - SESSION_COOKIE_SECURE=true

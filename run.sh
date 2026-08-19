@@ -15,6 +15,9 @@ fi
 NGINX_CONF_DIR="${NGINX_CONF_DIR:-/etc/nginx/conf.d}"
 
 # ===== 环境变量定义（导出给 Docker Compose） =====
+export PORT="${PORT:-11443}"            # Web 容器内部服务端口，默认 11443
+export HOST_PORT="${HOST_PORT:-15000}"   # 宿主机映射端口，默认 15000
+export NGINX_PORT="${NGINX_PORT:-15001}" # 宿主机 Nginx 监听端口，默认 15001
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
 
@@ -61,8 +64,11 @@ setup_nginx_config() {
             echo -e "${YELLOW}已禁用冲突的原生版本 Nginx 配置: gift_app_native.conf${NC}"
         fi
         if [ -f "$APP_DIR/nginx_ssl.conf" ]; then
-            cp "$APP_DIR/nginx_ssl.conf" "$NGINX_CONF_DIR/gift_app_docker.conf" 2>/dev/null && \
-            echo -e "${GREEN}✅ 已同步 Nginx 配置到 $NGINX_CONF_DIR/gift_app_docker.conf${NC}" || true
+            # 动态更新 Nginx upstream 宿主机映射端口(默认15000)与 listen Nginx端口(默认15001)
+            sed -e "s/server 127.0.0.1:[0-9]*/server 127.0.0.1:$HOST_PORT/g" \
+                -e "s/listen [0-9]* ssl;/listen $NGINX_PORT ssl;/g" \
+                "$APP_DIR/nginx_ssl.conf" > "$NGINX_CONF_DIR/gift_app_docker.conf" 2>/dev/null && \
+            echo -e "${GREEN}✅ 已动态更新并同步 Nginx 配置到 $NGINX_CONF_DIR/gift_app_docker.conf (宿主机映射端口: $HOST_PORT, Nginx监听端口: $NGINX_PORT)${NC}" || true
         fi
         if command -v nginx > /dev/null 2>&1; then
             if nginx -t >/dev/null 2>&1; then
@@ -101,7 +107,9 @@ start_service() {
     $DOCKER_COMPOSE up -d --build
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
-        echo -e "   HTTPS 访问地址: https://<your-server-ip>:15000"
+        echo -e "   容器内监听端口: $PORT"
+        echo -e "   宿主机映射端口: $HOST_PORT"
+        echo -e "   HTTPS 访问地址: https://<your-server-ip>:$NGINX_PORT (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
     else
         echo -e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
         exit 1
