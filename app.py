@@ -675,8 +675,6 @@ def login():
         if require_captcha:
             real_captcha = session.get('login_captcha_ans')
             if not user_captcha or user_captcha != real_captcha:
-                new_fail_count = LoginRisk.record_fail(username)
-                log_action('登录失败', f'尝试登录用户名 [{username}] 失败（验证码错误，连续失败{new_fail_count}次）')
                 flash('验证码错误或未输入，请重新计算并输入！', 'danger')
                 return render_template('login.html', require_captcha=True, username=username)
 
