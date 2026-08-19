@@ -41,16 +41,14 @@ check_docker() {
     fi
 }
 
-# ===== 自动补全 SSL 证书 =====
+# ===== 自动生成/刷新 SSL 证书 =====
 ensure_ssl_certs() {
-    if [ ! -f "$APP_DIR/ssl/server.crt" ] || [ ! -f "$APP_DIR/ssl/server.key" ]; then
-        echo -e "${YELLOW}检测到 SSL 证书缺失，正在自动生成自签名随机 SSL 证书...${NC}"
-        mkdir -p "$APP_DIR/ssl"
-        if command -v python3 > /dev/null 2>&1; then
-            python3 "$APP_DIR/generate_ssl_certs.py"
-        else
-            echo -e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 ssl/server.crt 和 ssl/server.key${NC}"
-        fi
+    echo -e "${GREEN}正在生成/更新 SSL 自签名证书...${NC}"
+    mkdir -p "$APP_DIR/ssl"
+    if command -v python3 > /dev/null 2>&1; then
+        python3 "$APP_DIR/generate_ssl_certs.py"
+    else
+        echo -e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 ssl/server.crt 和 ssl/server.key${NC}"
     fi
 }
 

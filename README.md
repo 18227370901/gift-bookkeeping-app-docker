@@ -5,6 +5,7 @@
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
 > **最新更新说明**：
+> - 🔒 **每次启动自动刷新 SSL 证书**：`run.sh` 执行 `start` 或 `restart` 时自动调用 `generate_ssl_certs.py` 生成最新自签名 SSL 证书，提升通信安全。
 > - 🛡️ **登录风控防暴力破解与管理员自定义配置**：连续失败达到阈值自动启用算术验证码，支持管理员在后台自定义“最大失败次数”及“锁定等待时长（秒）”。
 > - 📱 **移动端响应式布局优化**：全面优化移动端界面显示，表格与按钮响应式适配。
 > - 🌐 **自动化 Nginx 配置与同步**：`run.sh` 脚本自动完成宿主机 Nginx 配置文件同步、冲突排查与重载。
