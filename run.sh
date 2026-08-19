@@ -103,7 +103,7 @@ start_service() {
     $DOCKER_COMPOSE up -d --build
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
-        echo -e "   HTTPS 访问地址: https://<your-server-ip>:15001"
+        echo -e "   HTTPS 访问地址: https://<your-server-ip>:15000"
     else
         echo -e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
         exit 1
