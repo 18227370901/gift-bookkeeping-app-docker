@@ -133,6 +133,65 @@ class RegistrationToken(db.Model):
     used_at = db.Column(db.DateTime, nullable=True)
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
 
+class LoginRisk(db.Model):
+    __tablename__ = 'login_risks'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    fail_count = db.Column(db.Integer, default=0, nullable=False)
+    lock_until = db.Column(db.Float, default=0.0, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    @classmethod
+    def get_risk(cls, username):
+        if not username:
+            return 0, 0.0
+        try:
+            risk = cls.query.filter_by(username=username).first()
+            if not risk:
+                return 0, 0.0
+            return risk.fail_count, risk.lock_until
+        except Exception:
+            db.session.rollback()
+            return 0, 0.0
+
+    @classmethod
+    def record_fail(cls, username):
+        if not username:
+            return 1
+        try:
+            risk = cls.query.filter_by(username=username).first()
+            if not risk:
+                risk = cls(username=username, fail_count=1, lock_until=0.0)
+                db.session.add(risk)
+            else:
+                risk.fail_count += 1
+            db.session.commit()
+            return risk.fail_count
+        except Exception:
+            db.session.rollback()
+            return 1
+
+    @classmethod
+    def set_lock_until(cls, username, lock_until):
+        if not username:
+            return
+        try:
+            risk = cls.query.filter_by(username=username).first()
+            if risk:
+                risk.lock_until = lock_until
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    @classmethod
+    def clear_risk(cls, username):
+        if not username:
+            return
+        try:
+            cls.query.filter_by(username=username).delete()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 class OperationLog(db.Model):
     __tablename__ = 'operation_logs'
     id = db.Column(db.Integer, primary_key=True)
@@ -544,9 +603,7 @@ def index():
         num2cn=num2cn
     )
 
-# 全局账号登录失败与风控锁定字典 (服务端内存维护)
-LOGIN_FAIL_COUNTS = {}   # {username: fail_count}
-LOGIN_LOCK_UNTILS = {}   # {username: lock_until_timestamp}
+# 数据库持久化风控记录
 
 def get_user_risk_status(username):
     """获取指定用户名的风控状态：(cur_fail_count, is_locked, lock_wait_seconds, require_captcha)"""
@@ -554,8 +611,7 @@ def get_user_risk_status(username):
         return 0, False, 0, False
     now = datetime.now().timestamp()
     max_attempts = get_max_login_attempts()
-    cur_fail_count = LOGIN_FAIL_COUNTS.get(username, 0)
-    target_lock_until = LOGIN_LOCK_UNTILS.get(username, 0)
+    cur_fail_count, target_lock_until = LoginRisk.get_risk(username)
 
     is_locked = False
     lock_wait = 0
@@ -619,6 +675,8 @@ def login():
         if require_captcha:
             real_captcha = session.get('login_captcha_ans')
             if not user_captcha or user_captcha != real_captcha:
+                new_fail_count = LoginRisk.record_fail(username)
+                log_action('登录失败', f'尝试登录用户名 [{username}] 失败（验证码错误，连续失败{new_fail_count}次）')
                 flash('验证码错误或未输入，请重新计算并输入！', 'danger')
                 return render_template('login.html', require_captcha=True, username=username)
 
@@ -631,8 +689,7 @@ def login():
                 return render_template('login.html', require_captcha=require_captcha, username=username)
             
             # 登录成功，清除该账号在服务端的失败计数与锁定状态
-            LOGIN_FAIL_COUNTS.pop(username, None)
-            LOGIN_LOCK_UNTILS.pop(username, None)
+            LoginRisk.clear_risk(username)
             session.pop('login_captcha_ans', None)
 
             token = secrets.token_hex(16)
@@ -645,15 +702,14 @@ def login():
             flash(f'欢迎回来，{user.username}！', 'success')
             return redirect(url_for('index'))
         else:
-            # 登录失败：更新服务端全局字典
-            new_fail_count = cur_fail_count + 1
-            LOGIN_FAIL_COUNTS[username] = new_fail_count
+            # 登录失败：持久化保存至数据库风控表
+            new_fail_count = LoginRisk.record_fail(username)
             log_action('登录失败', f'尝试登录用户名 [{username}] 失败（连续失败{new_fail_count}次）')
 
             if new_fail_count >= max_attempts:
                 lock_duration = lockout_seconds
                 if lock_duration > 0:
-                    LOGIN_LOCK_UNTILS[username] = now + lock_duration
+                    LoginRisk.set_lock_until(username, now + lock_duration)
                     lock_desc = f"{lock_duration // 60} 分钟" if lock_duration >= 60 and lock_duration % 60 == 0 else f"{lock_duration} 秒"
                     flash(f'账号 [{username}] 密码错误次数达到 {new_fail_count} 次，需要验证码且必须等待 {lock_desc} 后才能再次尝试！', 'danger')
                     return render_template('login.html', require_captcha=True, lock_wait=lock_duration, username=username)
