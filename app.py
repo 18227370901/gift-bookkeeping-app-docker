@@ -10,7 +10,7 @@ import secrets
 from datetime import datetime, timedelta
 import webbrowser
 from threading import Timer
-from flask import Flask, render_template, request, redirect, url_for, flash, session, current_app, abort, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, session, current_app, abort, make_response, jsonify
 from flask_wtf.csrf import CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -47,7 +47,7 @@ if getattr(sys, 'frozen', False):
     if not os.path.exists(db_path) and os.path.exists(bundled_db):
         shutil.copy2(bundled_db, db_path)
 else:
-    # 优先使用 Docker 持久化挂载目录 /app/data 下的 SQLite 数据库
+    # 优先使用持久化挂载目录 data 下的 SQLite 数据库
     data_dir = os.path.join(BUNDLE_DIR, 'data')
     if os.path.isdir(data_dir):
         db_path = os.path.join(data_dir, 'gift_bookkeeping.db')
@@ -151,6 +151,22 @@ def get_session_timeout_minutes():
     try:
         val = SystemSetting.get_val('session_timeout_minutes', '60')
         return max(1, int(val))
+    except (ValueError, TypeError):
+        return 60
+
+def get_max_login_attempts():
+    """获取当前设置的允许最大密码错误次数（触发验证码与锁定），默认5次"""
+    try:
+        val = SystemSetting.get_val('max_login_attempts', '5')
+        return max(1, int(val))
+    except (ValueError, TypeError):
+        return 5
+
+def get_login_lockout_seconds():
+    """获取当前设置的连续密码错误锁定等待时长（秒），默认60秒"""
+    try:
+        val = SystemSetting.get_val('login_lockout_seconds', '60')
+        return max(0, int(val))
     except (ValueError, TypeError):
         return 60
 
@@ -528,22 +544,66 @@ def index():
         num2cn=num2cn
     )
 
+@app.route('/login/captcha')
+def login_captcha():
+    num1 = random.randint(1, 20)
+    num2 = random.randint(1, 20)
+    op = random.choice(['+', '-'])
+    if op == '-':
+        if num1 < num2:
+            num1, num2 = num2, num1
+        ans = num1 - num2
+    else:
+        ans = num1 + num2
+    session['login_captcha_ans'] = str(ans)
+    expr = f"{num1} {op} {num2} = ?"
+    return jsonify({'expr': expr})
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
 
+    now = datetime.now().timestamp()
+    ip_addr = request.remote_addr if request else ""
+    if request and request.headers.get('X-Forwarded-For'):
+        ip_addr = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+
+    max_attempts = get_max_login_attempts()
+    lockout_seconds = get_login_lockout_seconds()
+
+    ip_lock_until = session.get('ip_lock_until', 0)
+    if now < ip_lock_until:
+        wait_sec = int(ip_lock_until - now)
+        flash(f'连续密码错误过多，触发安全保护！请等待 {wait_sec} 秒后再试。', 'danger')
+        return render_template('login.html', require_captcha=True, lock_wait=wait_sec)
+
+    ip_fail_count = session.get('ip_fail_count', 0)
+    require_captcha = ip_fail_count >= max_attempts
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
         remember = True if request.form.get('remember') else False
+        user_captcha = request.form.get('captcha', '').strip()
+
+        if require_captcha:
+            real_captcha = session.get('login_captcha_ans')
+            if not user_captcha or user_captcha != real_captcha:
+                flash('验证码错误，请重新计算并输入！', 'danger')
+                return render_template('login.html', require_captcha=True, username=username)
 
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             if not user.is_active:
                 log_action('登录失败', f'已被禁用的账号 [{username}] 尝试登录', user=user)
                 flash('该账号已被禁用/冻结，无法登录使用，请联系管理员处理！', 'danger')
-                return render_template('login.html')
+                return render_template('login.html', require_captcha=require_captcha, username=username)
+            
+            session.pop('ip_fail_count', None)
+            session.pop('ip_lock_until', None)
+            session.pop('login_captcha_ans', None)
+
             token = secrets.token_hex(16)
             user.session_token = token
             db.session.commit()
@@ -554,10 +614,26 @@ def login():
             flash(f'欢迎回来，{user.username}！', 'success')
             return redirect(url_for('index'))
         else:
-            log_action('登录失败', f'尝试登录用户名 [{username}] 失败（密码错误或账号不存在）')
-            flash('用户名或密码错误，请重试。', 'danger')
+            new_fail_count = ip_fail_count + 1
+            session['ip_fail_count'] = new_fail_count
+            log_action('登录失败', f'尝试登录用户名 [{username}] 失败（连续失败{new_fail_count}次）')
 
-    return render_template('login.html')
+            if new_fail_count >= max_attempts:
+                lock_duration = lockout_seconds
+                if lock_duration > 0:
+                    session['ip_lock_until'] = now + lock_duration
+                    lock_desc = f"{lock_duration // 60} 分钟" if lock_duration >= 60 and lock_duration % 60 == 0 else f"{lock_duration} 秒"
+                    flash(f'密码错误次数达到 {new_fail_count} 次，需要验证码且必须等待 {lock_desc} 后才能再次尝试！', 'danger')
+                    return render_template('login.html', require_captcha=True, lock_wait=lock_duration, username=username)
+                else:
+                    flash(f'密码错误次数达到 {new_fail_count} 次，请输入下方安全验证码！', 'danger')
+                    return render_template('login.html', require_captcha=True, username=username)
+            else:
+                remaining = max_attempts - new_fail_count
+                flash(f'用户名或密码错误，请重试。（连续错误 {new_fail_count} 次，再错 {remaining} 次将触发验证码）', 'danger')
+                return render_template('login.html', require_captcha=False, username=username)
+
+    return render_template('login.html', require_captcha=require_captcha)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -878,7 +954,17 @@ def admin_users():
     # 获取所有注册邀请链接（最近创建的排前面）
     tokens = RegistrationToken.query.order_by(RegistrationToken.created_at.desc()).all()
     session_timeout_minutes = get_session_timeout_minutes()
-    return render_template('admin_users.html', users=users, tokens=tokens, session_timeout_minutes=session_timeout_minutes, now=datetime.now())
+    max_login_attempts = get_max_login_attempts()
+    login_lockout_seconds = get_login_lockout_seconds()
+    return render_template(
+        'admin_users.html',
+        users=users,
+        tokens=tokens,
+        session_timeout_minutes=session_timeout_minutes,
+        max_login_attempts=max_login_attempts,
+        login_lockout_seconds=login_lockout_seconds,
+        now=datetime.now()
+    )
 
 @app.route('/admin/settings/timeout', methods=['POST'])
 @login_required
@@ -889,14 +975,23 @@ def update_session_timeout():
 
     try:
         minutes = int(request.form.get('session_timeout_minutes', '60'))
-        if minutes < 1 or minutes > 10080: # 最多7天
+        attempts = int(request.form.get('max_login_attempts', '5'))
+        lockout_sec = int(request.form.get('login_lockout_seconds', '60'))
+
+        if minutes < 1 or minutes > 10080:
             flash('超时时间必须在 1 到 10080 分钟之间！', 'danger')
+        elif attempts < 1 or attempts > 20:
+            flash('允许最大尝试次数必须在 1 到 20 次之间！', 'danger')
+        elif lockout_sec < 0 or lockout_sec > 86400:
+            flash('锁定时长必须在 0 到 86400 秒之间！', 'danger')
         else:
             SystemSetting.set_val('session_timeout_minutes', minutes)
-            log_action('更新系统配置', f'设置登录无操作超时时间为 {minutes} 分钟')
-            flash(f'登录无操作超时时间已成功更新为 {minutes} 分钟！', 'success')
+            SystemSetting.set_val('max_login_attempts', attempts)
+            SystemSetting.set_val('login_lockout_seconds', lockout_sec)
+            log_action('更新系统配置', f'设置超时时间为 {minutes} 分钟，最大尝试次数为 {attempts} 次，锁定时长为 {lockout_sec} 秒')
+            flash('系统安全与登录设置修改成功！', 'success')
     except (ValueError, TypeError):
-        flash('无效的时间参数！', 'danger')
+        flash('无效的配置参数！', 'danger')
 
     return redirect(url_for('admin_users'))
 @app.route('/admin/logs')
