@@ -11,6 +11,9 @@ if [ ! -d "$APP_DIR" ]; then
     APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 fi
 
+# Nginx 配置文件目录变量（用户可自定义覆盖，如 export NGINX_CONF_DIR=/etc/nginx/conf.d）
+NGINX_CONF_DIR="${NGINX_CONF_DIR:-/etc/nginx/conf.d}"
+
 # ===== 环境变量定义（导出给 Docker Compose） =====
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
@@ -51,10 +54,50 @@ ensure_ssl_certs() {
     fi
 }
 
+# ===== 自动配置 Nginx 反向代理 =====
+setup_nginx_config() {
+    if [ -d "$NGINX_CONF_DIR" ]; then
+        echo -e "${GREEN}正在处理 Nginx 配置文件 ($NGINX_CONF_DIR)...${NC}"
+        if [ -f "$NGINX_CONF_DIR/gift_app_native.conf" ]; then
+            mv "$NGINX_CONF_DIR/gift_app_native.conf" "$NGINX_CONF_DIR/gift_app_native.conf.disabled" 2>/dev/null || true
+            echo -e "${YELLOW}已禁用冲突的原生版本 Nginx 配置: gift_app_native.conf${NC}"
+        fi
+        if [ -f "$APP_DIR/nginx_ssl.conf" ]; then
+            cp "$APP_DIR/nginx_ssl.conf" "$NGINX_CONF_DIR/gift_app_docker.conf" 2>/dev/null && \
+            echo -e "${GREEN}✅ 已同步 Nginx 配置到 $NGINX_CONF_DIR/gift_app_docker.conf${NC}" || true
+        fi
+        if command -v nginx > /dev/null 2>&1; then
+            if nginx -t >/dev/null 2>&1; then
+                (nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1) && \
+                echo -e "${GREEN}✅ Nginx 配置热重载成功!${NC}" || echo -e "${YELLOW}⚠️ Nginx 热重载跳过 (需 root 权限)${NC}"
+            else
+                echo -e "${YELLOW}⚠️ Nginx 配置语法校验未通过，跳过 reload${NC}"
+            fi
+        fi
+    fi
+}
+
+# ===== 清理缓存与 .git 冗余垃圾 =====
+cleanup_cache() {
+    echo -e "${GREEN}正在清理缓存与 .git 冗余垃圾...${NC}"
+    cd "$APP_DIR" || return
+    if [ -d ".git" ] && command -v git > /dev/null 2>&1; then
+        git fetch --depth 1 origin main 2>/dev/null || true
+        git reflog expire --expire=now --all 2>/dev/null || true
+        git gc --prune=now 2>/dev/null || true
+        echo -e "${GREEN}✅ .git 垃圾数据清理完成! 当前 .git 体积: $(du -sh .git 2>/dev/null | cut -f1)${NC}"
+    fi
+    find "$APP_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find "$APP_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
+    rm -rf /tmp/gift-backup 2>/dev/null || true
+}
+
 # ===== Docker 操作函数 =====
 
 start_service() {
-    echo -e "${GREEN}正在通过 Docker Compose 启动服务集群...${NC}"
+    echo -e "${GREEN}正在启动服务...${NC}"
+    setup_nginx_config
+    cleanup_cache
     ensure_ssl_certs
     cd "$APP_DIR" || exit 1
     $DOCKER_COMPOSE up -d --build
@@ -120,15 +163,19 @@ case "$1" in
     build)
         build_service
         ;;
+    clean)
+        cleanup_cache
+        ;;
     *)
-        echo -e "用法: $0 {start|stop|restart|status|logs|build}"
+        echo -e "用法: $0 {start|stop|restart|status|logs|build|clean}"
         echo ""
-        echo -e "  ${GREEN}start${NC}   : 启动并部署 Docker 容器集群"
+        echo -e "  ${GREEN}start${NC}   : 启动并部署 Docker 容器集群 (自动配置 Nginx 与清理缓存)"
         echo -e "  ${GREEN}stop${NC}    : 停止并移除 Docker 容器集群"
         echo -e "  ${GREEN}restart${NC} : 重启 Docker 容器集群"
         echo -e "  ${GREEN}status${NC}  : 查看 Docker 容器运行状态"
         echo -e "  ${GREEN}logs${NC}    : 实时查看 Docker 容器日志"
         echo -e "  ${GREEN}build${NC}   : 重新构建 Docker 镜像"
+        echo -e "  ${GREEN}clean${NC}   : 仅手动清理垃圾缓存与压缩 .git"
         exit 1
         ;;
 esac

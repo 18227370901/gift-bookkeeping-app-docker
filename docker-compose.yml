@@ -1,21 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL 数据库服务 (可选，配置 DATABASE_URL 后生效)
-  db:
-    image: postgres:15-alpine
-    container_name: gift_bookkeeping_db
-    restart: always
-    environment:
-      POSTGRES_DB: gift_db
-      POSTGRES_USER: gift_user
-      POSTGRES_PASSWORD: gift_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - gift_network
-
-  # Flask 后端 Web 服务容器
+  # Flask 后端 Web 服务容器 (默认使用 SQLite 数据库，数据持久化于 gift_data 卷)
   web:
     build:
       context: .
@@ -29,12 +15,10 @@ services:
       - SESSION_COOKIE_SECURE=true
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASS=${ADMIN_PASS:-admin123}
-      # 如需使用 PostgreSQL，可解开下行注释并注释掉默认 SQLite
-      # - DATABASE_URL=postgresql://gift_user:gift_password@db:5432/gift_db
+      # 如使用外部或独立 PostgreSQL 数据库，可配置 DATABASE_URL 环境变量:
+      # - DATABASE_URL=postgresql://gift_user:gift_password@host:5432/gift_db
     volumes:
       - gift_data:/app/data
-    depends_on:
-      - db
     networks:
       - gift_network
 
@@ -55,8 +39,6 @@ services:
 
 volumes:
   gift_data:
-    driver: local
-  postgres_data:
     driver: local
 
 networks:
