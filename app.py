@@ -195,6 +195,66 @@ class LoginRisk(db.Model):
             db.session.commit()
         except Exception:
             db.session.rollback()
+
+class SecurityRisk(db.Model):
+    __tablename__ = 'security_risks'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    fail_count = db.Column(db.Integer, default=0, nullable=False)
+    lock_until = db.Column(db.Float, default=0.0, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    @classmethod
+    def get_risk(cls, username):
+        if not username:
+            return 0, 0.0
+        try:
+            risk = cls.query.filter_by(username=username).first()
+            if not risk:
+                return 0, 0.0
+            return risk.fail_count, risk.lock_until
+        except Exception:
+            db.session.rollback()
+            return 0, 0.0
+
+    @classmethod
+    def record_fail(cls, username):
+        if not username:
+            return 1
+        try:
+            risk = cls.query.filter_by(username=username).first()
+            if not risk:
+                risk = cls(username=username, fail_count=1, lock_until=0.0)
+                db.session.add(risk)
+            else:
+                risk.fail_count += 1
+            db.session.commit()
+            return risk.fail_count
+        except Exception:
+            db.session.rollback()
+            return 1
+
+    @classmethod
+    def set_lock_until(cls, username, lock_until):
+        if not username:
+            return
+        try:
+            risk = cls.query.filter_by(username=username).first()
+            if risk:
+                risk.lock_until = lock_until
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    @classmethod
+    def clear_risk(cls, username):
+        if not username:
+            return
+        try:
+            cls.query.filter_by(username=username).delete()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 class OperationLog(db.Model):
     __tablename__ = 'operation_logs'
     id = db.Column(db.Integer, primary_key=True)
@@ -240,17 +300,12 @@ def get_max_security_attempts():
     except (ValueError, TypeError):
         return 3
 
-# 全局找回密码密保尝试失败与锁定字典 (服务端内存维护)
-FORGOT_SECURITY_FAIL_COUNTS = {}   # {username: fail_count}
-FORGOT_SECURITY_LOCK_UNTILS = {}   # {username: lock_until_timestamp}
-
 def get_forgot_security_risk_status(username):
     """获取指定用户名找回密码密保验证的风控状态：(cur_fail_count, is_locked, lock_wait_seconds)"""
     if not username:
         return 0, False, 0
     now = datetime.now().timestamp()
-    cur_fail_count = FORGOT_SECURITY_FAIL_COUNTS.get(username, 0)
-    target_lock_until = FORGOT_SECURITY_LOCK_UNTILS.get(username, 0)
+    cur_fail_count, target_lock_until = SecurityRisk.get_risk(username)
 
     is_locked = False
     lock_wait = 0
@@ -590,11 +645,10 @@ def init_database():
                 conn.commit()
         except Exception:
             pass
-        # 容器/服务重启时重置登录风控限制记录（清除锁定及失败计数）
+        # 容器/服务重启时重置登录与密保风控限制记录（清除锁定及失败计数）
         try:
-            LOGIN_FAIL_COUNTS.clear()
-            LOGIN_LOCK_UNTILS.clear()
             db.session.query(LoginRisk).delete()
+            db.session.query(SecurityRisk).delete()
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -967,14 +1021,13 @@ def forgot_password():
                                        max_security_attempts=max_security_attempts)
 
             if not user.check_security_answer(security_answer):
-                new_fail_count = cur_fail_count + 1
-                FORGOT_SECURITY_FAIL_COUNTS[username] = new_fail_count
+                new_fail_count = SecurityRisk.record_fail(username)
                 log_action('找回密码失败', f'尝试找回用户名 [{username}] 密保答案验证错误（连续错误{new_fail_count}次）')
 
                 if new_fail_count >= max_security_attempts:
                     lock_duration = lockout_seconds
                     if lock_duration > 0:
-                        FORGOT_SECURITY_LOCK_UNTILS[username] = now + lock_duration
+                        SecurityRisk.set_lock_until(username, now + lock_duration)
                         lock_desc = f"{lock_duration // 60} 分钟" if lock_duration >= 60 and lock_duration % 60 == 0 else f"{lock_duration} 秒"
                         flash(f'密保答案错误次数达到 {new_fail_count} 次，账号已被锁定，请等待 {lock_desc} 后再试！', 'danger')
                         return render_template('forgot_password.html', user=user, step='answer_question',
@@ -999,8 +1052,7 @@ def forgot_password():
                                        max_security_attempts=max_security_attempts)
 
             # 密保校验成功，清除该账号在找回密码服务端的失败计数与锁定状态
-            FORGOT_SECURITY_FAIL_COUNTS.pop(username, None)
-            FORGOT_SECURITY_LOCK_UNTILS.pop(username, None)
+            SecurityRisk.clear_risk(username)
 
             user.set_password(new_password)
             db.session.commit()
