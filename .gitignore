@@ -10,3 +10,15 @@ dist/
 *.spec
 *.log
 *.pid
+
+# 数据库运行时附属文件与备份（防止真实数据误提交；样例库 gift_bookkeeping.db 为特意保留的开箱演示文件，不在此列）
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak
+*.bak_*
+data/
+ssl/
+.env
+.env.*
+*.png

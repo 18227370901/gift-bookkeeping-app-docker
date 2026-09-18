@@ -1,0 +1,73 @@
+# 版本控制元数据（严禁打入镜像泄露提交记录）
+.git
+.gitignore
+.gitattributes
+.github
+
+# 本地调试数据库与运行时数据（绝密：防止真实账本/密码散列/密保答案打包进镜像）
+# 注意：样例库 gift_bookkeeping.db 被 README 声明为开箱演示用途，特意排除；
+#      首次启动时容器内由 init_database() 自动建库，Docker 卷挂载于 /app/data。
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+gift_bookkeeping.db*
+
+# 备份文件（绝密：包含完整业务库快照）
+*.bak
+*.bak_*
+
+# 临时构建产物与 Python 字节码缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# 本地环境配置与敏感凭据
+.env
+.env.*
+
+# 证书与私钥（由 run.sh 在宿主机生成并挂载，不进镜像）
+ssl/
+*.key
+*.crt
+*.pem
+*.csr
+*.pfx
+
+# 日志与运行时产物
+*.log
+*.pid
+app.log
+app_err.log
+app_stdout.log
+
+# 文档与部署编排文件（运行时不需要，减小镜像体积）
+*.md
+docker-compose*.yml
+Dockerfile
+.dockerignore
+nginx*.conf
+run.sh
+
+# 编辑器与操作系统临时缓存
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 测试验证图片
+*.png

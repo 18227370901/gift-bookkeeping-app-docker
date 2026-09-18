@@ -1,4 +1,15 @@
-﻿# 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
+﻿---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: 'aeee6b32-4763-42a9-826d-5b2c7152b7d4'
+  PropagateID: 'aeee6b32-4763-42a9-826d-5b2c7152b7d4'
+  ReservedCode1: 'efabe4cc-bdfa-4cc0-bb53-25ccdb2d03f9'
+  ReservedCode2: 'efabe4cc-bdfa-4cc0-bb53-25ccdb2d03f9'
+---
+
+# 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
 
 **文档名称**：Project_Survey_Docker.md  
 **调研目标**：`C:\Users\cheng\Documents\akshare-test\gift_bookkeeping_app-docker`  
@@ -634,5 +645,82 @@ eminder_edit 中自动重置 last_notified_target = None，保证下一次周期
 #### 2.3 容器依赖与敏感数据零明文加固
 1. **运行依赖补齐**：在 
 equirements.txt 中严格声明 
-equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错。
+equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错。
 2. **敏感凭据安全闭环**：WebDAV 账号密码、Webhook 密钥等高敏感数据全部强制以 AES-256-GCM 密文存储，日志自动脱敏掩码，保证生产环境数据安全。
+
+---
+
+## 十二、V10.10 原生版全量功能同步与 SNI 多项目部署改造复盘 (2026年9月18日更新)
+
+### 1. 同步背景与总体结论
+- **背景**：自上次 Docker 版功能同步（第十章）后，原生版 `gift_bookkeeping_app` 经历了 V2 ~ V10.10 约 23 个提交的功能演进（AI 助手、权限申请工单、Webhook 全面重构、WebDAV 加密备份、SNI 部署改造等），两版出现明显功能分叉。
+- **本次动作**：将原生版全部最新功能**单向同步**至 Docker 版；同步后**两版功能完全一致**，部署形态各自独立（原生版 venv 直跑 + 宿主机 Nginx，本版 Docker Compose 编排 + 宿主机 Nginx）。
+- **同步方向安全性**：同步前完成差集比对——Docker 版相对原生版**无任何独有函数、无任何独有路由**（data/ 卷嗅探、WAL 模式、`_resolve_db_file()`、requests.Session 连接池、MKCOL 递归建目录、`last_notified_target` 防重、WebSocket `$http_connection` 透传等此前 Docker 专属特性均已在原生版逐字保留），单向覆盖零功能损失。
+- **同步范围**：覆盖 `app.py`、`models.py`、`routes_ext.py`、`webhook_utils.py`、`webdav_utils.py`，新增 `routes_ai.py`、`ai_service.py`、`web_search.py`，同步 `requirements.txt` 与 `generate_ssl_certs.py`（--domain 版）；模板层覆盖 14 个差异模板并新增 3 个（`ai_assistant.html`、`admin_ai_config.html`、`permission_tickets.html`），两版模板清单 20=20 完全一致。
+
+### 2. 全量同步的功能技术资产清单
+1. **AI 智能助手三件套**（`routes_ai.py` 路由层 + `ai_service.py` 服务层 + `web_search.py` 联网搜索层）：
+   - 多会话聊天（会话创建/重命名/删除、消息气泡对话区、推荐问题引导）；
+   - **四级配置优先级容错**：用户多配置（`ai_configs` JSON）→ 用户旧版单配置（`ai_api_key`）→ 全局环境变量（`OPENAI_API_KEY` 等）→ 管理员共享配置（仅被授权用户），逐级尝试直至成功；
+   - 联网搜索增强：`needs_search()` 关键词正则识别（天气/新闻/最新/实时/汇率等），DuckDuckGo 搜索结果注入 Prompt；
+   - 本地兜底引擎：全部配置失效时离线问答，功能永不中断；
+   - 管理员多配置管理（启用/禁用/优先级）与普通用户授权开关，AI API Key 全程 AES-256-GCM 密文存储。
+2. **权限申请工单闭环**（`PermissionTicket` 模型 + `permission_tickets.html` 模板 + `/permission_tickets` 系列 6 组路由）：
+   - 新注册用户默认无任何菜单权限；提交工单（勾选菜单 + 理由）→ 管理员审批通过（勾选授权菜单写入用户权限）/驳回（附理由）/撤销/删除/批量删除；
+   - 无权限用户首页显示友好的权限申请引导卡片，杜绝无限重定向循环。
+3. **Webhook 全面重构（V10.1 ~ V10.9.1）**：
+   - 用户级/事件级监控范围（`monitor_user_ids` / `monitor_event_types`），管理员可配置监控所有用户操作；空监控范围语义从「不限制=全部放行」修正为「不推送」，并配套 V10.9 启动数据迁移（存量通道预填全选）；
+   - 15 页面 × 12 事件类型的二维推送矩阵（`notify_pages`），页面级过滤覆盖全部功能模块（含人情对账、WebDAV 配置更新等）；
+   - 7 占位符场景化消息模板（`message_templates`：`{user}`/`{page}`/`{action}`/`{title}`/`{detail}`/`{time}`/`{count}`）；
+   - 约 40 处推送点全项目补全（礼金账本、宴席、对账、纪念日、回收站、用户管理、AI 助手、定时任务等）；
+   - V10.9.1 修复：`batch_delete` 大类矩阵补 `admin_webhooks` 页面，修复批量删除推送日志被页面级过滤拦截的缺陷。
+4. **WebDAV 加密备份与定时备份调度**（`webdav_utils.py` + `routes_ext.py` + `admin_backups.html`）：
+   - AES-256 加密 zip 备份（`pyzipper`）：自动任务用管理员预设密码（`backup_encrypt_password` 密文存储）加密，手动操作可自选；
+   - Cron 定时备份调度器：`_cron_match()` 自研 Cron 表达式解析 + 后台守护线程每 60 秒巡检执行，执行历史落库 `scheduled_task_execution_logs`；
+   - 普通用户隔离备份：`build_user_scoped_backup_db()` 仅导出含本人数据的过滤库；恢复走 `merge_user_scoped_backup()` 数据级合并，不覆盖全局表；完整库上传恢复拦截，文件级替换仅限管理员；
+   - 备份功能与定时任务分级授权（`backup_authorized` / `scheduled_task_authorized`）。
+5. **权限语义与审计修正**：
+   - 权限级别 1 语义修正为「自身全权 + 他人仅查看」（原为仅查看）；
+   - `ALL_MENUS` 五大子菜单 → **六大**（新增 `backups` 备份管理）；
+   - 审计日志 13 模块可配置记录（`/admin/audit-log-config`），未勾选模块操作不落审计。
+6. **依赖新增**：`openai>=1.0.0`、`duckduckgo_search>=4.0.0`、`pyzipper>=0.3.1`（首次部署需重建镜像）。
+
+### 3. 数据库平滑迁移策略（样例库零破坏）
+- 依据用户决策，Git 仓库内样例库 `gift_bookkeeping.db` **保留不动**（维持开箱即用演示价值），运行时真实数据位于 Docker 卷 `/app/data`；
+- 已有数据卷无需任何手工处理：启动时 `init_database()` 自动补建 **7 张新表**（`chat_sessions`、`chat_messages`、`ai_query_logs`、`scheduled_backup_tasks`、`scheduled_task_execution_logs`、`backup_attachments`、`permission_tickets`）与全部新增列（AI 配置字段、备份授权字段、Webhook 监控矩阵字段等约 30 条 `ALTER TABLE`）；
+- V10.9 逻辑修正配套数据迁移自动执行：存量 Webhook 通道空监控范围预填全选、`batch_delete` 矩阵补页，保证升级零感知。
+
+### 4. SNI 多项目共用 443 端口部署改造（Docker 专属实现）
+#### 4.1 run.sh 改造
+- `NGINX_PORT` 默认值 15001 → **443**（多项目共用，依靠 SNI 域名区分流量）；
+- 新增变量（均支持环境变量覆盖）：`PROJECT_NAME`（默认 `gift_app_docker`，与原生版 `gift_app` 自动区分，决定 Nginx 配置文件名 `$PROJECT_NAME.conf` 与 upstream 名 `${PROJECT_NAME}_backend`，防多项目重名冲突）、`SNI_DOMAIN`（默认 localhost，写入 server_name 与自签证书 CN/SAN；**为空时中止启动**）、`SSL_CERT`/`SSL_KEY`（默认 `$APP_DIR/ssl/`，可指向正式证书）、`SNI_DEFAULT_SERVER`（默认 0，因同机部署约定原生版 `gift_app` 已作 443 兑底）；
+- `setup_nginx_config()` 重写为占位符模板渲染：输出 `$NGINX_CONF_DIR/$PROJECT_NAME.conf`，剥离模板头部占位符说明注释、自动写入「自动生成勿手工修改」标识；`__BACKEND_PORT__` 填**宿主机映射端口 `HOST_PORT`（15000）**而非容器内 PORT——这是与原生版（直填 11443）的关键差异，源于 Docker 版端口链路多一层映射；
+- **三重互斥禁用**：自动将 `gift_app.conf`（原生版 V10.10 新名）/ `gift_app_native.conf`（原生版旧名）/ 本项目旧命名 `gift_app_docker.conf` 改名 `.disabled`，防止同端口多配置共存导致 502；
+- `ensure_ssl_certs()` 传 `--domain $SNI_DOMAIN`，并以 `(cd "$APP_DIR" && python3 ...)` 固定执行目录（规避 `generate_ssl_certs.py` 依赖 `os.getcwd()` 定位输出目录的路径漂移陷阱）；
+- 启动成功提示改为 `https://$SNI_DOMAIN/`（非 443 端口时自动附加端口号），帮助文本新增多项目接入示例。
+
+#### 4.2 nginx_ssl.conf 与证书脚本
+- `nginx_ssl.conf` 重写为 7 占位符模板（`__UPSTREAM_NAME__` / `__BACKEND_PORT__` / `__NGINX_PORT__` / `__SNI_DOMAIN__` / `__SSL_CERT__` / `__SSL_KEY__` / `__SSL_KEY__` 注释锚点），由 run.sh 渲染，不再手工维护；`proxy_set_header Host` 去掉 `:$server_port`（443 为标准端口）；
+- `generate_ssl_certs.py` 新增 `--domain`（写入证书 CN/SAN，自动区分 DNS/IP 条目类型且去重）与 `--days` 参数；OpenSSL 1.1.1+ 使用 `-addext`，失败自动回退 Python `cryptography` 库；不传参时行为与原版完全一致。
+
+#### 4.3 部署拓扑（改造后）
+**客户端 → 宿主机 Nginx（HTTPS 443，SNI 域名分流）→ 127.0.0.1:15000（HOST_PORT）→ Web 容器（11443）**
+
+### 5. 镜像与仓库安全加固
+- **新建 `.dockerignore`**（63 条规则）：排除 `.git`、全部数据库文件（`*.db`/`data/`，防止真实账本与密码散列打入镜像）、备份文件（`*.bak`）、证书私钥（`ssl/`/`*.key`/`*.crt`/`*.pem`）、环境凭据（`.env`）、文档与编排文件（`*.md`/`docker-compose*.yml`/`run.sh`，减小镜像体积）、`__pycache__` 与测试图片（`*.png`）等；
+- **`.gitignore` 扩充**：新增 `*.bak`、`*.bak_*`、`*.db-journal`/`-wal`/`-shm`、`data/`、`ssl/`、`.env`/`.env.*`、`*.png` 运行时附属文件忽略（样例库 `gift_bookkeeping.db` 为特意保留的开箱演示文件，不在此列）；
+- `docker-compose.yml` 端口注释同步修正为 443 SNI 分流拓扑描述。
+
+### 6. 验证结论与服务器侧遗留验证清单
+**本机（Windows）已完成的验证：**
+1. 10 个 Python 文件 `py_compile` 编译全部通过；
+2. `run.sh` 通过 `bash -n` 语法检查（Git Bash）；
+3. SNI 模板渲染模拟 3 场景（本项目默认 / `default_server=1` 开关 / 另一项目 `mengyao` 接入）：upstream 名、端口、SNI 域名、证书路径、default_server 区分全部正确，无占位符残留，模板头注释正确剥离；
+4. `generate_ssl_certs.py` 3 场景实测（默认 / 域名 `gift-docker.example.com` / IP `192.168.1.100`）：CN 与 SAN 条目类型正确且无重复；
+5. 两版模板清单 20=20 完全一致，关键模板 MD5 抽查一致。
+
+**需在 Linux 生产服务器完成的真实验证（遗留清单）：**
+1. `docker compose build` 镜像重建（验证 `openai`、`duckduckgo_search`、`pyzipper` 三个新依赖在容器内安装成功、Gunicorn Worker 正常启动）；
+2. `nginx -t` 语法校验与真实 SNI 域名分流测试（至少两个域名分别命中本项目与原生版 upstream）；
+3. `SNI_DOMAIN=<实际域名> ./run.sh start` 全流程演练（证书生成、配置渲染、互斥禁用、容器拉起、HTTPS 访问）；
+4. 已有数据卷启动时 `init_database()` 自动迁移结果抽查（7 张新表建立、Webhook 存量通道监控范围预填）。

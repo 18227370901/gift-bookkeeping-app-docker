@@ -1,3 +1,14 @@
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: 'ee3af9c6-72fa-48d9-a06e-a2e169ceaa49'
+  PropagateID: 'ee3af9c6-72fa-48d9-a06e-a2e169ceaa49'
+  ReservedCode1: 'c409be5b-df12-462a-bd5e-5bae97a8ab21'
+  ReservedCode2: 'c409be5b-df12-462a-bd5e-5bae97a8ab21'
+---
+
 # 人情礼金记账系统 (Docker Compose 自动化部署版)
 
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://www.docker.com/)
@@ -5,6 +16,16 @@
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
 > **最新更新说明**：
+> - 🔀 **V10.10 与原生部署版全量功能同步（2026-09-18）**：本 Docker 版已将原生版 V2 ~ V10.10 的全部功能演进同步完毕，两版功能完全一致、部署形态各自独立（原生版 venv 直跑，本版 Docker Compose 编排）。本次同步内容：
+>   - 🤖 **AI 助手三件套**：多会话聊天（创建/重命名/删除）、四级配置优先级容错（用户多配置 → 旧版单配置 → 全局环境变量 → 管理员共享配置）、DuckDuckGo 联网搜索增强、本地兜底引擎、管理员多配置管理与普通用户授权；
+>   - 📋 **权限申请工单**：新注册用户默认无菜单权限，需提交工单申请、管理员审批（通过/驳回附理由/撤销）后方可使用；无权限用户首页显示友好的申请引导卡片；
+>   - 📡 **Webhook 全面重构（V10.1 ~ V10.9.1）**：用户级/事件级监控范围可配置、15 页面 × 12 事件推送矩阵、7 占位符场景化消息模板、约 40 处推送点全项目覆盖、推送日志自动脱敏；
+>   - ☁️ **WebDAV 备份增强**：AES-256 加密 zip 备份（pyzipper）、Cron 定时备份调度器、普通用户隔离备份（仅含本人数据的过滤库）、数据级合并恢复、备份功能与定时任务分级授权；
+>   - 👥 **权限级别语义修正**：级别 1 改为「自身全权 + 他人仅查看」（原为仅查看），六大子菜单（新增备份管理），13 模块审计日志可配置记录；
+>   - 🌐 **Nginx SNI 多项目共用 443 端口**：`NGINX_PORT` 默认 15001 → **443**，多项目（如与「萌芽」平台）同机部署依靠 SNI 域名分流，每项目一份独立 Nginx 配置（`$PROJECT_NAME.conf`）；
+>   - 🛡️ **镜像与仓库安全加固**：新增 `.dockerignore`（排除 .git、数据库、备份、证书、密钥等敏感文件，防止打入镜像泄露）；`.gitignore` 新增运行时附属文件忽略（`*.bak`、`*.db-wal`、`data/`、`ssl/`、`.env` 等）；
+>   - 📦 **新增依赖**：`openai`、`duckduckgo_search`、`pyzipper`（首次部署需重新构建镜像）；
+>   - 🗄️ **数据库自动迁移**：已有数据卷无需手工处理，启动时 `init_database()` 自动补建 7 张新表（AI 会话/消息/查询日志、定时备份任务、执行日志、备份附件、权限工单）与全部新列。
 > - 🔔 **2.1 纪念日到期单次推送防重机制（周期锁架构）**：- 检查 if r.last_notified_target == target_cycle_str: continue，已成功推送过的周期直接跳过，杜绝 60 秒死循环；
 > - ☁️ **2.2 WebDAV 智能路径解析与递归自动建目录（MKCOL）**：- 智能识别坚果云等 WebDAV 根路径（如以 /dav 结尾），当未指定子目录时，自动挂载默认安全备份目录 /gift_backups/，防止根路径直写触发 404。
 > - 🔒 **2.3 容器依赖与敏感数据零明文加固**：2. **敏感凭据安全闭环**：WebDAV 账号密码、Webhook 密钥等高敏感数据全部强制以 AES-256-GCM 密文存储，日志自动脱敏掩码，保证生产环境数据安全。
@@ -61,18 +82,29 @@
 - **全渠道推送覆盖**：支持企业微信机器人、钉钉群机器人、飞书机器人、Server酱、PushPlus、Bark 等多通道按需触发；
 - 支持多轮定时推送与日志全生命周期审计管理。
 
-### 7. WebDAV 云端备份与一键恢复 (Cloud Backup)
-- 基于 `requests.Session` 连接池与流式传输，支持定时自动或手动一键备份 SQLite 数据库至坚果云、群晖 NAS、Nextcloud 等外部存储，并提供安全还原。
+### 7. WebDAV 云端备份、加密与一键恢复 (Cloud Backup)
+- 基于 `requests.Session` 连接池与流式传输，支持手动一键备份 SQLite 数据库至坚果云、群晖 NAS、Nextcloud 等外部存储，并提供安全还原；
+- **AES-256 加密备份**：使用 `pyzipper` 生成加密 zip 备份，自动任务使用管理员预设密码加密，手动备份可自选是否加密；
+- **定时备份调度器**：支持 Cron 表达式配置定时任务，后台守护线程每 60 秒巡检并自动执行，完整记录执行历史日志；
+- **多用户隔离备份**：普通用户仅能备份含本人数据的过滤库（数据级权限隔离），恢复走数据级合并不覆盖全局表；备份功能与定时任务均需管理员分级授权。
 
 ### 8. 用户管理与细粒度多菜单权限控制 (RBAC)
-- 独创五大子菜单独立授权机制（记账大厅、专属宴席、人情对账、纪念日备忘、回收站）；
-- 支持设置 0（禁止）、1（仅查看）、2（查看与修改）、3（完全控制）；
+- 独创六大子菜单独立授权机制（记账大厅、专属宴席、人情对账、纪念日备忘、回收站、备份管理）；
+- 支持设置 0（禁止）、1（自身全权 + 他人仅查看）、2（自身全权 + 他人查看与修改）、3（自身全权 + 他人查看/修改/删除）；
 - 阶梯式防越权设计：普通用户无论被赋予何种权限，均无法修改或删除管理员数据；
+- **权限申请工单闭环**：新注册用户默认无任何菜单权限，需提交工单申请并由管理员审批（通过/驳回附理由/撤销）后方可使用；
 - 管理员账号凭据查看配备二次身份核验。
 
-### 9. 敏感数据零明文安全加密与日志脱敏 (Security & Privacy)
-- **底层强加密 (AES-256-GCM)**：企业微信机器人 Bot Secret、Webhook 签名密钥、WebDAV 密码、共享外链口令及用户安全凭据全部采用 AES-256-GCM 密文存储，杜绝数据库明文泄露；
-- **日志全自动递归脱敏**：写入 `webhook_logs` 的请求载荷与响应内容自动扫描脱敏，彻底屏蔽密钥信息；
+### 9. AI 智能助手 (AI Assistant)
+- **多会话聊天**：支持会话创建/重命名/删除，侧边栏会话列表 + 消息气泡对话区，推荐问题引导；
+- **四级配置优先级容错**：用户多配置 → 用户旧版单配置 → 全局环境变量 → 管理员共享配置（仅被授权用户），逐级尝试直至成功；
+- **联网搜索增强**：自动识别需要联网的关键词（天气/新闻/最新/实时等），通过 DuckDuckGo 搜索后结合 AI 生成摘要；
+- **本地兜底引擎**：所有 AI 配置不可用时内置离线问答引擎，保障功能永不中断；
+- **授权管理**：管理员可授权/撤销普通用户的 AI 使用权限，并维护多个 AI 服务配置（API Key + Base URL + Model，支持启用/禁用与优先级）。
+
+### 10. 敏感数据零明文安全加密与日志脱敏 (Security & Privacy)
+- **底层强加密 (AES-256-GCM)**：企业微信机器人 Bot Secret、Webhook 签名密钥、WebDAV 密码、备份加密密码、AI API Key、共享外链口令及用户安全凭据全部采用 AES-256-GCM 密文存储，杜绝数据库明文泄露；
+- **日志全自动递归脱敏**：写入 `webhook_logs` 的请求载荷与响应内容自动扫描脱敏，彻底屏蔽密钥信息；审计日志支持 13 个模块可配置记录；
 - **自适应数据卷探测**：适配 Docker Compose `/app/data/gift_bookkeeping.db` 持久化挂载目录；
 - **SQLite WAL 模式高并发优化**：开启 WAL 模式与 30 秒忙等待超时，保障多容器/多进程并发读写绝对平稳。
 
@@ -88,29 +120,35 @@ cd gift-bookkeeping-app-docker
 将您的 SSL 证书公钥 `server.crt` 和私钥 `server.key` 放置于根目录下的 `ssl/` 文件夹中：
 ```bash
 mkdir -p ssl
-# 将您的 server.crt 和 server.key 复制进 ssl 文件夹
+# 将您的 server.crt 和 server.key 复制进 ssl/ 文件夹
 ```
-> 💡 **快速测试证书生成**：如果没有真实证书，可先运行项目内置的生成脚本一键创建测试证书：
+> 💡 **快速测试证书生成**：如果没有真实证书，可先运行项目内置的生成脚本一键创建测试证书（`--domain` 写入 SNI 域名，支持域名或 IP，避免浏览器报证书域名不匹配）：
 > ```bash
-> python generate_ssl_certs.py
-> mkdir -p ssl && mv server.crt server.key ssl/
+> python generate_ssl_certs.py --domain gift-docker.example.com
+> # 证书自动生成于 ssl/server.crt 与 ssl/server.key
 > ```
+> 注：`run.sh start` 会自动传入 `--domain $SNI_DOMAIN` 生成证书，无需手工执行。
 
-### 3. 访问系统
-- **HTTPS 端口**：打开浏览器访问 **`https://<您的服务器IP或域名>:15001`**（宿主机 15001 端口经 Nginx 映射至容器内部 11443 端口）
+### 3. 启动服务并访问系统
+```bash
+chmod +x run.sh
+SNI_DOMAIN=gift-docker.example.com ./run.sh start
+```
+- **HTTPS 访问地址**：`https://<您的SNI域名>`（`NGINX_PORT` 默认 443，标准端口无需附端口号；自定义非 443 端口时访问 `https://<域名>:<端口>`）
+- **端口转发链路**：客户端 → 宿主机 Nginx（HTTPS 443，SNI 域名分流）→ 宿主机映射端口 `127.0.0.1:15000` → Web 容器 `11443`
 
 ---
 
-## 🐍 运行脚本 `run.sh` 服务管理（非 Docker 环境）
+## 🐳 运行脚本 `run.sh` 服务管理（Docker Compose 编排）
 
-根目录下提供了服务管理脚本 `run.sh`。运行 `start` 指令时，脚本会**自动判断并创建 Python 虚拟环境（`venv`）**，并**自动安装 `requirements.txt` 中所需依赖**，无需手动执行繁琐命令。
+根目录下提供了 Docker 生命周期管理脚本 `run.sh`。运行 `start` 指令时，脚本会**自动生成/刷新 SSL 自签名证书（写入 SNI 域名）**、**渲染 Nginx SNI 配置文件**，然后使用 Docker Compose 拉起容器集群。
 
 ```bash
 # 1. 赋予可执行权限
 chmod +x run.sh
 
-# 2. 启动服务（自动创建 venv + 自动 install 依赖 + 后台启动 Flask）
-./run.sh start
+# 2. 启动服务（自动生成证书 + 渲染 Nginx SNI 配置 + 构建镜像 + 后台启动容器集群）
+SNI_DOMAIN=gift-docker.example.com ./run.sh start
 
 # 3. 服务管理指令
 ./run.sh start    # 启动服务
@@ -120,9 +158,22 @@ chmod +x run.sh
 ```
 
 > 💡 **自定义管理员账号密码与端口拓扑**：
-> 可在 `run.sh` 脚本头的环境变量配置区域修改 `PORT`（Web容器端口，默认 11443）、`HOST_PORT`（宿主机映射端口，默认 15000）、`NGINX_PORT`（Nginx监听端口，默认 15001）、`ADMIN_USER` 和 `ADMIN_PASS`。
-> 端口转发链路拓扑为：**客户端 -> 宿主机 Nginx (HTTPS $NGINX_PORT端口) -> 宿主机映射端口 (127.0.0.1:$HOST_PORT) -> Web容器应用 ($PORT端口)**。
-> 在执行 `./run.sh start` 或 `./run.sh restart` 时，系统将自动将设置的端口更新至 `docker-compose.yml` 及 Nginx 配置文件 `gift_app_docker.conf` 中并重载生效。
+> 可在 `run.sh` 脚本头的环境变量配置区域修改 `PORT`（Web容器端口，默认 11443）、`HOST_PORT`（宿主机映射端口，默认 15000）、`NGINX_PORT`（Nginx监听端口，默认 443）、`ADMIN_USER` 和 `ADMIN_PASS`。
+> 端口转发链路拓扑为：**客户端 -> 宿主机 Nginx (HTTPS $NGINX_PORT端口, SNI 域名分流) -> 宿主机映射端口 (127.0.0.1:$HOST_PORT) -> Web容器应用 ($PORT端口)**。
+> 在执行 `./run.sh start` 或 `./run.sh restart` 时，系统将自动将设置的端口更新至 `docker-compose.yml` 及 Nginx 配置文件 `$PROJECT_NAME.conf`（默认 `gift_app_docker.conf`）中并重载生效。
+>
+> 💡 **多项目共用 443 端口 SNI 分流**（V10.10）：
+> 同一台服务器多个项目可共用 443 端口，依靠域名（SNI）区分流量，各项目启动时指定专属变量即可：
+> ```bash
+> # 本项目（Docker 版，默认不作为兑底）
+> SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./run.sh start
+> # 另一项目（如萌芽平台，作为 443 兑底 default_server）
+> PROJECT_NAME=mengyao SNI_DOMAIN=mengyao.example.com SNI_DEFAULT_SERVER=1 ./run.sh start
+> ```
+> - `PROJECT_NAME`：项目标识，决定 Nginx 配置文件名与 upstream 名（默认 `gift_app_docker`，与原生版 `gift_app` 自动区分）
+> - `SNI_DOMAIN`：SNI 域名，写入 server_name 与证书 CN/SAN（默认 localhost；生产部署建议环境变量覆盖为实际域名，**为空时启动中止**）
+> - `SNI_DEFAULT_SERVER`：是否作为 443 兑底 default_server，多项目只应有一个设为 1（默认 0；若同机原生版 `gift_app` 已作兑底则保持 0）
+> - `SSL_CERT` / `SSL_KEY`：可指向正式证书路径，默认使用自动生成的自签证书
 
 ---
 
@@ -133,7 +184,7 @@ chmod +x run.sh
 ```bash
 chmod +x run.sh
 
-./run.sh start    # 自动检查/生成 SSL 证书，并使用 Docker Compose 启动容器集群 (暴露宿主机 15000 端口)
+./run.sh start    # 自动检查/生成 SSL 证书（写入 SNI 域名），渲染 Nginx SNI 配置并使用 Docker Compose 启动容器集群 (暴露宿主机 15000 端口)
 ./run.sh stop     # 停止并移除 Docker 容器集群
 ./run.sh restart  # 重启 Docker 容器集群
 ./run.sh status   # 查看 Docker 容器运行状态 (或 ./run.sh ps)
@@ -154,24 +205,19 @@ cd /opt/service/gift-bookkeeping-app-docker
 ### 2. 使用 `run.sh` 一键部署 Docker 集群
 ```bash
 chmod +x run.sh
-./run.sh start
+SNI_DOMAIN=gift-docker.example.com ./run.sh start
 ```
-> 💡 **端口暴露机制**：Web 容器内开放 `11443` 端口，通过 `docker-compose.yml` 映射暴露为宿主机的 `15000` 端口（避免占用宿主机 15001 端口）。
+> 💡 **端口暴露机制**：Web 容器内开放 `11443` 端口，通过 `docker-compose.yml` 映射暴露为宿主机的 `15000` 端口，再由宿主机 Nginx 反向代理对外提供 HTTPS 443 服务。
+> ⚠️ **首次部署 V10.10 同步版本需重新构建镜像**：本次同步新增 `openai`、`duckduckgo_search`、`pyzipper` 三个依赖，`./run.sh start`（含 `up -d --build`）会自动完成镜像重建。
 
-### 3. 配置宿主机 Nginx SSL 反向代理 (监听 15001 端口)
+### 3. Nginx SNI 反向代理（由 run.sh 自动完成）
+`./run.sh start` 会自动完成以下三步，通常无需手工操作：
+1. **生成自签名证书**：`generate_ssl_certs.py --domain $SNI_DOMAIN`，证书写入根目录 `ssl/`（如已有正式证书，通过 `SSL_CERT`/`SSL_KEY` 变量指向即可跳过自签）；
+2. **渲染 Nginx 配置**：依据占位符模板 `nginx_ssl.conf` 生成 `$NGINX_CONF_DIR/$PROJECT_NAME.conf`（默认 `/etc/nginx/conf.d/gift_app_docker.conf`），写入 SNI 域名、监听端口（默认 443）与证书路径；
+3. **互斥禁用冲突配置**：同机存在原生版部署时，自动将 `gift_app.conf` / `gift_app_native.conf` 及本版旧命名配置改名 `.disabled`，防止同端口多配置冲突导致 502；随后自动 `nginx -t` 校验并热重载。
+
+如需手工校验与重载：
 ```bash
-# 1. 生成自签名 SSL 证书（用于测试环境）
-python3 generate_ssl_certs.py
-
-# 2. 将反向代理配置拷贝至宿主机 Nginx 配置目录 (如 /etc/nginx/conf.d/gift_app_docker.conf)
-cp nginx_ssl.conf /etc/nginx/conf.d/gift_app_docker.conf
-
-# 💡 注意：如果服务器上同时存在非 Docker 版本，不能在 /etc/nginx/conf.d/ 下同时启用两个 listen 15001 的配置文件，
-# 否则 Nginx 默认会一直命中其中一个 Upstream，导致切换至另一个服务时报 502 Bad Gateway！
-# 切换至 Docker 版本时，请禁用非 Docker 版本的配置：
-mv /etc/nginx/conf.d/gift_app_native.conf /etc/nginx/conf.d/gift_app_native.conf.disabled 2>/dev/null || true
-
-# 3. 校验配置并加载生效
 nginx -t && nginx -s reload
 ```
 
@@ -348,4 +394,3 @@ DATABASE_URL=postgresql://<用户名>:<密码>@<数据库IP或域名>:<端口>/<
 
 ## 🔑 默认管理员账户与安全提醒
 - 系统启动时会自动根据配置初始化管理员账户，建议成功部署后登录并设置密保问题！
-
