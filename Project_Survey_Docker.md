@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'aeee6b32-4763-42a9-826d-5b2c7152b7d4'
-  PropagateID: 'aeee6b32-4763-42a9-826d-5b2c7152b7d4'
-  ReservedCode1: 'efabe4cc-bdfa-4cc0-bb53-25ccdb2d03f9'
-  ReservedCode2: 'efabe4cc-bdfa-4cc0-bb53-25ccdb2d03f9'
+  ProduceID: 'c1254e7e-da0d-4fc9-82e0-d04e19e0e8c7'
+  PropagateID: 'c1254e7e-da0d-4fc9-82e0-d04e19e0e8c7'
+  ReservedCode1: '71b6305f-0f1b-418a-b410-813fc2c513d5'
+  ReservedCode2: '71b6305f-0f1b-418a-b410-813fc2c513d5'
 ---
 
 # 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
@@ -724,3 +724,27 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 2. `nginx -t` 语法校验与真实 SNI 域名分流测试（至少两个域名分别命中本项目与原生版 upstream）；
 3. `SNI_DOMAIN=<实际域名> ./run.sh start` 全流程演练（证书生成、配置渲染、互斥禁用、容器拉起、HTTPS 访问）；
 4. 已有数据卷启动时 `init_database()` 自动迁移结果抽查（7 张新表建立、Webhook 存量通道监控范围预填）。
+
+---
+
+## 十三、V10.10.1 人情对账状态标签方向修复复盘 (2026年9月20日更新)
+
+### 1. 缺陷概述
+- 人情对账页面的「人情状态」标签与实际差额方向完全相反。`net_balance = 收礼总额 - 随礼总额`，当 `net > 0`（收 > 送，我方需回礼）时代码错误显示为「待还礼」；`net < 0`（送 > 收，对方欠我方）时错误显示为「待补礼」。
+- 数值计算本身（差额列）正确，仅状态标签语义与差额符号的映射错位。
+
+### 2. 根因定位
+- `gift_utils.py` 第 298-307 行状态字典：`net > 0 → 待还礼`、`net < 0 → 待补礼`，方向完全反了。正确应为 `net > 0 → 待补礼`（我方收多了需回礼）、`net < 0 → 待还礼`（我方送多了对方欠我）。
+- 顺带影响 `routes_ext.py` 筛选条件符号反（`need_return → net > 0` 应为 `net < 0`；`need_pay → net < 0` 应为 `net > 0`）与排序方向反，以及 `reconciliation.html` 徽章显示条件与下拉文案描述反。
+
+### 3. 修复方案（已执行并验证）
+- **修复原则**：差额数值计算不动，仅对调状态标签 ↔ 差额符号映射。
+- `gift_utils.py`：`net > 0 → 待补礼`（红色 danger，`我欠对方 ¥X`）；`net < 0 → 待还礼`（绿色 success，`对方欠我 ¥X`）。
+- `routes_ext.py`：`need_return` 筛选改为 `net < 0`；`need_pay` 改为 `net > 0`；排序 `need_return_first` 升序（负数排前），`need_pay_first` 降序（正数排前）。
+- `reconciliation.html`：徽章 `net < 0` 显示绿色待还礼，`net > 0` 显示红色待补礼；下拉文案改为「待还礼(尚欠我方，送 > 收)」「待补礼(我方需回，收 > 送)」。
+- 两版（原生版 + Docker 版）代码同步修改，Docker 版提交 `61c1d49`，原生版提交 `5b0ad43`（含 `Project_Survey.md` 文档同步修正）。
+
+### 4. 验证用例
+- 柏楚安（收 200 / 送 300 / 差额 -100）→ 待还礼（尚欠我方）✅
+- 反向场景（收 300 / 送 200 / 差额 +100）→ 待补礼（我方需回）✅
+- 原生版 Flask 服务重启后浏览器验证通过。

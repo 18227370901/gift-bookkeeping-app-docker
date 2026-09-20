@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'ee3af9c6-72fa-48d9-a06e-a2e169ceaa49'
-  PropagateID: 'ee3af9c6-72fa-48d9-a06e-a2e169ceaa49'
-  ReservedCode1: 'c409be5b-df12-462a-bd5e-5bae97a8ab21'
-  ReservedCode2: 'c409be5b-df12-462a-bd5e-5bae97a8ab21'
+  ProduceID: '8a24dab3-ccb8-430d-9f1b-769fe8d95551'
+  PropagateID: '8a24dab3-ccb8-430d-9f1b-769fe8d95551'
+  ReservedCode1: '57683a1c-fa11-4366-bed0-6bf5ebc84e73'
+  ReservedCode2: '57683a1c-fa11-4366-bed0-6bf5ebc84e73'
 ---
 
 # 人情礼金记账系统 (Docker Compose 自动化部署版)
@@ -26,6 +26,7 @@ AIGC:
 >   - 🛡️ **镜像与仓库安全加固**：新增 `.dockerignore`（排除 .git、数据库、备份、证书、密钥等敏感文件，防止打入镜像泄露）；`.gitignore` 新增运行时附属文件忽略（`*.bak`、`*.db-wal`、`data/`、`ssl/`、`.env` 等）；
 >   - 📦 **新增依赖**：`openai`、`duckduckgo_search`、`pyzipper`（首次部署需重新构建镜像）；
 >   - 🗄️ **数据库自动迁移**：已有数据卷无需手工处理，启动时 `init_database()` 自动补建 7 张新表（AI 会话/消息/查询日志、定时备份任务、执行日志、备份附件、权限工单）与全部新列。
+> - 🐛 **V10.10.1 人情对账状态标签方向修复（2026-09-20）**：修复对账页面「人情状态」标签与差额方向完全相反的 Bug。`net_balance = 收礼 - 随礼`，原 net > 0 错显「待还礼」、net < 0 错显「待补礼」，现已对调为：net > 0 → 待补礼（红色，我方需回）、net < 0 → 待还礼（绿色，尚欠我方）。涉及 `gift_utils.py` 状态字典、`routes_ext.py` 筛选条件与排序方向、`templates/reconciliation.html` 徽章与下拉文案，差额数值计算本身未改动。
 > - 🔔 **2.1 纪念日到期单次推送防重机制（周期锁架构）**：- 检查 if r.last_notified_target == target_cycle_str: continue，已成功推送过的周期直接跳过，杜绝 60 秒死循环；
 > - ☁️ **2.2 WebDAV 智能路径解析与递归自动建目录（MKCOL）**：- 智能识别坚果云等 WebDAV 根路径（如以 /dav 结尾），当未指定子目录时，自动挂载默认安全备份目录 /gift_backups/，防止根路径直写触发 404。
 > - 🔒 **2.3 容器依赖与敏感数据零明文加固**：2. **敏感凭据安全闭环**：WebDAV 账号密码、Webhook 密钥等高敏感数据全部强制以 AES-256-GCM 密文存储，日志自动脱敏掩码，保证生产环境数据安全。
