@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '6aa831f3-dd04-45c9-bf2e-868ef0cc573b'
-  PropagateID: '6aa831f3-dd04-45c9-bf2e-868ef0cc573b'
-  ReservedCode1: '21d67167-4b1d-42d1-820a-bdfa168efc18'
-  ReservedCode2: '21d67167-4b1d-42d1-820a-bdfa168efc18'
+  ProduceID: 'fc20d58b-f2bb-431f-874a-9b7d17269259'
+  PropagateID: 'fc20d58b-f2bb-431f-874a-9b7d17269259'
+  ReservedCode1: '9e2460b5-b6df-426b-b694-f4701ee64bd4'
+  ReservedCode2: '9e2460b5-b6df-426b-b694-f4701ee64bd4'
 ---
 
 # 人情礼金记账系统 (Docker Compose 自动化部署版)
@@ -16,6 +16,7 @@ AIGC:
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
 > **最新更新说明**：
+> - 🔐 **V10.10.3 run.sh 证书与 Nginx 配置覆盖保护（2026-09-20）**：修复每次 `start`/`restart` 无条件重新生成自签证书、覆盖渲染 Nginx 配置，导致用户自行替换的正式证书或手工定制内容被静默覆盖丢失的问题。现在证书/配置**文件不存在时直接创建**（不询问）；**已存在时先弹 `y/n` 询问**（默认 `n` 保留，回车即安全）；非交互环境（cron/CI/管道）自动保留旧文件不卡死。新增环境变量 `SSL_FORCE_UPDATE=1` / `NGINX_CONF_FORCE_UPDATE=1` 供自动化场景强制更新（设 `0` 强制保留）。两版 `should_overwrite` 函数逐字一致，功能测试全部通过（逻辑 6/6 + 端到端 14/14 + Docker 版 7/7）。
 > - 🔀 **V10.10 与原生部署版全量功能同步（2026-09-18）**：本 Docker 版已将原生版 V2 ~ V10.10 的全部功能演进同步完毕，两版功能完全一致、部署形态各自独立（原生版 venv 直跑，本版 Docker Compose 编排）。本次同步内容：
 >   - 🤖 **AI 助手三件套**：多会话聊天（创建/重命名/删除）、四级配置优先级容错（用户多配置 → 旧版单配置 → 全局环境变量 → 管理员共享配置）、DuckDuckGo 联网搜索增强、本地兜底引擎、管理员多配置管理与普通用户授权；
 >   - 📋 **权限申请工单**：新注册用户默认无菜单权限，需提交工单申请、管理员审批（通过/驳回附理由/撤销）后方可使用；无权限用户首页显示友好的申请引导卡片；

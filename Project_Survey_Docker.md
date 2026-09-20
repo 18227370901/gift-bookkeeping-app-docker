@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'ef8fbdbe-4f4e-471b-9a66-dd05b601ba13'
-  PropagateID: 'ef8fbdbe-4f4e-471b-9a66-dd05b601ba13'
-  ReservedCode1: '2835f10e-c3ba-48af-afe3-fd50e7b30440'
-  ReservedCode2: '2835f10e-c3ba-48af-afe3-fd50e7b30440'
+  ProduceID: '6aa361a6-9858-41b0-9820-799f34fac092'
+  PropagateID: '6aa361a6-9858-41b0-9820-799f34fac092'
+  ReservedCode1: '501b3ef2-7f1b-4590-bda1-aceff2a0a2bc'
+  ReservedCode2: '501b3ef2-7f1b-4590-bda1-aceff2a0a2bc'
 ---
 
 # 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
@@ -777,4 +777,36 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 ### 5. 涉及文件
 - `gift_bookkeeping.db`（两版根目录样例库，字节级统一）
 - `README.md`（两版）：样例数据体系说明扩充 + V10.10.2 更新条目
+- `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
+
+## 十五、V10.10.3 run.sh 证书与 Nginx 配置覆盖保护复盘 (2026年9月20日更新)
+
+### 1. 问题背景与根因
+- **现象**：用户自行替换的正式证书（或手工定制过内容的证书文件）在每次 `start`/`restart` 后被自签名证书静默覆盖丢失。
+- **根因**：原版 `run.sh` 的 `ensure_ssl_certs()` 每次启动都无条件调用 `generate_ssl_certs.py`，而该脚本内部直接写文件覆盖输出；`setup_nginx_config()` 同样每次无条件用模板渲染覆盖 `$NGINX_CONF_DIR/$PROJECT_NAME.conf`。两处均无「文件已存在」保护。
+- **本版差异说明**：Docker 版 `ensure_ssl_certs()` 无 venv 分支（直接用系统 python3），但覆盖问题与传统版完全相同；修复时两版 `should_overwrite` 函数保持逐字一致。
+
+### 2. 修复方案（覆盖决策权交给用户）
+- **核心原则**：文件不存在 → 直接创建（首次部署零打扰）；文件已存在 → 是否覆盖必须由用户决定，绝不默认覆盖。
+- **`should_overwrite()` 决策函数**（两版逐字一致）：
+  - 环境变量优先：`SSL_FORCE_UPDATE`/`NGINX_CONF_FORCE_UPDATE` 为 `1` 强制覆盖、为 `0` 强制保留，不再询问；
+  - 交互式终端（`[ -t 0 ]` 为真）：弹 `y/n` 询问，默认 `n`（直接回车即保留，安全默认）；
+  - 非交互环境（cron/CI/管道）：**不等待输入**，自动保留旧文件并提示可用环境变量强制更新，脚本不卡死。
+- **`ensure_ssl_certs()` 三分支重构**：证书不存在 → 直接生成；已存在且获许可 → 重新生成覆盖；已存在未获许可 → 保留现有证书并明确提示。
+- **`setup_nginx_config()` 配置保护**：已存在 `$PROJECT_NAME.conf` 时先经 `should_overwrite` 判定，未获许可则跳过渲染保留现文件；不存在时行为不变直接渲染创建（本版 `__BACKEND_PORT__` 仍填宿主机映射端口 `HOST_PORT`）。
+
+### 3. 非交互式执行兼容性设计
+- cron 定时重启等无人值守场景：`read` 前先以 `[ -t 0 ]` 检测 stdin，非终端直接返回「保留」，避免脚本永久挂起；
+- 自动化场景需要更新行为时显式声明：`SSL_FORCE_UPDATE=1 NGINX_CONF_FORCE_UPDATE=1 ./run.sh restart`；
+- 用法帮助（无参数运行）同步补充两个环境变量说明与示例。
+
+### 4. 验证结论
+- `bash -n` 语法校验：两版 run.sh 均通过（本版保持 LF 换行）；
+- 功能测试：逻辑沙箱 6/6、原生版端到端 14/14、本 Docker 版提取验证 7/7 全部通过（含两版 `should_overwrite` 函数逐字一致性、两版证书调用点一致性校验）；
+- 端到端覆盖场景：证书不存在→生成不询问；已存在非交互→内容 MD5 不变（保留）且提示正确；`SSL_FORCE_UPDATE=1`→证书内容变化（重新生成）；
+- 交互式 `y` 路径与强制更新共用同一段生成/渲染代码，由强制更新场景代为验证；`bash -n` 保证 read 分支语法正确。
+
+### 5. 涉及文件
+- `run.sh`（两版同步修改，`should_overwrite` 逐字一致）
+- `README.md`（两版）：V10.10.3 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
