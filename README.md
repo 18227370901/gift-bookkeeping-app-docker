@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'fc20d58b-f2bb-431f-874a-9b7d17269259'
-  PropagateID: 'fc20d58b-f2bb-431f-874a-9b7d17269259'
-  ReservedCode1: '9e2460b5-b6df-426b-b694-f4701ee64bd4'
-  ReservedCode2: '9e2460b5-b6df-426b-b694-f4701ee64bd4'
+  ProduceID: 'd42e3be2-53c7-4e6d-9e96-765af73423b7'
+  PropagateID: 'd42e3be2-53c7-4e6d-9e96-765af73423b7'
+  ReservedCode1: 'e8c134f8-4d04-4af9-a370-8919601970a9'
+  ReservedCode2: 'e8c134f8-4d04-4af9-a370-8919601970a9'
 ---
 
 # 人情礼金记账系统 (Docker Compose 自动化部署版)
@@ -16,6 +16,7 @@ AIGC:
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
 > **最新更新说明**：
+> - 🔧 **V10.10.4 f-string 兼容修复、Nginx 路径默认值调整与 run.sh POSIX 兼容化（2026-09-21）**：①修复 `routes_ext.py:4441` f-string 引号冲突导致 Docker 镜像（Python 3.11）`SyntaxError` 容器无法启动（外层单引号改双引号，3.12 兼容写法适配 3.11）；②`NGINX_CONF_DIR` 默认值从 `/etc/nginx/conf.d` 改为 `/opt/service/nginx/conf.d`，目录不存在时提示用户手动创建（不自动 mkdir/不跳过/不删除），可通过环境变量覆盖旧路径；③`run.sh` 全面 POSIX 兼容化——`#!/bin/bash`→`#!/bin/sh`，移除 bash 自愈逻辑，`${BASH_SOURCE}`→`$0`，`echo -e`→新增 `echo_e()` 函数（`printf '%b\n'`），`read -r -p`→`printf+read`，`((wait_time++))`→`$((wait_time+1))`，`source`→`.`。`sh run.sh status` 不再报 `Bad substitution`/`() unexpected` 等。两版同步，`bash -n`+`dash -n` 双校验通过。
 > - 🔐 **V10.10.3 run.sh 证书与 Nginx 配置覆盖保护（2026-09-20）**：修复每次 `start`/`restart` 无条件重新生成自签证书、覆盖渲染 Nginx 配置，导致用户自行替换的正式证书或手工定制内容被静默覆盖丢失的问题。现在证书/配置**文件不存在时直接创建**（不询问）；**已存在时先弹 `y/n` 询问**（默认 `n` 保留，回车即安全）；非交互环境（cron/CI/管道）自动保留旧文件不卡死。新增环境变量 `SSL_FORCE_UPDATE=1` / `NGINX_CONF_FORCE_UPDATE=1` 供自动化场景强制更新（设 `0` 强制保留）。两版 `should_overwrite` 函数逐字一致，功能测试全部通过（逻辑 6/6 + 端到端 14/14 + Docker 版 7/7）。
 > - 🔀 **V10.10 与原生部署版全量功能同步（2026-09-18）**：本 Docker 版已将原生版 V2 ~ V10.10 的全部功能演进同步完毕，两版功能完全一致、部署形态各自独立（原生版 venv 直跑，本版 Docker Compose 编排）。本次同步内容：
 >   - 🤖 **AI 助手三件套**：多会话聊天（创建/重命名/删除）、四级配置优先级容错（用户多配置 → 旧版单配置 → 全局环境变量 → 管理员共享配置）、DuckDuckGo 联网搜索增强、本地兜底引擎、管理员多配置管理与普通用户授权；

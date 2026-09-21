@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '6aa361a6-9858-41b0-9820-799f34fac092'
-  PropagateID: '6aa361a6-9858-41b0-9820-799f34fac092'
-  ReservedCode1: '501b3ef2-7f1b-4590-bda1-aceff2a0a2bc'
-  ReservedCode2: '501b3ef2-7f1b-4590-bda1-aceff2a0a2bc'
+  ProduceID: 'd2cbdacf-8a4b-4cd8-ac9a-86f1f2072a6c'
+  PropagateID: 'd2cbdacf-8a4b-4cd8-ac9a-86f1f2072a6c'
+  ReservedCode1: '41dcd4f4-c9cc-437c-8a5b-6005e44f7c18'
+  ReservedCode2: '41dcd4f4-c9cc-437c-8a5b-6005e44f7c18'
 ---
 
 # 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
@@ -777,6 +777,39 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 ### 5. 涉及文件
 - `gift_bookkeeping.db`（两版根目录样例库，字节级统一）
 - `README.md`（两版）：样例数据体系说明扩充 + V10.10.2 更新条目
+- `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
+
+## 十六、V10.10.4 f-string 兼容修复、Nginx 路径默认值调整与 run.sh POSIX 兼容化复盘 (2026年9月21日更新)
+
+### 1. 问题背景与根因
+- **f-string 报错**：`routes_ext.py:4441` WebDAV 备份删除推送消息中 f-string 外层单引号、表达式内也用单引号 `f'...{', '.join(filenames)}...'`。Python 3.12（PEP 701）放宽了 f-string 引号规则允许此写法，但 Docker 镜像 `python:3.11-slim` 不支持，导致 `SyntaxError: f-string: expecting '}'`，gunicorn worker 全部退出、容器无法启动。本地 venv 为 Python 3.12.13 因此不报错，问题仅在 Docker 部署时暴露。
+- **Nginx 路径不匹配**：`run.sh` 中 `NGINX_CONF_DIR` 默认值为 `/etc/nginx/conf.d`，但实际服务器部署路径为 `/opt/service/nginx/conf.d`。
+- **sh 兼容性报错**：`run.sh` 含 bash 独有语法（`${BASH_SOURCE[0]:-$0}`、`((wait_time++))`、`echo -e`、`source`、`read -r -p`），用 `sh`/`dash` 执行时报 `Bad substitution`、`() unexpected`、`[[: not found` 等。
+
+### 2. 修复方案
+- **f-string 引号修复**：外层单引号改双引号，表达式内保持单引号，消息内容不变。两版逐字一致。
+- **Nginx 路径调整**：默认值改为 `/opt/service/nginx/conf.d`；目录不存在时提示用户手动创建（不自动 mkdir/不跳过/不删除），`return 1` 中止；添加注释说明可通过环境变量覆盖。
+- **run.sh POSIX 兼容化**（7 项改动，两版同步）：
+  - `#!/bin/bash` → `#!/bin/sh`
+  - 移除 bash 自愈逻辑
+  - `${BASH_SOURCE[0]:-$0}` → `$0`
+  - 新增 `echo_e()` 函数（`printf '%b\n'`），替换全文 `echo -e`
+  - `read -r -p` → `printf + read -r`
+  - `((wait_time++))` → `wait_time=$((wait_time + 1))`（传统版独有）
+  - `source` → `.`（传统版独有）
+- **本版差异说明**：Docker 版无 venv 逻辑（无 `source`→`.` 改动）和 `((wait_time++))` 改动，其余 5 项与传统版完全一致；`echo_e` 函数两版逐字一致。
+
+### 3. 验证结论
+- Python AST 编译通过（两版 routes_ext.py）
+- `bash -n` + `dash -n` 双语法校验通过（两版 run.sh）
+- `dash run.sh status` 功能测试通过：无报错
+- 全文 `echo -e` 清零扫描确认（仅注释残留）
+- bashism 残留扫描确认：全部清除
+
+### 4. 涉及文件
+- `routes_ext.py`（两版同步修改，第 4441 行逐字一致）
+- `run.sh`（两版同步修改，`echo_e` 函数两版逐字一致）
+- `README.md`（两版）：V10.10.4 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
 
 ## 十五、V10.10.3 run.sh 证书与 Nginx 配置覆盖保护复盘 (2026年9月20日更新)

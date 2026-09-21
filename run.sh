@@ -1,14 +1,9 @@
-#!/bin/bash
-
-# ===== 确保使用 Bash 解释器运行（防止 sh run.sh 导致的 Bashisms 语法报错） =====
-if [ -z "$BASH_VERSION" ]; then
-    exec bash "$0" "$@"
-fi
+#!/bin/sh
 
 # ===== 配置区域 =====
 APP_DIR="/opt/service/gift-bookkeeping-app-docker"
 if [ ! -d "$APP_DIR" ]; then
-    APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+    APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 fi
 
 # ===== SNI 多项目共用端口配置（全部支持环境变量覆盖，多项目部署时各项目设不同值即可） =====
@@ -19,7 +14,8 @@ SSL_KEY="${SSL_KEY:-$APP_DIR/ssl/server.key}"   # SSL 私钥路径
 SNI_DEFAULT_SERVER="${SNI_DEFAULT_SERVER:-0}"   # 是否作为该监听端口的兑底 default_server（1=是 0=否，多项目共端口时只应有一个项目为 1；同一台服务器若原生版 gift_app 已作兑底，Docker 版保持 0）
 
 # Nginx 配置文件目录变量（用户可自定义覆盖，如 export NGINX_CONF_DIR=/etc/nginx/conf.d）
-NGINX_CONF_DIR="${NGINX_CONF_DIR:-/etc/nginx/conf.d}"
+# 默认指向 /opt/service/nginx/conf.d；其他部署环境如使用 /etc/nginx/conf.d，可通过环境变量覆盖
+NGINX_CONF_DIR="${NGINX_CONF_DIR:-/opt/service/nginx/conf.d}"
 
 # ===== 文件覆盖策略（V10.10.3 新增：保护已存在的证书与 Nginx 配置，防止重启时被自签证书/模板渲染静默覆盖） =====
 # SSL_FORCE_UPDATE / NGINX_CONF_FORCE_UPDATE: 文件已存在时是否强制覆盖更新
@@ -40,10 +36,15 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# POSIX 兼容的彩色输出函数（替代 echo -e，兼容 dash/sh）
+echo_e() {
+    printf '%b\n' "$*"
+}
+
 # ===== 依赖检查 =====
 check_docker() {
     if ! command -v docker > /dev/null 2>&1; then
-        echo -e "${RED}错误: 未找到 docker 命令，请先安装 Docker。${NC}"
+        echo_e "${RED}错误: 未找到 docker 命令，请先安装 Docker。${NC}"
         exit 1
     fi
 
@@ -52,7 +53,7 @@ check_docker() {
     elif command -v docker-compose > /dev/null 2>&1; then
         DOCKER_COMPOSE="docker-compose"
     else
-        echo -e "${RED}错误: 未找到 docker compose 或 docker-compose，请先安装 Docker Compose。${NC}"
+        echo_e "${RED}错误: 未找到 docker compose 或 docker-compose，请先安装 Docker Compose。${NC}"
         exit 1
     fi
 }
@@ -73,11 +74,12 @@ should_overwrite() {
     fi
     # [ -t 0 ] 检测 stdin 是否为终端：非交互场景（cron、管道、CI）无人应答，默认保留旧文件，避免脚本卡死
     if [ ! -t 0 ]; then
-        echo -e "${YELLOW}检测到已存在 $target_file，非交互环境自动保留旧文件（如需强制更新请设置 $hint_var=1）${NC}"
+        echo_e "${YELLOW}检测到已存在 $target_file，非交互环境自动保留旧文件（如需强制更新请设置 $hint_var=1）${NC}"
         return 1
     fi
     # 交互式终端：弹出确认，输入 y/Y 确认覆盖，其余任意输入（含直接回车）均视为保留旧文件（默认安全）
-    read -r -p "检测到已存在 $target_file，是否覆盖更新? (y/n) [默认 n]: " answer
+    printf '检测到已存在 %s，是否覆盖更新? (y/n) [默认 n]: ' "$target_file" >&2
+    read -r answer
     case "$answer" in
         y|Y|yes|YES) return 0 ;;
         *) return 1 ;;
@@ -88,31 +90,31 @@ should_overwrite() {
 ensure_ssl_certs() {
     # 两份证书文件均不存在时，无需询问，直接创建（首次部署场景）
     if [ ! -f "$SSL_CERT" ] && [ ! -f "$SSL_KEY" ]; then
-        echo -e "${GREEN}未检测到 SSL 证书文件，正在生成自签名证书 (域名: $SNI_DOMAIN)...${NC}"
+        echo_e "${GREEN}未检测到 SSL 证书文件，正在生成自签名证书 (域名: $SNI_DOMAIN)...${NC}"
         mkdir -p "$APP_DIR/ssl"
         local cert_script="$APP_DIR/generate_ssl_certs.py"
         # 固定在 APP_DIR 下执行，确保证书始终输出到 $APP_DIR/ssl（不依赖调用时所在目录）
         if command -v python3 > /dev/null 2>&1; then
             (cd "$APP_DIR" && python3 "$cert_script" --domain "$SNI_DOMAIN")
         else
-            echo -e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 $SSL_CERT 和 $SSL_KEY${NC}"
+            echo_e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 $SSL_CERT 和 $SSL_KEY${NC}"
         fi
     # 文件已存在：必须先取得用户/环境变量许可，才允许覆盖更新（保护自定义证书、正式证书）
     elif should_overwrite "$SSL_CERT" "$SSL_FORCE_UPDATE" "SSL_FORCE_UPDATE"; then
-        echo -e "${GREEN}确认更新，正在重新生成 SSL 自签名证书 (域名: $SNI_DOMAIN)...${NC}"
+        echo_e "${GREEN}确认更新，正在重新生成 SSL 自签名证书 (域名: $SNI_DOMAIN)...${NC}"
         mkdir -p "$APP_DIR/ssl"
         local cert_script="$APP_DIR/generate_ssl_certs.py"
         # 固定在 APP_DIR 下执行，确保证书始终输出到 $APP_DIR/ssl（不依赖调用时所在目录）
         if command -v python3 > /dev/null 2>&1; then
             (cd "$APP_DIR" && python3 "$cert_script" --domain "$SNI_DOMAIN")
         else
-            echo -e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 $SSL_CERT 和 $SSL_KEY${NC}"
+            echo_e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 $SSL_CERT 和 $SSL_KEY${NC}"
         fi
     else
-        echo -e "${GREEN}✅ 检测到已存在 SSL 证书文件，保留现有证书不更新: $SSL_CERT / $SSL_KEY${NC}"
+        echo_e "${GREEN}✅ 检测到已存在 SSL 证书文件，保留现有证书不更新: $SSL_CERT / $SSL_KEY${NC}"
     fi
     if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
-        echo -e "${YELLOW}⚠️ 证书文件缺失: $SSL_CERT / $SSL_KEY，Nginx 配置校验将无法通过${NC}"
+        echo_e "${YELLOW}⚠️ 证书文件缺失: $SSL_CERT / $SSL_KEY，Nginx 配置校验将无法通过${NC}"
     fi
 }
 
@@ -120,31 +122,39 @@ ensure_ssl_certs() {
 setup_nginx_config() {
     # SNI 域名必填：server_name 为空会导致 Nginx 配置无效，且多项目无法区分流量
     if [ -z "$SNI_DOMAIN" ]; then
-        echo -e "${RED}错误: SNI_DOMAIN 为空，无法配置 Nginx SNI 分流，已中止。请通过环境变量指定，例如: SNI_DOMAIN=gift.example.com PROJECT_NAME=gift_app_docker ./$0 start${NC}"
+        echo_e "${RED}错误: SNI_DOMAIN 为空，无法配置 Nginx SNI 分流，已中止。请通过环境变量指定，例如: SNI_DOMAIN=gift.example.com PROJECT_NAME=gift_app_docker ./$0 start${NC}"
+        return 1
+    fi
+
+    # Nginx 配置目录不存在时：提示用户手动创建，不自动创建、不跳过
+    if [ ! -d "$NGINX_CONF_DIR" ]; then
+        echo_e "${RED}错误: Nginx 配置目录不存在: $NGINX_CONF_DIR${NC}"
+        echo_e "${YELLOW}请手动创建该目录后重试: sudo mkdir -p $NGINX_CONF_DIR${NC}"
+        echo_e "${YELLOW}（其他部署环境如使用 /etc/nginx/conf.d，可通过环境变量覆盖: export NGINX_CONF_DIR=/etc/nginx/conf.d）${NC}"
         return 1
     fi
 
     if [ -d "$NGINX_CONF_DIR" ]; then
-        echo -e "${GREEN}正在处理 Nginx 配置文件 ($NGINX_CONF_DIR)...${NC}"
+        echo_e "${GREEN}正在处理 Nginx 配置文件 ($NGINX_CONF_DIR)...${NC}"
         # 禁用冲突的传统原生版配置（V10.10 后原生版输出文件名为 gift_app.conf；旧版为 gift_app_native.conf）
         if [ -f "$NGINX_CONF_DIR/gift_app.conf" ]; then
             mv "$NGINX_CONF_DIR/gift_app.conf" "$NGINX_CONF_DIR/gift_app.conf.disabled" 2>/dev/null || true
-            echo -e "${YELLOW}已禁用冲突的原生版本 Nginx 配置: gift_app.conf${NC}"
+            echo_e "${YELLOW}已禁用冲突的原生版本 Nginx 配置: gift_app.conf${NC}"
         fi
         if [ -f "$NGINX_CONF_DIR/gift_app_native.conf" ]; then
             mv "$NGINX_CONF_DIR/gift_app_native.conf" "$NGINX_CONF_DIR/gift_app_native.conf.disabled" 2>/dev/null || true
-            echo -e "${YELLOW}已禁用冲突的原生版本旧 Nginx 配置: gift_app_native.conf${NC}"
+            echo_e "${YELLOW}已禁用冲突的原生版本旧 Nginx 配置: gift_app_native.conf${NC}"
         fi
         # 禁用本项目旧版硬编码命名的配置文件（防止新旧配置共存导致 server_name 冲突）
         if [ "$PROJECT_NAME" = "gift_app_docker" ] && [ -f "$NGINX_CONF_DIR/gift_app_docker.conf" ]; then
             mv "$NGINX_CONF_DIR/gift_app_docker.conf" "$NGINX_CONF_DIR/gift_app_docker.conf.disabled" 2>/dev/null || true
-            echo -e "${YELLOW}已禁用旧版 Nginx 配置: gift_app_docker.conf${NC}"
+            echo_e "${YELLOW}已禁用旧版 Nginx 配置: gift_app_docker.conf${NC}"
         fi
         local target_conf="$NGINX_CONF_DIR/$PROJECT_NAME.conf"
         # 已存在的项目配置文件先取得许可再覆盖渲染，防止用户手改过的 conf 被模板静默重置
         # （首次部署文件不存在时无需询问，直接渲染创建）
         if [ -f "$target_conf" ] && ! should_overwrite "$target_conf" "$NGINX_CONF_FORCE_UPDATE" "NGINX_CONF_FORCE_UPDATE"; then
-            echo -e "${YELLOW}保留现有 Nginx 配置文件，未重新渲染: $target_conf${NC}"
+            echo_e "${YELLOW}保留现有 Nginx 配置文件，未重新渲染: $target_conf${NC}"
         elif [ -f "$APP_DIR/nginx_ssl.conf" ]; then
             # 按 SNI_DEFAULT_SERVER 决定 listen 行是否追加 default_server（兜底 server）
             local listen_value="$NGINX_PORT"
@@ -168,14 +178,14 @@ setup_nginx_config() {
                     -e "s|__SSL_KEY__|$SSL_KEY|g" \
                     "$APP_DIR/nginx_ssl.conf"
             } > "$target_conf" 2>/dev/null && \
-            echo -e "${GREEN}✅ 已动态更新并同步 Nginx 配置到 $target_conf (项目: $PROJECT_NAME, 宿主机映射端口: $HOST_PORT, Nginx监听端口: $NGINX_PORT, SNI域名: $SNI_DOMAIN, default_server: $default_flag)${NC}" || true
+            echo_e "${GREEN}✅ 已动态更新并同步 Nginx 配置到 $target_conf (项目: $PROJECT_NAME, 宿主机映射端口: $HOST_PORT, Nginx监听端口: $NGINX_PORT, SNI域名: $SNI_DOMAIN, default_server: $default_flag)${NC}" || true
         fi
         if command -v nginx > /dev/null 2>&1; then
             if nginx -t >/dev/null 2>&1; then
                 (nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1) && \
-                echo -e "${GREEN}✅ Nginx 配置热重载成功!${NC}" || echo -e "${YELLOW}⚠️ Nginx 热重载跳过 (需 root 权限)${NC}"
+                echo_e "${GREEN}✅ Nginx 配置热重载成功!${NC}" || echo_e "${YELLOW}⚠️ Nginx 热重载跳过 (需 root 权限)${NC}"
             else
-                echo -e "${YELLOW}⚠️ Nginx 配置语法校验未通过，跳过 reload${NC}"
+                echo_e "${YELLOW}⚠️ Nginx 配置语法校验未通过，跳过 reload${NC}"
             fi
         fi
     fi
@@ -183,12 +193,12 @@ setup_nginx_config() {
 
 # ===== 清理缓存与 .git 冗余垃圾 =====
 cleanup_cache() {
-    echo -e "${GREEN}正在清理本地缓存与 .git 冗余垃圾...${NC}"
+    echo_e "${GREEN}正在清理本地缓存与 .git 冗余垃圾...${NC}"
     cd "$APP_DIR" || return
     if [ -d ".git" ] && command -v git > /dev/null 2>&1; then
         git reflog expire --expire=now --all 2>/dev/null || true
         git gc --prune=now 2>/dev/null || true
-        echo -e "${GREEN}✅ .git 冗余垃圾清理完成! 当前 .git 体积: $(du -sh .git 2>/dev/null | cut -f1)${NC}"
+        echo_e "${GREEN}✅ .git 冗余垃圾清理完成! 当前 .git 体积: $(du -sh .git 2>/dev/null | cut -f1)${NC}"
     fi
     find "$APP_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     find "$APP_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
@@ -198,43 +208,43 @@ cleanup_cache() {
 # ===== Docker 操作函数 =====
 
 start_service() {
-    echo -e "${GREEN}正在启动服务...${NC}"
+    echo_e "${GREEN}正在启动服务...${NC}"
     # 启动前自动生成最新 SSL 证书、配置 Nginx SNI 与清理缓存垃圾（SNI 配置失败则中止启动）
     ensure_ssl_certs
     setup_nginx_config || {
-        echo -e "${RED}❌ Nginx SNI 配置失败，服务启动中止，请检查 SNI_DOMAIN 环境变量${NC}"
+        echo_e "${RED}❌ Nginx SNI 配置失败，服务启动中止，请检查 SNI_DOMAIN 环境变量${NC}"
         return 1
     }
     cleanup_cache
     cd "$APP_DIR" || exit 1
     $DOCKER_COMPOSE up -d --build
     if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
-        echo -e "   容器内监听端口: $PORT"
-        echo -e "   宿主机映射端口: $HOST_PORT"
-        echo -e "   HTTPS 访问地址: https://$SNI_DOMAIN"$( [ "$NGINX_PORT" = "443" ] || echo ":$NGINX_PORT" )" (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
+        echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
+        echo_e "   容器内监听端口: $PORT"
+        echo_e "   宿主机映射端口: $HOST_PORT"
+        echo_e "   HTTPS 访问地址: https://$SNI_DOMAIN"$( [ "$NGINX_PORT" = "443" ] || echo ":$NGINX_PORT" )" (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
     else
-        echo -e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
+        echo_e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
         exit 1
     fi
 }
 
 stop_service() {
-    echo -e "${YELLOW}正在停止 Docker 容器集群...${NC}"
+    echo_e "${YELLOW}正在停止 Docker 容器集群...${NC}"
     cd "$APP_DIR" || exit 1
     $DOCKER_COMPOSE down
-    echo -e "${GREEN}✅ Docker 容器集群已停止${NC}"
+    echo_e "${GREEN}✅ Docker 容器集群已停止${NC}"
 }
 
 restart_service() {
-    echo -e "${YELLOW}正在重启 Docker 容器集群...${NC}"
+    echo_e "${YELLOW}正在重启 Docker 容器集群...${NC}"
     stop_service
     sleep 2
     start_service
 }
 
 status_service() {
-    echo -e "${GREEN}Docker 容器集群运行状态:${NC}"
+    echo_e "${GREEN}Docker 容器集群运行状态:${NC}"
     cd "$APP_DIR" || exit 1
     $DOCKER_COMPOSE ps
 }
@@ -245,7 +255,7 @@ logs_service() {
 }
 
 build_service() {
-    echo -e "${GREEN}正在重新构建 Docker 镜像...${NC}"
+    echo_e "${GREEN}正在重新构建 Docker 镜像...${NC}"
     cd "$APP_DIR" || exit 1
     $DOCKER_COMPOSE build
 }
@@ -276,21 +286,21 @@ case "$1" in
         cleanup_cache
         ;;
     *)
-        echo -e "用法: $0 {start|stop|restart|status|logs|build|clean}"
+        echo_e "用法: $0 {start|stop|restart|status|logs|build|clean}"
         echo ""
-        echo -e "  ${GREEN}start${NC}   : 启动并部署 Docker 容器集群 (自动生成证书/配置 Nginx SNI 与清理缓存)"
-        echo -e "  ${GREEN}stop${NC}    : 停止并移除 Docker 容器集群"
-        echo -e "  ${GREEN}restart${NC} : 重启 Docker 容器集群"
-        echo -e "  ${GREEN}status${NC}  : 查看 Docker 容器运行状态"
-        echo -e "  ${GREEN}logs${NC}    : 实时查看 Docker 容器日志"
-        echo -e "  ${GREEN}build${NC}   : 重新构建 Docker 镜像"
-        echo -e "  ${GREEN}clean${NC}   : 仅手动清理垃圾缓存与压缩 .git"
+        echo_e "  ${GREEN}start${NC}   : 启动并部署 Docker 容器集群 (自动生成证书/配置 Nginx SNI 与清理缓存)"
+        echo_e "  ${GREEN}stop${NC}    : 停止并移除 Docker 容器集群"
+        echo_e "  ${GREEN}restart${NC} : 重启 Docker 容器集群"
+        echo_e "  ${GREEN}status${NC}  : 查看 Docker 容器运行状态"
+        echo_e "  ${GREEN}logs${NC}    : 实时查看 Docker 容器日志"
+        echo_e "  ${GREEN}build${NC}   : 重新构建 Docker 镜像"
+        echo_e "  ${GREEN}clean${NC}   : 仅手动清理垃圾缓存与压缩 .git"
         echo ""
-        echo -e "  多项目共用 443 端口（SNI 分流）示例: SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./$0 start"
-        echo -e ""
-        echo -e "  文件覆盖策略（已存在的证书/Nginx 配置，默认先询问）:"
-        echo -e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
-        echo -e "  ${GREEN}NGINX_CONF_FORCE_UPDATE=1${NC}   Nginx 配置已存在时强制覆盖渲染，不询问 (默认: 询问/非交互时保留)"
+        echo_e "  多项目共用 443 端口（SNI 分流）示例: SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./$0 start"
+        echo_e ""
+        echo_e "  文件覆盖策略（已存在的证书/Nginx 配置，默认先询问):"
+        echo_e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
+        echo_e "  ${GREEN}NGINX_CONF_FORCE_UPDATE=1${NC}   Nginx 配置已存在时强制覆盖渲染，不询问 (默认: 询问/非交互时保留)"
         exit 1
         ;;
 esac
