@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'd42e3be2-53c7-4e6d-9e96-765af73423b7'
-  PropagateID: 'd42e3be2-53c7-4e6d-9e96-765af73423b7'
-  ReservedCode1: 'e8c134f8-4d04-4af9-a370-8919601970a9'
-  ReservedCode2: 'e8c134f8-4d04-4af9-a370-8919601970a9'
+  ProduceID: '347c4949-5300-408a-aa99-032b8b4faeb6'
+  PropagateID: '347c4949-5300-408a-aa99-032b8b4faeb6'
+  ReservedCode1: '1b03f237-7f3c-4e61-9099-bf6976e5a11b'
+  ReservedCode2: '1b03f237-7f3c-4e61-9099-bf6976e5a11b'
 ---
 
 # 人情礼金记账系统 (Docker Compose 自动化部署版)
@@ -16,6 +16,7 @@ AIGC:
 [![Nginx](https://img.shields.io/badge/Nginx-SSL_Proxy-brightgreen.svg)](https://nginx.org/)
 
 > **最新更新说明**：
+> - 🔐 **V10.10.5 管理员重置密保双密保输入框修复（2026-09-21）**：修复管理员重置用户密保时模态框只显示单个密保问题输入框、无法查看和重置第 2 个密保问题的缺陷。重置密保模态框改为双组密保输入（问题 1/答案 1 + 问题 2/答案 2，问题 2 非必填）；管理员安全验证区从单原密保展示改为双原密保展示，新增 `old_security_answer_2` 验证输入框；重置密码模态框安全验证区同步修改。后端新增成对校验（问题 2 与答案 2 必须同时填或同时空）和重复问题校验（两个新问题不能相同），成功提示区分有无问题 2 的场景。两版同步修改，MD5 一致性校验通过，浏览器端到端验证通过。
 > - 🔧 **V10.10.4 f-string 兼容修复、Nginx 路径默认值调整与 run.sh POSIX 兼容化（2026-09-21）**：①修复 `routes_ext.py:4441` f-string 引号冲突导致 Docker 镜像（Python 3.11）`SyntaxError` 容器无法启动（外层单引号改双引号，3.12 兼容写法适配 3.11）；②`NGINX_CONF_DIR` 默认值从 `/etc/nginx/conf.d` 改为 `/opt/service/nginx/conf.d`，目录不存在时提示用户手动创建（不自动 mkdir/不跳过/不删除），可通过环境变量覆盖旧路径；③`run.sh` 全面 POSIX 兼容化——`#!/bin/bash`→`#!/bin/sh`，移除 bash 自愈逻辑，`${BASH_SOURCE}`→`$0`，`echo -e`→新增 `echo_e()` 函数（`printf '%b\n'`），`read -r -p`→`printf+read`，`((wait_time++))`→`$((wait_time+1))`，`source`→`.`。`sh run.sh status` 不再报 `Bad substitution`/`() unexpected` 等。两版同步，`bash -n`+`dash -n` 双校验通过。
 > - 🔐 **V10.10.3 run.sh 证书与 Nginx 配置覆盖保护（2026-09-20）**：修复每次 `start`/`restart` 无条件重新生成自签证书、覆盖渲染 Nginx 配置，导致用户自行替换的正式证书或手工定制内容被静默覆盖丢失的问题。现在证书/配置**文件不存在时直接创建**（不询问）；**已存在时先弹 `y/n` 询问**（默认 `n` 保留，回车即安全）；非交互环境（cron/CI/管道）自动保留旧文件不卡死。新增环境变量 `SSL_FORCE_UPDATE=1` / `NGINX_CONF_FORCE_UPDATE=1` 供自动化场景强制更新（设 `0` 强制保留）。两版 `should_overwrite` 函数逐字一致，功能测试全部通过（逻辑 6/6 + 端到端 14/14 + Docker 版 7/7）。
 > - 🔀 **V10.10 与原生部署版全量功能同步（2026-09-18）**：本 Docker 版已将原生版 V2 ~ V10.10 的全部功能演进同步完毕，两版功能完全一致、部署形态各自独立（原生版 venv 直跑，本版 Docker Compose 编排）。本次同步内容：

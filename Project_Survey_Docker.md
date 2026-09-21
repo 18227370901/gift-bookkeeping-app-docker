@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'd2cbdacf-8a4b-4cd8-ac9a-86f1f2072a6c'
-  PropagateID: 'd2cbdacf-8a4b-4cd8-ac9a-86f1f2072a6c'
-  ReservedCode1: '41dcd4f4-c9cc-437c-8a5b-6005e44f7c18'
-  ReservedCode2: '41dcd4f4-c9cc-437c-8a5b-6005e44f7c18'
+  ProduceID: 'd537aa1b-240c-41a2-a10d-8ba95f922148'
+  PropagateID: 'd537aa1b-240c-41a2-a10d-8ba95f922148'
+  ReservedCode1: '9d439895-3402-4256-b986-441679b9a45d'
+  ReservedCode2: '9d439895-3402-4256-b986-441679b9a45d'
 ---
 
 # 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
@@ -810,6 +810,48 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 - `routes_ext.py`（两版同步修改，第 4441 行逐字一致）
 - `run.sh`（两版同步修改，`echo_e` 函数两版逐字一致）
 - `README.md`（两版）：V10.10.4 更新条目
+- `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
+
+## 十七、V10.10.5 管理员重置密保双密保输入框修复复盘 (2026年9月21日更新)
+
+### 1. 问题背景与根因
+- **现象**：管理员在用户管理页面点击「重置密保」时，模态框只提供单个密保问题输入框，无法看到和重置第 2 个密保问题。管理员安全验证区也只展示原密保问题 1，管理员不知道问题 2 内容无法用问题 2 验证。
+- **根因**：
+  - **前端模态框只有单密保输入框（主因）**：`admin_users.html` 的「重置密保 Modal」只提供 `security_question`（单数）和 `security_answer`（单数）两个输入框，没有第 2 个密保的输入框。
+  - **后端已支持双密保但前端未配合**：`app.py` 的 `admin_reset_user_security` 路由已尝试获取 `security_question_2`/`security_answer_2`，但模板从未提交这两个字段，导致 `q2`/`a2` 永远为空，`security_question_2` 原值不会被更新。
+  - **管理员安全验证只展示问题 1**：安全验证区只显示 `security_question_1`，看不到问题 2，管理员无法用问题 2 的答案验证。
+  - **默认值回填方向错误**：新密保问题 1 的 `value` 属性用旧单密保兼容字段 `u.security_question`，而非 `u.security_question_1`。
+- **本版差异说明**：Docker 版与传统版共享 `admin_users.html` 和 `app.py`，本次修改两版逐字一致，无 Docker 版特有差异。
+
+### 2. 修复方案
+- **前端 `admin_users.html`（两版同步修改）**：
+  - 管理员安全验证区：原密保问题展示从单条改为双条（问题 1 + 问题 2），新增 `old_security_answer_2` 输入框；问题 2 仅在 `security_question_2` 存在时展示（`{% if u.security_question_2 %}`）
+  - 新密保输入区：从单组改为双组（`security_question_1`/`security_answer_1` + `security_question_2`/`security_answer_2`），问题 2 非必填
+  - 默认值回填修正：问题 1 使用 `u.security_question_1 or u.security_question`（兼容旧字段），问题 2 使用 `u.security_question_2 or ''`
+  - 重置密码模态框的安全验证区也同步修改：展示双原密保问题 + `old_security_answer_1` 和 `old_security_answer_2` 两个验证输入框
+- **后端 `app.py`（两版同步修改）**：
+  - 新增校验：密保问题 2 与答案 2 必须成对出现（两个都填或两个都空），不成对时 flash 警告并拦截
+  - 新增校验：两个新密保问题不能相同，相同时 flash 警告并拦截
+  - 成功提示优化：flash 消息显示新问题 1 文本，有问题 2 时一并显示新问题 2 文本，无问题 2 时提示「密保 2 保留原设置」
+  - 管理员验证逻辑：`check_any_security_answer(old_ans1) or check_security_answers(old_ans1, old_ans2)` —— 答对任一密保即可通过验证
+
+### 3. 验证结论
+- Python AST 编译通过（两版 app.py）
+- 两版文件 MD5 一致性校验通过（`admin_users.html` YES，`app.py` YES）
+- 传统版 Flask 服务重启成功（PID 39836，端口 11443 监听正常）
+- 浏览器端到端验证（传统版）：
+  - 普通用户（jack）重置密保模态框：正确显示双密保输入框，问题 1 回填"您母亲的姓名是？"，问题 2 回填"您父亲的姓名是？"
+  - 测试场景 1（只填密保 1、密保 2 留空）：flash 显示"密保 2 保留原设置"，数据库验证 Q2 未变更
+  - 测试场景 2（同时填两组新密保）：flash 显示两个新问题文本，数据库验证 Q1 和 Q2 均已更新
+  - 管理员（admin）重置密保模态框：安全验证区正确显示双原密保问题（问题 1：你的出生地是哪里？、问题 2：你的初中学校是？），双验证输入框（`old_security_answer_1`、`old_security_answer_2`）
+  - 管理员重置密码模态框：安全验证区同样正确显示双原密保问题和双验证输入框
+  - 测试数据已恢复到测试前状态
+- Docker 版容器启动测试需用户后续在服务器执行 `sh run.sh start` 验证（本机无 Docker 环境）
+
+### 4. 涉及文件
+- `templates/admin_users.html`（两版同步修改，重置密保模态框 + 重置密码模态框的安全验证区双密保展示）
+- `app.py`（两版同步修改，`admin_reset_user_security` 路由成对校验 + 重复问题校验 + 成功提示优化）
+- `README.md`（两版）：V10.10.5 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
 
 ## 十五、V10.10.3 run.sh 证书与 Nginx 配置覆盖保护复盘 (2026年9月20日更新)
