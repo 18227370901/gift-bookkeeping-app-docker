@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '8baf9be3-e00b-44e7-b2e5-96890a183501'
-  PropagateID: '8baf9be3-e00b-44e7-b2e5-96890a183501'
-  ReservedCode1: 'bc1d7d58-d953-47c9-9449-1c4a9e4baaf5'
-  ReservedCode2: 'bc1d7d58-d953-47c9-9449-1c4a9e4baaf5'
+  ProduceID: '85b5494b-b86e-40b6-83ea-46fbc89d4989'
+  PropagateID: '85b5494b-b86e-40b6-83ea-46fbc89d4989'
+  ReservedCode1: 'c865169b-458e-42ff-8fda-c9f57ed365d8'
+  ReservedCode2: 'c865169b-458e-42ff-8fda-c9f57ed365d8'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -711,6 +711,42 @@ PROJECT_NAME=mengyao SNI_DOMAIN=mengyao.example.com SNI_DEFAULT_SERVER=0 ./run.s
 - `templates/base.html`（两版同步修改）
 - `templates/register.html`（两版同步修改）
 - `app.py`（两版同步修改）
+
+### V10.10.7 下拉菜单切换修复、修改密码强制注销与页面排版优化（2026-09-21）
+
+#### 问题背景
+1. 重置密保时，密保问题下拉菜单从自定义切换为内置问题后，再切回自定义，自定义输入框消失不见。且选择自定义问题时只有问题输入框没有答案输入框——此问题在管理员重置密保和普通用户修改密保两处均存在。
+2. 普通用户在个人安全设置页面修改密码成功后，页面提示重新登录，但没有实际强制注销用户当前会话，用户仍处于登录状态。
+3. 普通用户个人安全设置页面两个卡片同时展开，信息量大、页面冗长，需要重新排版美化。
+
+#### 变更内容
+- **修复 1&4：下拉菜单切换 Bug（`profile_security.html` + `admin_users.html`，两版同步修改）**
+  - 根因：JS 函数 `onSecurityQuestionSelectChange` 通过 `selectEl.parentElement.querySelector(...)` 查找隐藏 input，依赖精确的 DOM 父子层级关系，且 `hiddenInput.focus()` 在移动端可能引起布局跳变
+  - 修复：给每个密保问题组容器添加 `data-sq-group` 属性，自定义输入框外加 `sq-custom-wrapper` 容器，通过 `closest('[data-sq-group]')` 查找容器再按 name 精确查找元素，移除 `focus()` 调用
+  - DOMContentLoaded 初始化同步改用 `closest('[data-sq-group]')` 查找
+- **修复 2：修改密码未强制注销（`app.py`，两版同步修改）**
+  - 根因：`change_password` 路由在密码修改成功后只 `redirect(url_for('login'))`，未调用 `logout_user()`，用户 session 仍然有效
+  - 修复：在 `db.session.commit()` 之后、`log_action` 之前添加 `logout_user()` 调用
+- **优化 3：个人安全设置页面排版重构（`profile_security.html`，两版同步修改）**
+  - 使用 Bootstrap accordion 折叠面板替代两个同时展开的卡片
+  - "修改登录密码"和"修改密保问题"分为两个可折叠面板，互斥展开（同一时间只展开一个）
+  - 面板标题旁显示当前密保问题1摘要信息，收起时也能看到概况
+
+#### 验证结论
+- Python AST 编译通过（两版 app.py）
+- 两版 3 个文件 MD5 一致性校验全部通过（app.py、admin_users.html、profile_security.html）
+- Flask 服务重启成功（PID 33716，端口 11443）
+- 浏览器端到端验证：
+  - 个人安全设置页面折叠面板正常工作，两个面板默认收起，点击展开后互斥收起另一个
+  - 下拉菜单切换：自定义→预置→自定义，自定义输入框和答案输入框始终正确显示/隐藏
+  - 管理员重置密保模态框下拉菜单切换同样正常
+  - 修改密码后成功跳转到登录页并显示提示，用户被强制注销，需用新密码重新登录
+  - 测试数据已恢复到测试前状态
+
+#### 涉及文件
+- `templates/profile_security.html`（两版同步修改：折叠面板 + 下拉 Bug 修复）
+- `templates/admin_users.html`（两版同步修改：下拉 Bug 修复）
+- `app.py`（两版同步修改：`change_password` 路由增加 `logout_user()`）
 
 ## 📂 项目文件结构
 
