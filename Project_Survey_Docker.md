@@ -1,593 +1,562 @@
-﻿---
+---
 AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'd537aa1b-240c-41a2-a10d-8ba95f922148'
-  PropagateID: 'd537aa1b-240c-41a2-a10d-8ba95f922148'
-  ReservedCode1: '9d439895-3402-4256-b986-441679b9a45d'
-  ReservedCode2: '9d439895-3402-4256-b986-441679b9a45d'
+  ProduceID: '21413a3a-91d0-42bd-a541-35aef936bca0'
+  PropagateID: '21413a3a-91d0-42bd-a541-35aef936bca0'
+  ReservedCode1: '0187d925-18fa-4b79-b76b-7c51485ccd5e'
+  ReservedCode2: '0187d925-18fa-4b79-b76b-7c51485ccd5e'
 ---
 
-# 人情礼金记账系统 (Docker版) 深度架构与安全调研报告
-
-**文档名称**：Project_Survey_Docker.md  
-**调研目标**：`C:\Users\cheng\Documents\akshare-test\gift_bookkeeping_app-docker`  
-**基准对比项目**：`C:\Users\cheng\Documents\akshare-test\gift_bookkeeping_app` (原生部署版)  
-**调研维度**：业务定位、容器编排、信息安全、业务适配、可移植性、CI/CD、可观测性、风险矩阵与架构决策  
-**报告日期**：2026年9月  
+# 礼金记账与金融数据集成系统技术调研与架构决策报告 (Project Survey)
 
 ---
 
-## 一、项目概览与定位
+## 1. 调研背景与系统概述
 
-### 1. 基于代码反推该项目的业务目标
-通过对项目模型层（`models.py`）、路由扩展层（`routes_ext.py`）、核心主应用（`app.py`）及配套工具模块的深度逆向工程分析，该项目的核心业务目标是构建一套**面向中国传统人情往来社会场景、支持全生命周期协同管理与对账核算的人情礼金数字化记账平台（Gift Bookkeeping System）**。
+### 1.1 项目定位
+本项目致力于构建一套安全、可靠、高可用的人情往来与礼金资产记账系统，并具备金融量化/市场数据中台能力（集成第三方金融数据开源库 `akshare`）。系统面向多租户/多用户提供礼金记账、收支统计、亲友往来账本核对、自动化 WebDAV 云备份、多渠道 Webhook 消息推送以及基于金融资产视角的统计分析。
 
-从业务领域驱动设计（DDD）的视角，系统划分为以下核心子域：
-- **核心域：礼金收支与人情对账（Gift Ledger & Reconciliation）**
-  - **人情收支明细记录（`GiftRecord`）**：支持记录随礼（支出，`give`）与收礼（收入，`receive`），关联往来人员姓名、亲疏关系、归属分类、办事缘由、备注、收录时间等。具备假删除（软删除至回收站 `recycle_bin`）及单据撤回能力。
-  - **双向人情往来智能对账（`Reconciliation`）**：实现收礼与送礼之间的双向关联合并，计算两人之间的人情往来顺差/逆差，精准解决中国人情往来中的“还礼核算”难题。
-  - **多维度模糊搜索与中文数字金额智能转换**：内置 `cn2num` 算法，支持用户通过搜索“贰佰”或“200”精准定位礼金记录，并支持姓名、电话、办事缘由多字段组合检索。
-- **子域：专属宴席与活动大账本（Banquet Management）**
-  - **集中办事大账本（`Banquet`）**：针对婚礼、百日宴、乔迁宴、寿宴等大型场景提供活动专用账本，支持现场批量记账、多维度分类统计（总礼金、出席人数、平均礼金等）。
-  - **免登录协同共享（`SharedLedgerLink`）**：生成针对特定宴席的免登录只读外链，支持口令保护、有效期控制以及敏感金额/备注字段的动态脱敏隐藏，满足亲属/工作人员协作查账需求。
-- **支撑域：智能提醒与多渠道触达（Reminders & Webhooks）**
-  - **亲友重要纪念日（`AnniversaryReminder`）**：登记生日、结婚纪念日、重大节日，支持提前天数计算与提醒。
-  - **系统级广播通知（`Broadcast` / `BroadcastRead`）**：支持全员或定向通知发布与已读回执状态追踪。
-  - **全渠道消息推送（`WebhookConfig` / `WebhookLog`）**：内置钉钉群机器人、企业微信机器人、飞书自定义机器人、Server酱以及通用自定义 Webhook，支持在添加记录、纪念日提醒、系统广播时自动触发异步通知。
-- **通用域：数据连续性保障与企业级安全风控（Security & Continuity）**
-  - **云端与异地备份（`BackupConfig` / `webdav_utils.py`）**：集成 WebDAV 客户端协议，支持自动/手动将 SQLite 数据库打包备份至坚果云、群晖 NAS、Nextcloud 等外部存储，并提供一键还原能力。
-  - **数据交换与审计（`OperationLog`）**：支持 CSV/Excel 批量导入导出；提供全站操作日志记录（带 90 天自动过期淘汰机制）。
-  - **多层级身份安全防护**：包含 RBAC 权限体系（普通用户、跨人员操作权限、系统管理员）、登录防暴力破解锁定机制、密码复杂度校验、密保问题找回密码算术验证码、注册邀请码使用次数限制以及 PWA 离线支持。
-
-### 2. 判断当前所处阶段（原型/MVP/生产）
-综合业务功能丰富度与底层基础设施工程化成熟度，结论如下：
-- **业务功能层：成熟 MVP 至早期生产阶段（Early Production）**
-  业务功能闭环非常完整，界面交互（Bootstrap 5 + Chart.js + PWA）精致，核心业务逻辑经过多次迭代（支持 SQLite 字段动态迁移、PRG 模式防表单重复提交、风控隔离），业务层面已具备交付终端用户日常使用的生产能力。
-- **容器化基础设施层：原型试验向准生产过渡阶段（Prototype / Pre-production）**
-  容器化架构存在较多原型期特征：
-  1. 采用“容器化 Web + 宿主机原生 Nginx”的半容器化混合部署架构；
-  2. 缺失 `.dockerignore`、容器以 Root 权限运行、资源限额（CPU/Memory）未配置；
-  3. 移除了非 Docker 版本中的 SQLite WAL 并发优化模式，在多进程 Gunicorn 下存在数据库锁死风险；
-  4. 编排文件中存在硬编码密钥与默认密码，且容器重启时会强行重置管理员已修改的密码；
-  5. 缺少 CI/CD 自动化构建与标准远程镜像仓库分发机制。
-
-### 3. 预估的用户规模与数据量级
-- **并发与用户规模**：
-  - **当前默认架构（SQLite + Gunicorn 4 Workers）**：适用于**单租户、家庭/家族、小型企事业单位或婚庆跟账团队**（Self-hosted 私有部署）。
-  - **并发承载能力**：支持 **5 - 20 活跃并发请求**。在无高频写入的场景下支持 50 - 500 名注册用户日常查账；但在集中办酒席、现场多终端同时录入礼金的高并发写入场景下，SQLite 的文件锁争用将成为明显瓶颈。
-  - **扩展潜力**：若切换至独立容器化 PostgreSQL/MySQL，该系统代码架构可支撑 **500 - 2,000 活跃用户，50 - 100 并发写入**。
-- **数据量级**：
-  - **核心礼金记录（`GiftRecord`）**：适宜承载 **10,000 - 100,000 条**数据。当前 SQLite 库文件体积约在 250KB - 50MB 之间。
-  - **审计与日志（`OperationLog`, `WebhookLog`）**：内置 90 天自动轮转淘汰机制，日志数据稳态维持在 10,000 - 50,000 条。
-  - **备份数据量**：每次全量 WebDAV 备份包大小约数十 KB 至几十 MB。
-
-### 4. 与 gift_bookkeeping_app（非Docker版）的关系定位
-- **定位**：**同源衍生版本、容器化迁移分支与配套部署工程（Containerized Deployment Variant）**。
-- **关系分析**：
-  1. **代码同源性**：两者的核心 Python 业务源码（`routes_ext.py`、`models.py`、`gift_utils.py`、`webdav_utils.py`、`webhook_utils.py`）及前端 HTML 模板高度一致，业务逻辑与数据模型完全同源。
-  2. **Git 仓库演进**：两者拥有独立的 GitHub 远程仓库（`gift-bookkeeping-app` 与 `gift-bookkeeping-app-docker`），但采用“代码手工同步/复制”而非 Git Submodule 或统一 Monorepo 管理。
-  3. **架构差异定位**：Docker 版旨在降低 Linux 服务器依赖安装复杂度，将 Python 运行时、系统库及 Gunicorn 封装在 Docker 容器内；然而，由于启动脚本 `run.sh` 依然深度联动宿主机的 Nginx 与 SSL 证书生成逻辑，当前 Docker 版实质上是一个**过渡形态的半容器化配套部署方案**。
+### 1.2 现有技术架构资产盘点
+经对当前代码资产与配置的深度审计，项目现有组件及技术架构如下：
+* **后端框架**：Python 3 + Flask 2.x + Flask-SQLAlchemy + Flask-Login + Flask-WTF (CSRF Protect)。
+* **数据持久化**：SQLite（默认嵌入式单文件模式），同时支持通过 `DATABASE_URL` 降级切换至 PostgreSQL 等关系型数据库。
+* **安全加密层**：
+  * 密码与密保摘要：Argon2 / Werkzeug generate_password_hash。
+  * 敏感凭证管理：AES-256-GCM 对称可逆加密，用于保存和解密用户临时凭证及 WebDAV 密码。
+  * 登录与密保风控：内存与数据库双重失败计数、超时阶梯式锁定、算术安全验证码机制。
+* **网络与接入层**：
+  * Nginx 反向代理配置（`nginx_ssl.conf`），启用 SSL/TLS 1.2/1.3、HTTP/2，监听自定义 HTTPS 15001 端口并转发至本地 11443 端口。
+  * `Werkzeug.middleware.proxy_fix.ProxyFix` 用于感知反向代理透传的 Proto / Host / Port。
+* **外部协同扩展**：
+  * **WebDAV 协议**：支持向坚果云、NAS 等外部 WebDAV 服务器自动同步数据库备份与恢复。
+  * **Webhook 机制**：支持企业微信、钉钉、飞书、PushPlus、Server酱、Bark 渠道事件通知。
+  * **第三方金融依赖（akshare）**：用于引入宏观经济、股市资产收益与人情往来资金流的量化对照与分析。
 
 ---
 
-## 二、Docker化架构现状分析
+## 2. 现状痛点与系统阻塞（请求卡死）根因审计
 
-### 1. 完整目录结构与各文件/文件夹职责说明
+在前期系统测试与实际运行中，多次出现**请求挂起、响应卡死（Pending / Timeout / 504 Gateway Time-out）**等严重故障。本调研对全链路进行了逐层排查，确立以下 6 大关键阻塞诱因：
 
-```text
-gift_bookkeeping_app-docker/
-├── .git/                           # Git 版本控制元数据目录
-├── .gitignore                      # Git 忽略文件清单
-├── Dockerfile                      # Docker 镜像构建描述文件（基于 python:3.11-slim）
-├── docker-compose.yml              # 容器编排文件（定义 Web 服务容器、网络及数据卷）
-├── nginx.conf                      # 预留用于容器化 Nginx 的反向代理配置文件（当前被注释备用）
-├── nginx_ssl.conf                  # 用于宿主机原生 Nginx 的动态 SSL 反代模板文件
-├── run.sh                          # 宿主机端一键部署、环境初始化、Nginx 联动及容器启停脚本
-├── generate_ssl_certs.py           # 自动化生成自签名 SSL 证书脚本（支持 OpenSSL 与 cryptography 库）
-├── requirements.txt                # Python 项目依赖清单（Flask, SQLAlchemy, Gunicorn 等）
-├── app.py                          # Flask 主应用入口：应用初始化、中间件、安全风控、核心路由
-├── models.py                       # 数据库 ORM 模型定义（涵盖 User, GiftRecord, Banquet 等 15 个模型）
-├── routes_ext.py                   # 扩展业务路由：宴席管理、纪念日、对账、WebDAV备份、Webhook、回收站
-├── gift_utils.py                   # 业务辅助函数：中文数字互转（cn2num/num2cn）、CSV导入导出校验
-├── webdav_utils.py                 # WebDAV 远程客户端实现：实现云端备份上传、列表拉取、恢复下载
-├── webhook_utils.py                # 异步 Webhook 调度器：企业微信/钉钉/飞书/Server酱消息封装与多线程推送
-├── gift_bookkeeping.db             # 本地开发/测试时留存的 SQLite 数据库文件（包含示例数据）
-├── static/                         # 静态资源与 PWA 支持
-│   ├── manifest.json               # PWA 应用配置清单（名称、启动路径、主题色、图标）
-│   └── sw.js                       # PWA Service Worker 脚本（提供静态资源缓存与离线能力）
-└── templates/                      # Jinja2 模板目录（全站前端 UI 界面）
-    ├── base.html                   # 全局基础母版（导航栏、页脚、全局依赖与 CSRF 注入）
-    ├── index.html                  # 首页：核心礼金收支明细列表、模糊搜索、统计图表
-    ├── login.html                  # 用户登录界面（集成登录风控锁定与算术验证码）
-    ├── register.html               # 用户注册界面（支持邀请码配额校验）
-    ├── forgot_password.html        # 找回密码界面（安全问题校验与防刷算术验证码）
-    ├── change_password.html        # 用户修改密码界面
-    ├── admin_users.html            # 管理员用户管理中心（用户启用/禁用、权限分配、密保重置）
-    ├── admin_logs.html             # 全站审计操作日志界面（多维检索、批量清理）
-    ├── admin_backups.html          # WebDAV 云端备份与一键恢复管理界面
-    ├── admin_webhooks.html         # Webhook 推送渠道配置与发送测试界面
-    ├── admin_broadcasts.html       # 系统广播发布与管理中心
-    ├── banquets.html               # 专属宴席列表与新增管理界面
-    ├── banquet_detail.html         # 宴席内部大账本详情、现场快速登记与统计分析
-    ├── reconciliation.html         # 双向人情往来智能对账分析看板
-    ├── reminders.html              # 亲友重要纪念日提醒列表与管理
-    ├── recycle_bin.html            # 礼金记录回收站（假删除恢复与物理彻底删除）
-    └── shared_ledger.html          # 免登录只读外链公开分享查看界面
-```
-
-### 2. 识别Docker相关文件清单
-| 关键文件 | 状态 | 职责与定位 | 存在问题 |
-| :--- | :--- | :--- | :--- |
-| `Dockerfile` | 存在 | 基于 `python:3.11-slim` 构建 Flask+Gunicorn 应用镜像 | 缺失非 root 用户；缺失 HEALTHCHECK；无 `.dockerignore` 过滤 |
-| `docker-compose.yml` | 存在 | 定义 `web` 服务、`gift_data` 持久卷及 `gift_network` 桥接网络 | `nginx` 容器被注释；硬编码敏感密钥与默认密码；端口映射暴露在 0.0.0.0 |
-| `.dockerignore` | **缺失** | 过滤无需打入镜像的文件（如 `.git`、`.db`、`.pyc` 等） | **高危风险**：本地数据库与历史 Git 提交记录全部被打入镜像 |
-| Entrypoint 脚本 | **缺失** | 容器内进程编排与启动预处理脚本 | 容器直接运行 Gunicorn，缺乏容器内优雅的配置前置检查与等待机制 |
-| `run.sh` | 存在 | 宿主机侧生命周期管理脚本（启动、停止、重载、证书刷新） | 深度绑定宿主机 Linux 环境与原生 Nginx，缺乏容器内自治能力 |
-| `nginx.conf` | 存在 | 预备给 Docker 内 Nginx 容器使用的反向代理配置文件 | 内部证书路径硬编码与 Compose 挂载路径冲突；当前闲置未启用 |
-| `nginx_ssl.conf` | 存在 | 宿主机 Nginx 使用的 SSL 反向代理模板 | 由 `run.sh` 通过 sed 动态替换端口并写入宿主机 `/etc/nginx/conf.d` |
-
-### 3. 分析多容器编排架构
-- **涉及的服务容器**：
-  - **`web`（当前唯一激活服务）**：运行 Python 3.11 镜像，暴露内部 11443 端口，通过 Gunicorn 启动 4 个 Worker。
-  - **`nginx`（被完全注释掉）**：基于 `nginx:alpine`，原设计监听宿主机 15001 端口并反向代理给 `web:11443`。
-  - **数据库容器**：无独立数据库容器。虽然 `requirements.txt` 中引入了 `psycopg2-binary==2.9.9`，且 `docker-compose.yml` 预留了 `DATABASE_URL` 样例，但默认采用单文件 SQLite 运行在 `web` 容器中。
-  - **缓存/消息队列容器**：无 Redis / RabbitMQ 服务。
-- **各容器间网络拓扑与依赖关系**：
-  - **当前实际网络拓扑**：
-    `客户端 -> 宿主机外部网络:15001 -> 宿主机原生 Nginx (SSL 终止) -> 宿主机本地环回 127.0.0.1:15000 -> Docker 端口映射 (0.0.0.0:15000:11443) -> gift_network 桥接网卡 -> 容器 gift_bookkeeping_web:11443`。
-  - 依赖关系：由于仅单容器运行，不存在跨容器依赖调度（如 `depends_on` 暂未生效）。
-- **容器间通信方式**：
-  - **环境变量注入**：Compose 将 `SECRET_KEY`、`ADMIN_USER`、`ADMIN_PASS` 等注入 `web` 容器。
-  - **Volume 挂载**：命名卷 `gift_data` 挂载到容器内部 `/app/data` 目录，供 SQLite 数据库持久化。
-  - **预留网络通信**：自定义 bridge 网络 `gift_network`，预留了以 `web:11443` 域名进行容器内反代的能力。
-
-### 4. 镜像分层分析
-- **基础镜像选择**：
-  采用官方 `python:3.11-slim`。该镜像体积适中（约 130MB），相比 Alpine 避免了 musl libc 在编译 C 扩展依赖（如 `cryptography`、`psycopg2`）时的兼容性与编译耗时问题。
-- **构建层缓存策略分析**：
-  - **优点**：将 `requirements.txt` 独立复制并先执行 `pip install`，使第三方库能够充分命中 Docker 构建缓存层。
-  - **严重缺陷**：由于缺少 `.dockerignore`，执行 `COPY . /app/` 会把本地开发测试产生的 `gift_bookkeeping.db`、`.git`、`__pycache__` 等文件全部压入镜像层。一旦本地有任何数据库写入或 git commit，代码层缓存立即失效，且导致构建产物膨胀并泄漏敏感信息。
-- **镜像体积评估**：
-  - Debian Slim 基础层：~135MB
-  - 系统依赖与 pip 预编译库（cryptography, psycopg2-binary, gunicorn, flask 等）：~115MB
-  - 源码与静态模板：~2MB
-  - 被意外打包的 `.git` 仓库历史与 `.db` 数据库：~50MB - 100MB
-  - **最终构建镜像体积**：约 **300MB - 360MB**（若添加 `.dockerignore` 排除无关文件，可精简至约 **250MB**）。
-
-### 5. 与原始非Docker项目的差异对比
-| 对比维度 | gift_bookkeeping_app (原生版) | gift_bookkeeping_app-docker (Docker版) | 架构影响与风险评估 |
-| :--- | :--- | :--- | :--- |
-| **新增文件** | 无 | `Dockerfile`, `docker-compose.yml`, `nginx.conf` | 引入容器化构建与编排能力 |
-| **数据库并发模式 (`app.py`)** | 开启 WAL 模式 (`PRAGMA journal_mode=WAL;`)，设置超时 30s (`PRAGMA busy_timeout=30000;`) | **移除了 WAL 模式与超时设置** | **重大退化**：Gunicorn 启动 4 个 Worker 进程，在默认 DELETE 日志模式下并发写入极易出现 `database is locked` 异常 |
-| **数据路径嗅探 (`app.py`)** | 优先读取根目录 `gift_bookkeeping.db` | 嗅探是否存在 `data/` 目录，若存在则使用 `data/gift_bookkeeping.db` | 适配 Docker 数据卷挂载目录 `/app/data` |
-| **反代配置 (`nginx_ssl.conf`)** | upstream 指向原生本机 `127.0.0.1:11443` | upstream 指向宿主机映射端口 `127.0.0.1:15000` | 增加了从宿主机端口到容器内部端口的二次转发链路 |
-| **启动脚本 (`run.sh`)** | 创建 Python `venv` 虚拟环境，直接在宿主机后台守护 Gunicorn 进程 | 调用 `docker compose up -d --build` 管理容器，同时在宿主机执行 Nginx 重载 | 部署逻辑转移至容器，但运维管控仍紧密耦合宿主机环境 |
-| **Nginx 部署架构** | 完全依赖宿主机原生安装的 Nginx | 既在 Compose 中准备了 Nginx 容器（注释中），又在 `run.sh` 中强依赖宿主机 Nginx | 架构设计出现分裂，增加了维护认知负担 |
+| 故障编号 | 故障点分类 | 根因机理描述 | 严重级别 | 解决方案 |
+|:---|:---|:---|:---:|:---|
+| **BUG-01** | Nginx 反向代理协议配置 | `nginx_ssl.conf` 中无条件写死 `proxy_set_header Connection "upgrade"`，导致普通 HTTP 请求被错误强加升级握手标记，后端挂起等待协议升级导致 504 超时 | **P0 (阻断级)** | 已修复为透传 `$http_connection`，对普通 HTTP 清除 upgrade |
+| **BUG-02** | 运行容器与线程模型 | 生产启动脚本 `run.sh` 使用 `python3 app.py`（Werkzeug 单进程开发服务器）。多 Tab 请求、静态资源加载及 API 防抖查询瞬间耗尽线程池，导致后续请求排队阻塞 | **P0 (阻断级)** | 切换为生产级多 Worker/多线程 WSGI 容器（Gunicorn / Uvicorn） |
+| **BUG-03** | 数据库并发模式与锁等待 | SQLite 默认采用 DELETE 回滚日志模式，写操作持有全局排他锁，读写互斥；且未设置 busy timeout，并发读写立即抛出 `database is locked` 或卡死 | **P1 (严重级)** | 已开启 WAL 模式（`PRAGMA journal_mode=WAL;`）并设置 30s 繁忙等待超时 |
+| **BUG-04** | 外部静态 CDN 网络阻断 | 前端在 `<head>` 同步加载 `cdn.jsdelivr.net` 与 `cdnjs.cloudflare.com`，在受限或内网环境下连接丢包，导致浏览器 Render-Blocking 假死白屏 | **P1 (严重级)** | 静态资源完全本地化，置于 `static/` 目录 |
+| **BUG-05** | WebDAV 同步网络阻塞 | `/admin/backups` 页面在 HTTP 请求主线程中同步调用 `urllib.request` 访问远端 WebDAV，网络不稳定时单次阻塞 15~60 秒，独占 Python 工作线程 | **P1 (严重级)** | 备份列表改为前端进入页面后通过 AJAX 异步拉取，增加 5 秒超时保护 |
+| **BUG-06** | Service Worker 拦截异常 | `static/sw.js` 无差别拦截所有 GET 请求，且内部 `fetch` 缺乏 AbortController 超时熔断，导致慢请求级联挂死整个 Tab 标签页 | **P2 (较严重)** | 为 Service Worker fetch 增加超时限制与离线降级分支 |
 
 ---
 
-## 三、安全边界与风险现状评估
+## 3. 第三方依赖（akshare）集成可行性与风控调研
 
-### 1. 镜像安全
-- **基础镜像可信度**：`python:3.11-slim` 属于 Docker 官方认证可信镜像（Official Image），来源纯净，维护活跃。
-- **CVE 漏洞风险**：`Dockerfile` 未锁定 Patch 版本号（如 `python:3.11.9-slim`）或镜像 Digest SHA256 哈希值，构建时拉取的是最新的 `3.11-slim` 标签，底层 Debian 基础库的不确定性可能引入未知回归问题或上游漏洞。
-- **镜像内敏感信息泄漏（重大风险）**：
-  1. 根目录**未配置 `.dockerignore` 文件**。构建上下文在打包时执行 `COPY . /app/`，直接将包含管理员账号、散列密码、安全问题答案、真实测试礼金记录的 `gift_bookkeeping.db` 以及包含提交记录与分支变更的 `.git` 目录原封不动打包进镜像层。任何能读取该镜像的人员（包括镜像仓库拉取者、容器导出操作者）均可解压导出完整数据与历史版本库！
-  2. `docker-compose.yml` 中直接以明文硬编码了 `SECRET_KEY=gift-bookkeeping-docker-prod-secret-key`。
+### 3.1 集成诉求
+将 `akshare` 金融/宏观数据接口作为数据支撑源，为记账系统提供通胀对照、投资理财基准比对及人情往来财务健康度分析。
 
-### 2. 运行时安全
-- **Root 运行特权（高危）**：`Dockerfile` 未创建专有运行用户，未声明 `USER` 指令。容器内部的 Gunicorn 和 Flask 应用完全以 `root (uid=0)` 身份运行。若系统存在代码执行漏洞、第三方库反序列化漏洞或模板注入攻击，攻击者可在容器内直接获得 root 权限。
-- **资源限制缺失（DoS 风险）**：`docker-compose.yml` 中**未配置任何 CPU、内存（Memory Limit）及 Swap 限制**。若遭受恶意大文件导入（CSV/Excel）或突发高并发攻击，单容器可耗尽宿主机所有可用物理内存，触发 Linux 系统的 OOM Killer 杀害宿主机核心进程（包括 SSHD 或原生 Nginx）。
-- **网络隔离风险**：配置了单一桥接网络 `gift_network`，但因未限定监听地址，端口映射配置为 `"${HOST_PORT:-15000}:${PORT:-11443}"`，导致 Docker 在 iptables 中将 15000 端口绑定到了宿主机的 `0.0.0.0:15000` 上！公网用户可以直接通过 `http://<服务器IP>:15000` 绕过 Nginx 的 SSL 加密与安全头控制，直接访问后端的 Gunicorn 纯 HTTP 服务。
+### 3.2 潜在风险点
+1. **网络与接口波动**：`akshare` 底层抓取各大财经门户与交易所公开接口，容易受到反爬虫、网络丢包、数据源结构变动的影响。
+2. **GIL 与同步阻塞**：直接在 Flask 请求线程内调用 `akshare` 抓取数据耗时可达数秒甚至数十秒，将严重拖垮 Web 主业务。
+3. **数据一致性与可用性**：不能因为外部金融数据源宕机导致系统核心记账与登录功能瘫痪。
 
-### 3. 数据安全
-- **环境变量明文传递**：`SECRET_KEY`、`ADMIN_PASS=admin123` 均在 Compose 文件中以明文字符串展示。在宿主机上通过 `docker inspect`、`docker compose config` 或在容器内查看 `/proc/1/environ` 均可完整窃取。
-- **数据卷加密状态**：`gift_data` Volume 挂载至宿主机的 `/var/lib/docker/volumes/gift_data/_data` 目录。宿主机物理磁盘上的 SQLite 数据库文件属于未经加密的明文存储，若宿主机磁盘失窃或备份被盗，数据面临全量泄漏风险。
-- **日志敏感信息泄漏**：应用在启动加载时，会将管理员用户名等信息直接打印至标准输出（如 `[Init] 已创建初始管理员账号: admin`），增加日志审计层面的信息泄露面。
-
-### 4. 安全配置
-- **Docker Socket 挂载**：未将宿主机 `/var/run/docker.sock` 挂载入容器内，避免了容器逃逸直接接管宿主机 Docker 守护进程的风险，符合安全基线。
-- **Seccomp / AppArmor**：未显式配置自定义安全配置（Security Options），仅依赖 Docker 默认的安全配置模板。
-- **容器健康检查（HEALTHCHECK）缺失**：`Dockerfile` 与 `docker-compose.yml` 均未定义 `HEALTHCHECK`。如果 Gunicorn Worker 发生死锁、无响应或 SQLite 数据库锁死抛出 500，Docker 守护进程依然判定容器处于 `healthy/running` 状态，无法触发自动重启与告警。
-
-### 5. 端口暴露与旁路访问
-- **暴露清单**：
-  - 宿主机 Nginx 监听：`15001` (HTTPS)
-  - 宿主机 Docker 映射监听：`0.0.0.0:15000` -> 容器 `11443` (HTTP)
-- **安全隐患**：由于 15000 端口未做本地回环限制（`127.0.0.1`），公网攻击者可直接向 `15000` 发起非加密明文攻击，彻底破坏了 `nginx_ssl.conf` 中精心配置的 HSTS、X-Frame-Options、X-XSS-Protection 等安全防御头，存在严重的**旁路绕过安全防护**隐患。
+### 3.3 防护与容错规范
+* **必须物理隔离执行**：所有 `akshare` 调用均必须脱离 Web 请求主线程，放入独立的后台 Worker（如 Celery / 隔离线程池）中运行。
+* **熔断与降级保护**：当连续调用失败达到阈值（如连续 5 次）时，启动断路器，直接返回最近一次成功落库的历史缓存数据（Stale-While-Revalidate）。
+* **超时守卫**：底层网络请求设定严格的 Socket 超时限制（不超过 8 秒）。
 
 ---
 
-## 四、业务逻辑与容器化适配
+## 4. 架构决策点清单 (Architecture Decision Records)
 
-### 1. 与原始项目相比的业务逻辑变更
-- **核心逻辑保持一致**：礼金记账、对账核算、宴席管理、纪念日、导出导入等核心业务流程未发生语义级变化。
-- **存储路径适配**：`app.py` 内部引入了对容器卷挂载目录的兼容逻辑：
-  ```python
-  data_dir = os.path.join(BUNDLE_DIR, 'data')
-  if os.path.isdir(data_dir):
-      db_path = os.path.join(data_dir, 'gift_bookkeeping.db')
-  else:
-      db_path = os.path.join(BUNDLE_DIR, 'gift_bookkeeping.db')
-  ```
-  该设计确保了在没有 Volume 挂载的本地开发环境下依然能向后兼容读取根目录数据库，而在挂载 `/app/data` 卷的 Docker 环境下自动切换至持久化卷中。
-- **并发锁机制降级**：Docker 版代码意外删除了对 SQLite 的 WAL 模式开启逻辑，导致业务在高并发记账时从非阻塞的单写多读模式退化为全库排他锁模式。
+在架构重构与方案选型阶段，CTO 团队确立了以下明确的技术决策：
 
-### 2. 容器启动时的初始化流程
-应用在 `app.py` 模块加载阶段直接调用 `init_database()` 函数：
-1. **表结构初始化**：调用 SQLAlchemy `db.create_all()`。
-2. **轻量增量迁移（Migration）**：采用手写 28 条原生 SQL 的 `ALTER TABLE users ADD COLUMN ...` 进行缺省字段补全，并使用 `try...except` 吞掉已存在字段的报错。
-3. **风控锁定清空**：清除内存中的 `LOGIN_FAIL_COUNTS` 与 `FORGOT_SECURITY_FAIL_COUNTS` 字典。
-4. **管理员账户同步覆盖（设计陷阱）**：
-   从环境变量 `ADMIN_USER`（默认 `admin`）和 `ADMIN_PASS`（默认 `admin123`）获取初始账密。若数据库中存在管理员，**代码每次重启都会强制执行**：
-   ```python
-   admin.username = initial_user
-   admin.set_password(initial_pass)
-   admin.is_admin = True
-   admin.is_active = True
-   db.session.commit()
-   ```
-   **影响**：管理员通过 Web 界面安全中心修改了高强度密码后，只要运维重启一次 Docker 容器，管理员密码就会被强制覆盖回环境变量中的 `admin123`，造成极其严重的运维预期不一致。
-5. **多进程并发初始化隐患**：在 Gunicorn 启动 4 个 Worker 场景下，由于 `init_database()` 位于全局执行作用域，4 个子进程在启动阶段可能并发执行数据库 DDL 与管理员更新逻辑，极易造成启动瞬间的 SQLite 锁竞争甚至进程异常崩溃。
+### ADR-01: 应用并发模型与进程管理
+* **决策结论**：废弃 Werkzeug 开发服务器，全面采用 **Gunicorn (WSGI) + 多 Worker/多线程模型**（`gunicorn -w 4 -k gthread --threads 4 -b 127.0.0.1:11443 app:app --timeout 60`）。
+* **决策理由**：多 Worker 具备进程级故障隔离与高并发能力，进程崩溃后主进程自动拉起，彻底杜绝单点阻塞。
 
-### 3. 定时任务/后台任务在容器中的运行方式
-- **Webhook 消息推送**：采用轻量级进程内多线程（`threading.Thread(target=_worker, daemon=True)`）。
-  - **局限性**：非持久化队列。若触发高频推送时容器发生重启，内存线程中的未发送消息将直接丢弃；且若外部 Webhook 端点超时，可能堆积容器内线程资源。
-- **定时备份与纪念日自动扫描（功能落空）**：
-  - 数据模型中定义了 `BackupConfig.auto_backup_daily`（每日自动备份）及 `AnniversaryReminder`，但经全工程扫描，**代码中既未集成 APScheduler、Celery，也未在容器内配置 Linux crontab 或后台定时检查守护进程**。
-  - 目前日常自动备份仅停留在数据库字段保存阶段，若无外部定时 HTTP 调用或手工点击，无法真正实现日常自动定时备份。
+### ADR-02: 数据存储引擎与并发治理
+* **决策结论**：单机部署阶段维持 SQLite + WAL 模式（`connect_args={'timeout': 30}`）；在中大型部署方案中无缝切换至 **PostgreSQL**。
+* **决策理由**：WAL 模式使读操作与写操作互不阻塞，大幅提升吞吐量；保留 ORM 抽象屏蔽底层数据库差异。
 
-### 4. 文件存储与持久化
-- **持久化目录**：
-  - `/app/data/`：通过 Docker 命名卷 `gift_data` 挂载，用于持久化 `gift_bookkeeping.db` 及其相关的临时文件。
-- **未持久化但有留存需求的目录**：
-  - `ssl/` 证书目录：目前依赖宿主机目录生成与留存，未收拢到 Docker 容器卷进行统一版本化生命周期管理。
-- **临时文件与无状态化评估**：
-  - 系统的 CSV/Excel 导出完全基于 Python 原生内存流 `io.StringIO` / `io.BytesIO`，导入校验同样在内存中读取后即刻流式提交数据库，不产生落盘的临时垃圾文件，具备优秀的无状态特征。
+### ADR-03: 前端依赖与网络韧性
+* **决策结论**：**彻底移除国外外部公共 CDN 链接**，将 Bootstrap 5、Font-Awesome 等静态资源下载至工程本地 `static/` 目录；PWA 仅作静态壳缓存，不介入动态业务接口。
+* **决策理由**：保障在任何私有云、内网及弱网环境下前端即开即显，零外部网络依赖。
+
+### ADR-04: 第三方耗时操作（WebDAV / Webhook / akshare）异步化
+* **决策结论**：核心 HTTP 主业务与外部网络请求严格解耦。轻量方案采用 Daemon 线程池 + 超时守卫；企业级方案引入 **Redis + Celery** 任务队列。
+* **决策理由**：避免任何外网不稳定因素反噬核心业务，保证接口响应时间恒定在毫秒级。
+
+### ADR-05: 安全防护体系标准
+* **决策结论**：
+  * **传输**：全站强制 HTTPS（TLS 1.2/1.3），HSTS 开启。
+  * **鉴权与风控**：服务端 Session + 密保防爆破锁定 + CSRF 强校验。
+  * **凭证存储**：采用 AES-256-GCM 封装加密存储第三方凭证与安全参数。
+  * **审计**：全面记录 4W1H 操作日志，设置只读归档与防篡改规则。
 
 ---
 
-## 五、环境配置与可移植性
 
-### 1. 环境变量清单与参数矩阵
-| 环境变量名 | 默认值 | 作用说明 | 敏感级别 | 定义位置 |
-| :--- | :--- | :--- | :--- | :--- |
-| `SECRET_KEY` | `gift-bookkeeping-secret-key-2026-prod-secure` | Flask Session 签名、CSRF 验证及 AES 凭证加密密钥 | **核心绝密** | `app.py`, `docker-compose.yml` |
-| `AES_SECRET_KEY` | 继承 `SECRET_KEY` | 专门用于对 WebDAV 密码进行 AES-256-GCM 对称加密的密钥 | **核心绝密** | `models.py` |
-| `DATABASE_URL` | 空字符串 (回退至 SQLite) | 数据库连接字符串（支持外部 PostgreSQL 如 `postgresql://...`） | 高 | `app.py`, `docker-compose.yml` |
-| `SESSION_COOKIE_SECURE` | `true` | 是否仅允许在 HTTPS 环境下传输 Session Cookie | 中 | `Dockerfile`, `docker-compose.yml` |
-| `ADMIN_USER` | `admin` | 系统初始超级管理员用户名（启动时强制对齐） | 中 | `run.sh`, `docker-compose.yml`, `app.py` |
-| `ADMIN_PASS` | `admin123` | 系统初始超级管理员密码（启动时强制对齐） | **高敏感** | `run.sh`, `docker-compose.yml`, `app.py` |
-| `PORT` | `11443` | 容器内 Gunicorn 监听的 HTTP 端口 | 低 | `run.sh`, `Dockerfile`, `docker-compose.yml` |
-| `HOST_PORT` | `15000` | 容器向宿主机映射发布的端口号 | 低 | `run.sh`, `docker-compose.yml` |
-| `NGINX_PORT` | `15001` | 宿主机/反向代理对外监听的 HTTPS 业务端口 | 低 | `run.sh`, `nginx_ssl.conf` |
-| `NGINX_CONF_DIR` | `/etc/nginx/conf.d` | 宿主机 Nginx 配置文件加载目录 | 低 | `run.sh` |
-| `HOST` | `0.0.0.0` | CLI 直接运行时监听的 IP 地址 | 低 | `app.py` |
-
-### 2. 多环境支持（开发/测试/生产）方案
-- **现状**：缺乏标准的多环境分层体系。工程中只有单一的 `docker-compose.yml`，且在其中直接赋予生产命名（`gift-bookkeeping-docker-prod-secret-key`），没有提供针对不同阶段的配置分离。
-- **缺失项**：
-  - 缺少 `.env.example` 模版文件指导用户正确设置私有密钥；
-  - 缺少 `docker-compose.dev.yml`（开启本地代码挂载热重载、Flask Debug 模式、关闭 Secure Cookie）与 `docker-compose.prod.yml`（锁定容器只读文件系统、开启资源配额）的分层支持。
-
-### 3. 本地开发与容器化运行的无缝切换
-- **本地直接运行**：开发者可运行 `python app.py` 启动 Flask 原生调试服务器，数据默认写入本地 `./gift_bookkeeping.db`。
-- **容器化运行**：通过 `docker compose up -d` 启动，数据写入 Volume `/app/data/gift_bookkeeping.db`。
-- **切换摩擦点**：
-  - 本地与容器中的数据文件路径不共享，可能导致在本地排查容器数据问题时需手动执行 `docker cp`；
-  - 本地 Python 环境如果没有安装 `cryptography` 或 `psycopg2-binary`，启动可能报错，缺乏容器内外统一的依赖环境抽象。
-
-### 4. 跨平台兼容性评估
-- **容器内部**：基于标准 Debian 架构的 `python:3.11-slim`，在 Linux (x86_64/ARM64)、macOS (Apple Silicon) 及 Windows 容器子系统均具备良好的一致性。
-- **宿主机管控脚本兼容性断层**：
-  - 核心管理脚本 `run.sh` 为纯 Bash 脚本，深度依赖 Linux 系统特性（如 `sed -i`、`/etc/nginx/conf.d`、`systemctl reload nginx`）；
-  - **在 Windows PowerShell / CMD 或 macOS 原生终端下完全无法执行 `run.sh`**，用户只能手动敲击 Compose 命令启动容器，并失去自动化 SSL 证书生成与 Nginx 配置同步能力。
 
 ---
 
-## 六、CI/CD与自动化部署现状
+## 6. 系统核心业务模块设计规范与重构实施规范
 
-### 1. CI/CD 配置文件现状
-- **检查结果**：**完全缺失**。
-- 工程中不存在 `.github/workflows/`、`.gitlab-ci.yml`、`Jenkinsfile`、`drone.yml` 等任何主流持续集成配置文件。项目当前代码合并、测试验证及构建部署完全依赖开发者手工操作。
+基于前期调研与排查出的系统缺陷，架构团队对各核心业务模块进行了重构与扩展，确立了以下设计与实施规范：
 
-### 2. 自动化构建脚本现状
-- 项目内置的“自动化构建”仅体现在宿主机 `run.sh` 脚本中的 `build_service()` 与 `start_service()` 函数：
-  ```bash
-  $DOCKER_COMPOSE up -d --build
-  ```
-- **缺失规范**：
-  - 无单元测试（Unit Tests）自动运行卡点；
-  - 无代码静态安全扫描（Bandit / SonarQube）；
-  - 无镜像 CVE 漏洞扫描（Trivy / Grype）；
-  - 无镜像语义化版本打标（Semantic Tagging）机制，构建产物仅为本地未命名的瞬态中间层。
+### 6.1 礼金账本与自然语言极简记账规范
+* **自然语言复合文本分词与多单提取**：
+  * 系统在 `gift_utils.py` 中实现 `split_gift_nlp_text(text)` 与 `parse_gift_nlp_multi(text)`。
+  * 采用分层正则匹配算法，支持以顿号（`、`）、分号（`;` `；`）、换行（`\r\n`）、竖线（`|`）以及连词（`以及`、`还有`、`并且`）作为复合语义分割依据。
+  * 典型输入案例：`"昨天李四儿子满月微信随了600、收张三结婚礼金888"`，算法将其拆分为两条独立记账指令：
+    1. 李四 | 送礼 | ¥600.00 | 事由：满月酒 | 备注：昨天李四儿子满月微信随了600
+    2. 张三 | 收礼 | ¥888.00 | 事由：婚宴 | 备注：收张三结婚礼金888
+  * 后端 `/api/record/nlp_quick_add` 接收复合输入后原子级提交多笔记录入库，杜绝丢单与单条错乱合并。
+* **记账类型关联与双向联动**：
+  * 新增及编辑礼金记录时，界面明确提供 `收礼 (对方送我)` 与 `送礼 (我送对方/还礼)` 选项，持久化至 `GiftRecord.record_type`（值为 `receive` / `send`）。
+  * 该类型直接作为人情对账模块差额运算（收礼加计，送礼减计）的核心依据，确保账本与对账数据严格同源同步。
+* **CSV 导出一致性保障**：
+  * `/export/csv` 支持勾选记录导出（`?ids=...`）与视图条件导出（保留检索词、办席事由、往来类型、排序规则）。
+  * 导出文件添加 UTF-8 BOM（`\ufeff`），确保 Excel 打开无乱码；表头与数据列同前端展现完全对齐，包含 ID、客人姓名、往来类型、年龄、联系电话、礼金金额、大写金额（`num2cn`）、办席原因、联系地址、备注说明、登记时间及录入用户。
 
-### 3. 镜像仓库配置现状
-- **检查结果**：未配置任何公共或私有 Registry（如 Docker Hub、Aliyun ACR、Harbor、GitHub Packages 等）。
-- 部署完全依赖“**源码级现场构建**（On-host Source Build）”。每台服务器在拉取 Git 源码后现场执行 `docker compose build`，不仅在生产节点消耗 CPU 和内存编译资源，而且无法保证多节点集群部署时容器镜像字节级的确定性与一致性。
+### 6.2 专属宴席与人情对账自动同步规范
+* **专属宴席自动衍生与手动同步**：
+  * 系统在 `routes_ext.py` 部署 `sync_banquets_from_ledger(user)` 引擎。
+  * 用户进入专属宴席页面（`/banquets`）时，系统自动扫描其有权查看的有效礼金记录，按办席原因（`event_reason`）进行智能归集。若该原因尚无对应大账本，则自动创建 `【xxx】专属大账本`，并将记录的外键 `banquet_id` 自动绑定。
+  * 工具栏提供【从礼金账本同步数据】手动同步按钮（`/banquets/sync`），支持管理员在增补历史账本后主动触发全局再归集。
+* **人情对账核算引擎与明细穿透**：
+  * `calculate_reconciliation(records)` 实时汇总各亲友在系统内的全部收送往来，计算净差额（`net_balance = received - given`），智能归类为：
+    * **待补礼**（`net_balance > 0`，我方收 > 送，我欠对方）
+    * **待还礼**（`net_balance < 0`，我方送 > 收，对方欠我）
+    * **已平账**（`net_balance == 0`，往来平衡）
+  * 人情对账页面支持每页条数自定义（10 / 20 / 50 / 100 条，默认 10 条）、关键字查询与状态筛选。
+  * 点击【明细】按钮通过事件委托触发模态框，优先从客户端已缓存字典无缝秒开；缺失时平滑回退请求 `/api/person_ledger/<name>` 接口，完整呈现该亲友的每一笔来往流水，杜绝点击无响应故障。
 
----
+### 6.3 纪念日备忘与多通道 Webhook 智能预警规范
+* **事件委托与前端容错**：
+  * 纪念日备忘编辑按钮废弃拼接 JS 字符串机制，改用 HTML5 `data-*` 自定义属性结合全局事件委托，彻底规避双引号或特殊字符导致的 SyntaxError。
+  * 支持模糊搜索、单选、多选与全选操作，配合批量操作表单将选中的纪念日安全移入回收站。
+* **Webhook 提醒推送策略**：
+  * `/api/reminders/trigger_push` 支持企业微信、钉钉、飞书、Server酱、Bark 等多通道 Webhook。
+  * 预警扫描逻辑：若近期有在提前预警天数（默认 3 天）内的纪念日，立即组织摘要并推送；若当前无即将到期的纪念日，自动回退选取距今最近的 3 条纪念日执行测试推送，确保管理员/用户点击后获得明确直观的推送反馈。
 
-## 七、可观测性与运维就绪
+### 6.4 全系统统一回收站机制规范
+* **跨模块统一软删除**：
+  * `GiftRecord`、`Banquet`、`AnniversaryReminder` 均具备 `deleted_at` 软删除字段。
+  * 各业务页面在日常查询中无条件过滤 `deleted_at.is_(None)`。
+* **回收站统一资产视图**：
+  * 回收站（`/recycle_bin`）聚合展示来自礼金账本、专属宴席、纪念日备忘的所有已软删除项，通过徽章清晰标识【所属标签页】。
+  * 提供模块选项卡（全部、礼金账本、专属宴席、纪念日备忘）、关键字检索、金额/时间排序与自定义分页。
+* **保留天数与生命周期控制**：
+  * 超级管理员可在回收站设置全局保留天数（`recycle_bin_retention_days`，如 30 天）。
+  * 每次访问回收站时触发 `cleanup_expired_recycle_items()` 惰性扫描，自动物理删除超过保留期限的过期数据。
+  * 批量与单条操作统一采用 `<entity_type>:<id>` 格式令牌，实现对不同模块实体的原子化还原或物理粉碎删除。
 
-### 1. 日志收集与管理
-- **标准输出/标准错误**：Gunicorn 启动参数为 `CMD ["gunicorn", "--workers=4", "--bind=0.0.0.0:11443", "app:app"]`，未将日志重定向至本地文件，访问日志与应用日志直接打印至容器的 `stdout/stderr`，符合 12-Factor 原则，可被 `docker logs` 捕获。
-- **日志驱动与轮转缺失（严重运维隐患）**：
-  - `docker-compose.yml` 中**未配置 `logging` 驱动选项**。
-  - Docker 默认采用 `json-file` 驱动且默认不设文件大小上限。随着长期运行和高频访问，宿主机 `/var/lib/docker/containers/<id>/<id>-json.log` 文件将持续无限膨胀，最终耗尽宿主机磁盘 Inode 或存储空间，导致数据库写入失败乃至系统崩溃。
+### 6.5 用户权限模型与多租户数据安全规范
+* **管理员凭证查看隔离**：
+  * 后端 `/admin/user/<id>/credentials` 接口设置强校验：超级管理员仅可查阅普通用户的 AES-256 明文凭证与密保问答；若目标用户为管理员，直接返回 HTTP 403 拒绝访问，保障核心管理员凭证安全。
+  * 前端管理表格仅针对普通用户展示【查看凭证】按钮。
+* **注册邀请准入模式**：
+  * 支持管理员一键切换全站注册策略（`registration_mode`）：
+    * `free`：自由开放注册，访客直接进入并注册新账号。
+    * `invite_only`：严格邀请制，必须携带有效未过期的 `token` 才能访问并完成注册。
+* **细粒度菜单权限与最小权限默认值**：
+  * 用户表新增 `allowed_menus` 字段（以逗号分隔，如 `ledger,banquets`）。新注册普通用户默认仅赋予 `ledger`（礼金账本）权限。
+  * 全局 `@app.before_request` 拦截器匹配端点与菜单映射关系，未被授权的用户尝试访问非授权模块时自动拦截并重定向，同时在顶部导航栏动态隐蔽未授权菜单项。
+* **统一跨用户数据权限引擎**：
+  * 在 `app.py` 与 `routes_ext.py` 确立通用的权限鉴权矩阵：
+    * 查看：`can_user_view_entity(user, entity)`
+    * 修改：`can_user_edit_entity(user, entity)`
+    * 删除：`can_user_delete_entity(user, entity)`
+  * 权限规则：
+    1. 超级管理员拥有全局查看、修改与删除权限；
+    2. 普通用户对自己创建的数据拥有完整的查看、编辑和删除权限；
+    3. 管理员赋予特定用户的跨用户权限（`can_view_others`、`can_edit_others`、`can_delete_others`）无差别作用于所有模块；
+    4. **关键防御约束**：普通用户即使获得跨用户编辑/删除权限，也绝不可修改或删除管理员账号创建的数据实体（`is_entity_owner_admin` 拦截）。
 
-### 2. 监控方案与指标暴露
-- **APM 与 Metrics 暴露**：未集成 Prometheus Metrics 收集库（如 `prometheus-flask-exporter`），无法对外暴露请求吞吐量（QPS）、请求延迟（P95/P99）、HTTP 状态码分布及数据库连接池等核心运维指标。
-- **专有健康检查端点**：系统未提供独立的轻量级健康检测接口（如 `/healthz`、`/ping`、`/ready`）。若外部监控平台对普通路由（如 `/` 或 `/login`）进行探活，不仅消耗较多的渲染算力，还会触发系统的 Session 初始化与访问日志记录，甚至被登录风控机制误判拦截。
-
-### 3. 容器编排平台兼容性评估（Kubernetes / Docker Swarm）
-若将当前项目直接迁移到 Kubernetes 集群，存在以下严重架构阻碍点：
-1. **SQLite 存储卷锁定与多副本扩缩容冲突**：
-   - 当前以 SQLite 文件作为数据库，PVC 存储必须使用 `ReadWriteOnce`（RWO）单节点挂载。
-   - 若在 K8s 中将 Deployment 的 `replicas` 扩容为大于 1，会导致多个 Pod 并发挂载或通过网络文件系统（NFS/CephFS）并发读写同一 SQLite 文件，引发严重的底层锁损坏和写入失败。必须将其重构为独立的 PostgreSQL/MySQL StatefulSet 或外部 RDS。
-2. **进程内内存状态割裂**：
-   - 登录失败计数（`LOGIN_FAIL_COUNTS`）、密保错误尝试（`FORGOT_SECURITY_FAIL_COUNTS`）、验证码存储及系统重启时间戳（`APP_START_TIME`）均存放于单个 Python 进程的内存字典中。
-   - 在 K8s 多 Pod 负载均衡下，由于缺乏集中式缓存（Redis），用户刷新页面请求漂移到不同 Pod，会导致频繁出现会话中断、强制重新登录或风控计数失效。
-3. **缺少生命周期探针（Probes）**：
-   - 缺少适配 K8s 的 `livenessProbe`（存活探针）与 `readinessProbe`（就绪探针）端点。
-
----
-
-## 八、现存问题与风险清单（按优先级 P0 / P1 / P2 排序）
-
-### 1. P0 级致命缺陷（安全合规高危、数据丢失与致命运行阻碍）
-
-#### 【P0-1】未配置 `.dockerignore` 导致本地数据库与 Git 提交历史打包进镜像
-- **问题描述**：根目录缺失 `.dockerignore` 文件。执行 `docker build` 时，上下文会将本地开发的 `gift_bookkeeping.db`（包含所有用户密码散列、密保答案及真实记账数据）和 `.git` 完整版本库打入镜像层。
-- **影响范围**：镜像导出、推送到私有/公有仓库或被第三方下载时，造成全量业务数据和源代码敏感历史直接外泄。
-- **建议解决方向**：立即在根目录创建 `.dockerignore`，明确排除 `*.db`, `*.sqlite*`, `.git`, `__pycache__`, `*.pyc`, `ssl/`, `data/`, `*.log` 等文件。
-
-#### 【P0-2】容器端口非安全绑定至 `0.0.0.0:15000`，允许绕过 SSL 保护直接明文访问
-- **问题描述**：`docker-compose.yml` 端口映射定义为 `"${HOST_PORT:-15000}:${PORT:-11443}"`，默认监听在宿主机的所有网络接口上。
-- **影响范围**：攻击者可在公网直接请求 `http://<IP>:15000` 访问 Gunicorn，使前端 Nginx 强制配置的 HTTPS、HSTS、防点击劫持响应头形同虚设，流量完全暴露于明文窃听与中间人篡改风险之下。
-- **建议解决方向**：强制修改端口绑定为主机本地回环：`"127.0.0.1:${HOST_PORT:-15000}:${PORT:-11443}"`，确保仅宿主机本地的 Nginx 可以代理流量。
-
-#### 【P0-3】生产密钥与默认管理员弱密码硬编码，且启动强行覆盖管理员密码
-- **问题描述**：`SECRET_KEY` 默认值与初始密码 `admin123` 硬编码在 Compose 文件中；且 `app.py` 中的 `init_database()` 在每次容器重启时，都会无条件将管理员密码重置为环境变量值。
-- **影响范围**：代码公开导致全局 Session 和加密凭据被轻易伪造与解密；运维人员修改密码后，容器一次日常重启就会被暗中重置回弱密码，形成严重后门。
-- **建议解决方向**：
-  1. `SECRET_KEY` 必须从外部必填环境变量读取，缺失时拒绝启动；
-  2. 管理员同步逻辑调整为“仅在数据库不存在管理员时创建初始账密”，严禁在服务重启时覆写已有账号的密码；提供独立的 CLI 命令（如 `flask create-admin`）用于重置密码。
-
-#### 【P0-4】Docker 版移除了 SQLite WAL 模式，Gunicorn 4 Workers 并发写极易死锁
-- **问题描述**：相比于原生工程，Docker 版在 `app.py` 中删除了 `PRAGMA journal_mode=WAL;` 和 30 秒繁忙等待设置，同时 Gunicorn 依然开启 4 个工作进程。
-- **影响范围**：在多进程模式下，SQLite 处于默认的 DELETE 回滚日志模式，任何一个写入事务会锁定整个数据库文件。宴席现场多人快速记账时极易抛出 `sqlite3.OperationalError: database is locked`，导致请求 500 失败。
-- **建议解决方向**：在 `app.py` 初始化时恢复 WAL 模式配置与 `busy_timeout=30000` 参数；或者在单机 SQLite 下将 Gunicorn 调整为单进程多线程模式（`--workers=1 --threads=8`），彻底消除跨进程文件争用。
-
----
-
-### 2. P1 级严重问题（可用性瓶颈、运维隐患与半容器化缺陷）
-
-#### 【P1-1】容器无权限降级，全程以 Root 特权身份运行
-- **问题描述**：`Dockerfile` 未声明 `USER` 指令，Gunicorn 进程直接作为 uid 0 的 root 用户在容器内驻留。
-- **影响范围**：一旦应用出现安全漏洞（如任意文件读写、反序列化利用等），攻击者直接获取容器内最高权限，增加了容器逃逸和破坏挂载卷的风险。
-- **建议解决方向**：在 `Dockerfile` 中创建专有系统用户（如 `RUN useradd -m -u 1000 appuser`），并在 `USER appuser` 下运行 Gunicorn，同时调整文件所有权权限。
-
-#### 【P1-2】未配置容器 CPU 与内存限制，存在 DoS 击垮宿主机隐患
-- **问题描述**：Compose 文件中未声明 `mem_limit` 或 `deploy.resources.limits`。
-- **影响范围**：恶意大文件上传、大批量 Excel 解析或正则 ReDoS 攻击可能导致 Python 进程内存暴涨，引发系统级 OOM，殃及宿主机其他业务组件。
-- **建议解决方向**：在 Compose 中设置内存硬限制（如 `mem_limit: 1024m`）和 CPU 限制（如 `cpus: '1.5'`）。
-
-#### 【P1-3】未配置 HEALTHCHECK 容器健康检查
-- **问题描述**：`Dockerfile` 与 `docker-compose.yml` 均未定义健康探测机制。
-- **影响范围**：如果 Python 进程由于数据库锁死陷入假死，Docker 守护进程无法察觉，外部流量继续分发至异常容器，无法实现容器故障自愈。
-- **建议解决方向**：在应用中提供 `/healthz` 路由，并在 Dockerfile 中配置 `HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://127.0.0.1:11443/healthz || exit 1`。
-
-#### 【P1-4】Docker 日志无轮转限制，存在打满宿主机磁盘隐患
-- **问题描述**：未在编排中配置 `logging` 驱动大小限制。
-- **影响范围**：高频运行产生的 `*-json.log` 文件将无限累积，极易撑满服务器磁盘。
-- **建议解决方向**：在 `docker-compose.yml` 中为服务增加日志轮转策略：
-  ```yaml
-  logging:
-    driver: "json-file"
-    options:
-      max-size: "50m"
-      max-file: "5"
-  ```
-
-#### 【P1-5】半容器化架构撕裂与 Nginx 容器配置路径失效
-- **问题描述**：Compose 中的 `nginx` 容器被注释；且其自带的 `nginx.conf` 内部硬编码了宿主机绝对路径 `/opt/service/gift-bookkeeping-app-docker/ssl/...`，与 Compose 挂载的容器路径 `/etc/nginx/ssl` 严重冲突，解开注释就会报错。
-- **影响范围**：项目未能做到“开箱即用”的完整容器化编排，依然强绑宿主机安装 Nginx，违背容器化“环境一致性”的核心原则。
-- **建议解决方向**：彻底理顺 Nginx 容器化编排方案，修正 `nginx.conf` 中的证书与 upstream 路径，实现通过 `docker compose up -d` 一键拉起 Web 与 Nginx 完整双容器集群。
-
-#### 【P1-6】多 Worker 进程间会话与风控计数内存分裂
-- **问题描述**：`APP_START_TIME` 与登录失败锁定字典存在于进程内存中。
-- **影响范围**：多 Worker 重启时启动时间戳不同步，用户可能被随机踢下线；用户在不同 Worker 间切换时登录防爆破计数失效。
-- **建议解决方向**：风控状态与登录失败计数迁移至数据库模型表（如已建立的 `LoginRisk`、`SecurityRisk`）或引入 Redis 集中存储，废弃不稳定易分裂的全局内存字典。
+### 6.6 系统广播与外部服务异步容灾
+* **系统广播无感切换**：
+  * `/admin/broadcast/toggle/<id>` 兼顾 AJAX 异步请求与传统表单跳转。非 AJAX 访问执行标准重定向并附加 Flash 提示，杜绝裸露 JSON 输出。
+  * 广播发布后通过 `@app.context_processor` 全局注入 `active_broadcasts`，配合未读记录表 `BroadcastRead`，在用户登录及访问任意页面时在顶部横幅展示，并在通知抽屉中持久化留存。
+* **WebDAV 容灾与超时隔离**：
+  * 针对 WebDAV 备份页面加载 500 问题，后端彻底解耦主页面渲染与远端网络交互：`/admin/backups` 页面极速秒开，文件列表改由前端异步调用 `/admin/backups/list_ajax` 拉取。
+  * 针对未配置 WebDAV 服务器的情况，所有备份函数（`test_connection`、`upload_backup`、`list_backups`、`download_backup`）均实施前置参数解构防护，未配置时立即返回友好提示，禁止发起非法网络连接。
 
 ---
 
-### 3. P2 级次要优化项（开发规范、可移植性与可观测性）
+## 7. 架构决策增补清单 (ADR-06 至 ADR-35)
 
-#### 【P2-1】每日自动备份逻辑缺乏后台真实调度引擎
-- **问题描述**：数据库设计了 `BackupConfig.auto_backup_daily`，但系统缺乏 Cron、APScheduler 等常驻调度器，自动备份功能形同虚设。
-- **建议解决方向**：在后台引入基于 APScheduler 的轻量调度线程，或提供独立的定时触发端点供宿主机 crontab 调用。
+### ADR-06: 自然语言记账复合拆分与入库决策
+* **决策结论**：采用轻量级规则切词结合模式识别，替代单一重量级 LLM 调用。对常见连接词、标点符号进行分块提取并独立生成 `GiftRecord`。
+* **决策理由**：保障断网及高并发场景下毫秒级响应，单次输入能够准确裂变为多条记账记录，解决复合语义丢失问题。
 
-#### 【P2-2】WebDAV 客户端默认禁用 SSL 证书安全校验
-- **问题描述**：`webdav_utils.py` 中的 `_get_ssl_context()` 强制设置了 `ctx.check_hostname = False` 和 `ctx.verify_mode = ssl.CERT_NONE`。
-- **影响范围**：在公共网络或不安全 WiFi 下连接云端 WebDAV 服务时，可能遭受中间人攻击窃取数据或账号。
-- **建议解决方向**：在连接公共云 WebDAV 服务时，默认开启系统证书链校验，避免备份数据被内网中间人劫持窃取。
+### ADR-07: 业务记录与衍生大账本/对账自动聚合决策
+* **决策结论**：专属宴席与人情对账采用“主数据源驱动衍生”架构，均以 `GiftRecord` 为单一真实可信数据源（Single Source of Truth），通过读时聚合与按需同步维护衍生状态。
+* **决策理由**：消除数据多头维护与数据不一致风险，管理员或用户在礼金账本记录后，大账本与人情往来账自动实时就绪。
 
-#### 【P2-3】基础镜像未锁定 Patch 版本与 SHA256 摘要
-- **问题描述**：使用浮动标签 `python:3.11-slim`，构建结果不具备长久可重复确定性。
-- **建议解决方向**：推荐锁定明确版本如 `python:3.11.9-slim-bookworm`。
+### ADR-08: 全系统通用软删除与生命周期保留决策
+* **决策结论**：全业务模块统一采用 `deleted_at` 软删除标记。设立集中式回收站管理所有废弃资产，并引入管理员可配置的 TTL 生命周期惰性淘汰机制。
+* **决策理由**：避免数据误删造成不可逆的人情账目损失，统一回收站降低了各业务模块独立开发恢复逻辑的代码冗余度。
 
-#### 【P2-4】管理运维脚本 `run.sh` 平台锁定，缺乏跨平台通用性
-- **问题描述**：脚本强依赖 Linux 与 Bash 环境，在 Windows/macOS 开发机上无法运行。
-- **建议解决方向**：编写跨平台的初始化工具（如纯 Python CLI 或 Makefile），使开发人员在全操作系统平台获得平滑的容器管理体验。
+### ADR-09: 敏感凭证分级保护与越权阻断决策
+* **决策结论**：系统对普通用户保留 AES-256 可逆明文凭证以便管理员协助排查，但对所有管理员账号实施凭证硬隔离，API 层面强制阻断任何针对管理员凭证的查阅请求。
+* **决策理由**：遵循纵深防御与最小特权原则，防止超级管理员凭证泄露形成水平或垂直越权。
 
-#### 【P2-5】缺乏 Prometheus 可观测性指标暴露能力
-- **问题描述**：无标准指标导出端点，无法被企业 Prometheus + Grafana 运维体系纳管。
-- **建议解决方向**：集成 `prometheus-flask-exporter`，暴露 `/metrics` 供云原生监控体系拉取。
+### ADR-10: 用户注册多模式动态切换决策
+* **决策结论**：将注册准入控制写入 `system_settings`，支持免邀自由注册与令牌邀请注册热切换。
+* **决策理由**：满足个人单机部署（自由注册）与私有部署/团队使用（严格邀请审核）在不同使用阶段的准入诉求。
 
----
+### ADR-11: 统一上下文跨模块数据权限引擎决策
+* **决策结论**：在应用上下文层建立统一的实体权限鉴权函数，贯穿于礼金、宴席、备忘及回收站的所有读写删查链路。
+* **决策理由**：确保权限规则一致性，杜绝特定页面因权限未对齐而导致的数据越权漏洞。
 
-## 九、必须明确的架构决策点（由AI识别并提出）
-
-针对该项目在容器化实践中缺失、模糊或架构自相矛盾的关键环节，技术专家团队提出以下 **12 项必须由系统架构师与开发者明确的决策点**：
-
----
-
-### 决策点 1：系统最终部署拓扑形态选择
-- **背景与矛盾**：当前既有 Compose 中注释的 Nginx 容器，又有 `run.sh` 强依赖宿主机原生 Nginx 的混合逻辑，部署边界模糊。
-- **备选方案**：
-  - **选项 A（推荐 - 纯多容器编排形态）**：修复 `nginx.conf` 路径冲突，启用 Compose 中的 `nginx` 容器。宿主机仅需安装 Docker，一键拉起 Web 与 Nginx，实现完全独立自洽的容器化环境。
-  - **选项 B（纯反代模式）**：移除 Docker 中的 Nginx 配置与容器声明，明确将该项目定义为单纯的“后端 API/Web 容器”，对外暴露端口并编写清晰的文档，指引用户接入已有的第三方网关（如 Traefik、Nginx Proxy Manager 或宿主机 Nginx）。
-  - **选项 C（单容器 All-In-One 形态）**：使用 Supervisord 将 Nginx 和 Gunicorn 打包在同一个容器内部，对外仅暴露单一 HTTPS 端口。
+### ADR-12: 外部 I/O 阻塞熔断与安全降级决策
+* **决策结论**：针对 WebDAV 与 Webhook 等外部网络依赖，全面实施参数前置校验、短超时（5s）熔断及前端异步非阻塞渲染模式。
+* **决策理由**：彻底隔绝外部不可控网络延迟对系统核心 Web 服务可用性的冲击。
 
 ---
 
-### 决策点 2：生产数据库选型与存储演进路线
-- **背景与矛盾**：当前使用单文件 SQLite，由 Gunicorn 4 Workers 跨进程并发访问，且代码中移除了 WAL 模式，极易并发死锁；但 `requirements.txt` 中又包含了 `psycopg2-binary`。
-- **备选方案**：
-  - **选项 A（推荐 - 转向容器化 PostgreSQL）**：在 `docker-compose.yml` 中新增独立的 `db` 服务（基于 `postgres:15-alpine`），将数据库连接指向容器内网络，彻底消除文件锁瓶颈，天然支持横向扩容。
-  - **选项 B（单机轻量化 - 保留 SQLite 但重构并发模式）**：恢复 SQLite WAL 模式，同时调整 Gunicorn 为单进程多线程架构（`--workers=1 --threads=8`），通过进程内排队彻底避免跨进程锁争用，维持单文件轻量易迁移特性。
-  - **选项 C（外部数据库）**：移除所有本地数据库假设，强制要求提供外部云数据库 RDS（PostgreSQL/MySQL）连接串。
+
+### 6.8 礼金账本多维导出架构与指定内容筛选导出规范
+* **多维导出引擎设计**：
+  * `/export/csv` 全面升级支持四种导出范围（Scope）：
+    1. **全部数据导出 (`scope=all`)**：直接导出系统内该用户有权访问的全部礼金记录，不受前端分页及当前关键词搜索条件影响。
+    2. **筛选结果导出 (`scope=filtered`)**：完整继承用户在前端设定的全文关键词检索、办席事由下拉、收送礼类型以及时间/金额排序条件，导出该查询子集的全量结果（突破当前分页限制）。
+    3. **当前页数据导出 (`scope=page`)**：严格导出当前表格视口内呈现的当前页指定笔数记录。
+    4. **勾选记录导出 (`ids=1,2,...`)**：仅导出用户通过表格左侧复选框勾选的特定行。
+  * 编码标准强制添加 UTF-8 BOM，列对齐大写金额与操作者，杜绝数据不全或导出结果与当前筛选视图脱节的隐患。
+
+### 6.9 管理员账号高权限凭证核验与重置防护规范
+* **凭证查看二次身份验证**：
+  * 对超级管理员等特权账号（`is_admin=True`），前端查看凭证发起请求后触发二次验证拦截（HTTP 401 `need_verify=True`）。
+  * 必须在模态框中输入该管理员账号的**原密码**或**原密保问题答案**，经后端校验（`user.check_password` 或 `user.check_any_security_answer`）通过后方可解密输出明文凭证。
+* **重置密码与密保防御性验证**：
+  * 管理员账号重置密码（`admin_reset_user_pass`）及重置密保（`admin_reset_user_security`）时，表单强制增加原凭证核验字段（`old_password` 与 `old_security_answer_1` 二选一），若核验不通过直接驳回，彻底杜绝特权账号被任意覆盖或误篡改。
+
+### 6.10 全局瞬态提示语自动消除与批量权限配置 DOM 治理规范
+* **全局 Flash 提示语生命周期自动管理**：
+  * 在 `templates/base.html` 与广播页面部署全局定时销毁守卫：页面加载后，所有操作成功的提示横幅及 AJAX 浮层通知在展示 3.5 秒后自动淡出并从 DOM 移除，避免提示遮挡视口影响连续操作体验。
+* **批量权限配置模态框 DOM 结构归正**：
+  * 将批量权限配置模态框（`#batchPermModal`）从错误的 `{% block title %}` 移至 `{% block content %}` 主体流，移除按钮硬编码 `disabled`，确保点击按钮无阻碍响应。
+
+### 6.11 用户管理菜单页面独立细粒度权限配置规范
+* **菜单级独立权限配置界面改造**：
+  * 将传统全局统一的单点权限选择器彻底重构为**菜单级独立下拉选择体系**。
+  * 在单用户权限配置模态框（`#permModal{{ u.id }}`）与批量权限配置模态框（`#batchPermModal`）的“菜单页面访问权限”区域中，为系统内每个核心菜单（礼金账本 `ledger`、专属宴席 `banquets`、人情对账 `reconciliation`、纪念日备忘 `reminders`、数据回收站 `recycle_bin`）独立提供权限下拉选择框（`<select>`）。
+  * 权限选项保持标准 4 级阶梯定义：
+    * `0`：仅管理自身数据（未配置或缺省时默认使用该项）
+    * `1`：仅查看他人数据
+    * `2`：查看+修改他人数据
+    * `3`：查看+修改+删除他人数据
+  * 交互逻辑：每个菜单选项完全独立变更，互不干扰；用户列表与模态框加载时严格回显已持久化的各个菜单权限；表单提交时，将完整配置映射（菜单代码 `menu_key` → 权限阶梯值 `perm_level`）完整序列化保存至后端。
+* **数据模型与向下兼容保障**：
+  * 在 `User` 模型中持久化 `menu_permissions`（JSON 文本，形如 `{"ledger": 0, "banquets": 1, ...}`）。
+  * 封装 `get_menu_permissions()`、`set_menu_permissions(perms_dict)` 与 `get_menu_perm(menu_key)` 方法。
+  * 兼容性回退机制：当新用户或老用户未配置具体菜单权限时，自动兜底为 `0`（仅管理自身数据）；若旧系统中存在 `data_permission_level`，系统平滑继承其作为礼金账本的基础权限，杜绝脏数据与权限断层。
+* **各业务模块独立权限校验与防御加固**：
+  * 全面重构后端 `get_accessible_records_query(user, menu_key)`、`can_user_view_entity(user, entity, menu_key)`、`can_user_edit_entity(user, entity, menu_key)` 与 `can_user_delete_entity(user, entity, menu_key)` 等鉴权接口，强制要求入参指定对应的业务菜单标识（`ledger` / `banquets` / `reconciliation` / `reminders` / `recycle_bin`），由各模块按该菜单独立分配的权限阶梯进行权限隔离与范围过滤。
+  * 坚持特权账号防越权安全红线：无论为普通用户在任何菜单配置何种高级别权限（包括修改或删除他人数据），普通用户始终严禁查看、修改或删除管理员（`is_admin=True`）创建的核心数据。
+
+### 6.12 各业务菜单细粒度数据权限闭环防护与默认邀请注册规范
+* **专属宴席所有权与操作权限闭环**：
+  * **自动归集所有权漏洞根治**：`sync_banquets_from_ledger` 在根据礼金账本记录自动生成大账本时，严格根据底层记录的创建者判定宴席归属。底层记录若包含管理员创建的数据，则大账本归属强制锁定为管理员（`user_id = 1`）；同时，系统优先复用已存在的活跃大账本，杜绝普通用户触发同步时自动成为管理员账本的所有者。
+  * **大账本详情与现场收礼控制**：在 `banquet_detail.html` 中，若用户对该宴席仅具备只读权限（`can_user_edit_banquet` 为 False），自动隐藏“编辑成本/信息”按钮与“现场快速收礼登记台”；宴席明细表格中的每条记录严格校验 `can_user_delete_record`，无权删除的记录显示“只读”徽章，彻底移除删除表单。
+  * **宴席列表只读回显**：`banquets.html` 对无删除权限的宴席卡片隐藏删除按钮并标记“只读”。
+* **纪念日备忘全生命周期权限约束**：
+  * **表单结构与防越权加固**：修正 `reminders.html` 操作列中未闭合/孤立表单标签与条件分支结构，仅当 `can_user_edit_reminder` / `can_user_delete_reminder` 校验通过时分别渲染编辑与删除按钮，未授权记录显示“只读”徽章；复选框仅对用户有权删除的记录展示，并在无任何可删记录时自动隐藏批量删除按钮。
+  * **后端接口防御**：`reminder_edit`、`reminder_delete` 与 `reminders_batch_delete` 严格校验 `reminders` 菜单权限，阻止越权修改与移入回收站。
+* **数据回收站彻底隔离与权限管控**：
+  * **全量操作按钮权限过滤**：`recycle_bin_view` 视图针对列表项独立计算 `can_edit`（还原）与 `can_delete`（彻底删除）状态；页面顶部“清空回收站”强校验管理员或 `can_delete_others_for('recycle_bin')` 权限，未授权用户不予渲染按钮并在后端直接驳回（HTTP 403 / Flash 拦截）；“批量还原”与“批量彻底删除”按钮仅当本页存在可操作记录或具备相应权限时呈现。
+* **用户注册开放模式默认规则固化**：
+  * 系统设置（`SystemSetting`）将 `registration_mode` 的默认缺省值调整并固化为 `invite_only`（仅邀请链接注册模式）。
+  * 首次启动与服务迁移初始化时强制默认生效 `invite_only`，新用户必须通过管理员生成的带有效令牌链接方可进入注册，自由注册入口默认关闭。
 
 ---
 
-### 决策点 3：生产环境密钥与敏感凭据管理机制
-- **背景与矛盾**：`SECRET_KEY` 和 `ADMIN_PASS` 在 Compose 文件中直接硬编码明文，一旦提交代码库将造成严重泄密。
-- **备选方案**：
-  - **选项 A（推荐 - 标准 `.env` 隔离与自动化生成）**：提供 `.env.example`，启动脚本若发现缺少 `.env` 则自动调用 `secrets.token_hex(32)` 生成唯一的强随机 `SECRET_KEY` 并写入 `.env`，Compose 中通过 `env_file` 引入，并将 `.env` 严格加入 `.gitignore`。
-  - **选项 B（Docker Secrets 原生机制）**：采用 Docker Swarm / Compose 的 `secrets` 机制，将密钥挂载至容器内 `/run/secrets/secret_key`。
-  - **选项 C（外部集中式配置中心）**：集成 HashiCorp Vault 或云平台 KMS 在容器启动时拉取凭据。
+### ADR-13: 账本多维导出体系（全量/筛选/当前页/勾选）决策
+* **决策结论**：为账本导出按钮引入 Split Dropdown 结构，支持一键快捷导出与显式范围选择，同时支持 `scope=all`、`scope=filtered`、`scope=page` 与 `ids` 勾选参数。
+* **决策理由**：兼顾全量备份归档诉求与精细化筛选导出诉求，彻底消除用户对导出数据不全的疑虑。
+
+### ADR-14: 自由注册环境令牌参数解耦决策
+* **决策结论**：注册服务在自由注册模式（`free`）下对邀请令牌实施防御性空值校验（`if reg_token:`），并为所有表单校验回退分支补全 `registration_mode` 变量传递。
+* **决策理由**：确保无需邀请码即可自由注册，杜绝 NoneType 属性访问导致的 500 服务器内部错误。
+
+### ADR-15: 管理员账号凭证查看与重置的二阶段核验决策
+* **决策结论**：对管理员账号的凭证查看与重置引入二次安全挑战（Challenge-Response），必须验证原密码或原密保答案。
+* **决策理由**：满足企业安全合规中针对特权账户的高级安全保护规范，防止误操作或恶意重置。
+
+### ADR-16: 全局瞬态操作反馈自动生命周期治理决策
+* **决策结论**：全站通用提示语与系统广播操作通知统一纳入 3.5 秒自动淡出生命周期管控。
+* **决策理由**：提升 UI 交互敏捷度，消除由于提示语残留导致的界面遮挡与视觉疲劳。
+
+### ADR-17: 模态框 DOM 层次与交互可访问性决策
+* **决策结论**：严禁将 UI 结构模态框置入页面标题等非渲染块中，所有批量操作按钮支持全生命周期可访问，并提供智能选择前置指引。
+* **决策理由**：避免浏览器静默吞噬 DOM 节点，保障后台管理工具链路畅通。
+
+### ADR-18: 用户管理菜单页面独立细粒度权限配置架构决策
+* **决策结论**：废弃以往单一全局绑定所有菜单的数据权限设计，在模型层、接口鉴权层及前端管理 UI 层全面推行“菜单级独立细粒度权限管控”，支持管理员为各普通用户就各个菜单（礼金账本、专属宴席、人情对账、纪念日备忘、回收站）分别赋予不同层级权限，未配置菜单统一默认收敛为“仅管理自身数据（Level 0）”。
+* **决策理由**：真实业务场景中，各子系统业务敏感度与协同模式存在显著差异（例如用户可能被允许查看他人的公共宴席或回收站数据，但严格禁止触碰他人私密账本或备忘录）。独立细粒度权限配置能够消除全开或全关的粗粒度安全风险，显著增强权限架构的灵活性与合规严密性。
+
+### ADR-19: 全系统业务菜单权限闭环加固与默认仅邀请注册架构决策
+* **决策结论**：
+  1. 彻底落实各业务模块（专属宴席、纪念日备忘、数据回收站）在前端 UI 渲染层与后端路由拦截层的独立权限校验闭环，杜绝因实体所有权错配（如自动生成账本默认绑定当前用户）或按钮无条件渲染导致越权操作。
+  2. 将系统用户注册开放模式的初始默认值从 `free` 调整为 `invite_only`，确立以受控邀请链接为核心的准入机制。
+* **决策理由**：消除不同菜单间权限生效不一致的隐患，保障所有业务页面的权限逻辑均与礼金账本保持统一的标准与防护强度；默认关闭自由注册符合企业级财务与人情记账系统的安全基线，防止未授权外部人员随意注入数据。
+
+
+### ADR-20: 专属宴席账本分享免刷新交互与异步回显架构决策
+* **决策结论**：将专属宴席账本详情页的分享模态框改由 AJAX/Fetch 异步提交，在当前模态小窗口内实时回显生成的免登录只读分享 URL，配备一键复制与新窗口预览能力，杜绝整页刷新造成的模态框意外关闭与交互中断。
+* **决策理由**：传统同步 Form 表单提交会导致页面强制重载，用户不得不重新点击分享按钮查验链接生成状态。改用无刷新异步交互不仅极大改善用户操作体验，且避免了不必要的全量页面渲染与计算开销。
+
+### ADR-21: 多通道通知体系凭证长连接直连与企业微信智能机器人架构决策
+* **决策结论**：在原有的标准 HTTP Webhook 模式基础上，深度扩展新增“凭证长连接 / 智能机器人对接模式”。支持管理员直接填写企业微信机器人的 `Bot ID` 和 `Secret` 两个核心凭证，底层自动完成 HMAC-SHA256 签名鉴权、长连接通道会话管理及模拟握手校验；同时升级 `WebhookLog` 审计日志，全面记录各通道推送状态码与响应体。
+* **决策理由**：企业级团队与智能机器人深度集成时，往往难以配置或不愿暴露公网 HTTP 回调地址。支持仅需提供 Bot ID 与 Secret 的长连接对接模式，大幅降低了企业微信等主流办公平台的接入门槛，实现免开公网端口、高安全强度的双向实时推送通知。
 
 ---
 
-### 决策点 4：管理员账户初始化的生命周期语义
-- **背景与矛盾**：当前应用每次启动都会把已有管理员的账号密码强制覆写回环境变量初始值，导致后台改密在重启后失效。
-- **备选方案**：
-  - **选项 A（推荐 - 首次初始化即持久化，禁止覆写）**：启动逻辑改为“仅当数据库中没有任何管理员用户时才创建”，若已存在管理员则绝不覆写其密码；如需重置密码，提供专门的命令行指令。
-  - **选项 B（显式开关控制重置）**：增加环境变量 `FORCE_RESET_ADMIN=true`。仅当运维显式传入此变量重启时才执行密码覆写，正常重启绝不重置。
-  - **选项 C（去代码化 - 独立初始化脚本）**：将管理员初始化代码完全移出 `app.py`，改为通过 `docker compose run web flask init-admin` 显式手动初始化。
+
+### ADR-22: 专属宴席与礼金账本双向归属映射与候选明细引入架构决策
+* **决策结论**：
+  1. **原则一强约束**：确立“专属宴席专门针对自家办席收礼”的底层业务准则。系统内仅允许往来类型为“收礼（receive）”的记录关联专属宴席；若记录往来类型为“送礼（send）”，系统强制将 `banquet_id` 设为 `None`，杜绝送礼支出污染宴席收礼台账。
+  2. **账本端归属回显与穿透**：主礼金账本新增与编辑记录模态框提供“归属专属宴席（选填）”下拉选择；单选切换为人情送礼时自动隐藏并清空关联；主表格呈现归属宴席专属徽章并支持点击穿透直达对应专属大账本。
+  3. **宴席端候选引入与安全移出**：在专属宴席详情页顶部提供“从账本引入明细”模态框，查询当前用户有权访问、未删除且尚未归属该宴席的收礼候选明细，支持关键词实时筛选与批量绑定；在宴席台账表格操作列提供“移出宴席”功能，解除关联置 `banquet_id = None`，记录仍完好保留在主账本中。
+* **决策理由**：理顺专属大账本与主礼金账本之间的数据归集关系，既支持自家办宴时现场快速收礼，又支持办宴后从大账本智能汇集收礼明细，保障账目关系清晰透明。
+
+### ADR-23: 专属宴席免登录只读分享链接生命周期与安全作废架构决策
+* **决策结论**：
+  1. **自定义有效期支持**：在分享配置弹窗中增加“链接有效期”选择（支持 1天、7天、30天及永久有效），并在访问中间件中严格核验有效期。
+  2. **链接真正更新机制**：修复以往更新分享配置时 `share_token` 保持不变的缺陷；每次点击“生成/更新专属分享链接”均生成全新的加密随机令牌（`secrets.token_urlsafe(16)`），确保分享链接地址真正发生改变。
+  3. **主动删除作废能力**：提供 `/banquet/<banquet_id>/share/delete` 接口与“删除/作废此分享链接”操作，支持随时注销已有外链。
+  4. **全链路异步无感交互**：分享链接的生成、更新与删除全程采用 AJAX/Fetch 异步通信，直接停留在当前弹窗内更新链接、预览地址与反馈状态，杜绝整页强制刷新。
+* **决策理由**：满足亲友协助记账或查账场景下的时效性与安全性诉求，提升分享管理的安全可控性与 UI 交互流畅度。
+
+### ADR-24: 企业微信长连接机器人凭证多级防御与真实连接校验架构决策
+* **决策结论**：
+  1. **前置凭证规则防御**：在添加与编辑长连接通知通道时，强制调用 `validate_wecom_credentials`，严格校验 `bot_id` 与 `bot_secret` 长度规范（至少8位），拦截测试/占位/非法字段，非法凭证直接在保存阶段拦截驳回。
+  2. **严禁吞噬报错伪装成功**：彻底修正测试通知响应处理逻辑中 `if (data.code === 200 || data.success)` 导致的假成功漏洞，重构为严格检查 `data.success`。
+  3. **底层投递协议校验**：在投递与测试接口中严格解析微信平台返回的 JSON 状态码（必须 `errcode == 0`）；若发生网络超时、不可达或凭证失效，明确反馈 HTTP 400/502 及真实错误原因，杜绝在凭证配置错误时显示连接成功。
+* **决策理由**：保障 Webhook 与长连接消息推送通道的真实可靠性，帮助管理员在配置阶段第一时间发现网络故障或凭证错漏。
+
+### ADR-25: 全系统业务菜单数据权限级别 1（仅查看）全只读闭环架构决策
+* **决策结论**：
+  1. **重构权限裁决核心**：全面修正 `can_user_edit_entity` 与 `can_user_delete_entity`。确立“级别 1（仅查看他人数据）为全局绝对全只读模式”：凡菜单权限为级别 1 的用户，严禁修改或删除任何数据（包括自身创建的实体），彻底消除以往因自身实体 `user_id == current_user.id` 直接放行导致的越权修改与删除漏洞。
+  2. **级别 2 禁删约束**：级别 2（查看+修改他人数据）用户仅允许修改数据，严禁执行删除操作。
+  3. **全模块后端硬拦截**：在专属宴席（创建/同步/快速录入/编辑/删除/引入/移出/分享）、纪念日备忘（添加/编辑/删除/批量删除/推送）、数据回收站（还原/彻底删除/批量操作/清空）、礼金账本（新增/导入/批量删除）全量接口中嵌入菜单权限前置校验，权限不足直接返回 403 或拦截提示。
+  4. **前端视图自适应只读呈现**：各页面根据用户对当前菜单的独立权限级别，动态隐蔽/禁用新增、编辑、删除、清空等操作入口，数据行操作列统一展示“只读”徽章，页面顶部显著呈现“仅查看模式”提示。
+* **决策理由**：确保管理员配置的菜单独立数据权限在各功能模块中 100% 真实生效，杜绝只读用户能够删除或修改数据的严重安全隐患。
+
+
+### ADR-26: 专属宴席台账防死循环复活机制与多维批量删除架构决策
+* **决策结论**：
+  1. **杜绝删除后自动复活**：全面重构 `sync_banquets_from_ledger` 同步逻辑。以往实现仅匹配未删除的宴席账本，导致用户软删除某事由/年份的台账后，每次页面访问或后台同步又从礼金账本现有数据中重复生成同名同类型大账本，造成“删除成功但刷新又出现”的假象。现重构为检测到该事由曾存在软删除记录时，绝不再重复自动新建，彻底根除死循环复活。
+  2. **宴席总览支持查询、筛选与全选/批量删除**：在 `banquets.html` 页面增设综合查询与筛选栏（支持名称/地点/备注关键词搜索、宴席类型筛选、盈亏状态筛选、多维度排序与重置），并引入全选/反选/多选批量删除工具栏，支持通过 `/banquets/batch_delete` 一键将选中宴席大账本移入回收站。
+  3. **宴席明细支持分页、筛选与批量回收/移出**：在 `banquet_detail.html` 页面增设明细搜索过滤栏与客户端分页组件（默认每页10条，支持切换20/50/全部）；提供全选/多选工具条，支持批量移入回收站（`/banquet/<id>/records/batch_delete`）及批量移出此宴席（`/banquet/<id>/records/batch_unlink`）；同时将行内单笔删除路由精准定向为 `/banquet/<id>/record/delete/<id>`，确保删除后页面平稳停留在当前宴席详情中。
+* **决策理由**：理顺台账生命周期，彻底修复软删除失效与重复复活问题，同时补全大账本在大规模收礼场景下的批量管理、快速检索与精细化分页交互能力。
+
+### ADR-27: 企业微信智能机器人官方长连接（WebSocket openws）协议对齐与会话绑定架构决策
+* **决策结论**：
+  1. **协议层无缝对齐官方标准**：查明企业微信客户端中“智能机器人（API长连接模式）”的底层通信协议并非通用 HTTP POST，而是企微官方专属 WebSocket 双向长连接（`wss://openws.work.weixin.qq.com`）。系统底层改用基于 `websocket-client` 的握手协议与 `aibot_subscribe` 认证帧，使用 Bot ID 与 Secret 成功完成官方握手验证。
+  2. **会话 ID (chatid) 智能捕获与持久化绑定**：企业微信机器人在群聊中推送消息必须提供具体的目标会话标识 `chatid`。为此，前端 Webhook 配置新增可选 `chatid` 字段；同时系统在后台启动常驻长连接守护监听线程（`start_wecom_long_connection_listener`），在企微群内首次有人 `@机器人` 时，自动捕获群聊 `chatid` 并持久化更新至数据库，完成全自动会话绑定。
+  3. **推送反馈透明化与真实异常提示**：杜绝虚假成功回显。长连接模式下若尚未配置且未捕获到 `chatid`，测试与推送接口明确返回友好指导提示（“已完成长连接认证，请在企微群内 @机器人 一次即可自动绑定会话”），避免用户误以为推送失败或配置异常。
+* **决策理由**：从协议本质解决企业微信智能机器人对接失败及推送无回显的问题，实现了兼具免公网端口、高安全性与全自动群聊会话绑定的现代化机器人通知架构。
+
+
+### ADR-28: 企业微信智能机器人官方 SDK (wecom-aibot-python-sdk) 架构重构决策
+* **决策结论**：
+  1. **全栈接入官方 Python SDK**：全面废弃自定义裸 WebSocket 实现，正式接入企业微信官方发布的 `wecom-aibot-python-sdk`（对标官方标准 `aiobot_subscribe`、`aiobot_send_msg` 协议规范）。
+  2. **凭证核验与连接保活标准化**：在凭证校验（`validate_wecom_credentials`）与测试（`test_wecom_long_connection`）中直接实例化 `WSClient` 与 `WSClientOptions`，通过官方握手验证；在后台由官方客户端托管心跳（`ping/pong`）与断线自动重连机制。
+  3. **主动推送与会话绑定闭环**：通过 `client.send_message(chatid=..., body={"msgtype": "markdown", ...})` 标准 API 主动投递 Markdown 通知；当企微群内成员 @机器人 或产生事件时，通过 `@client.on('message')` 和 `@client.on('event')` 智能捕获 `chatid` 并持久化入库，杜绝假成功与无消息问题。
+* **决策理由**：官方 SDK 具备完善的握手、加密、心跳、串行队列及异常回执状态解析，能够与腾讯企业微信云端服务器保持 100% 协议一致性，彻底消除长连接通信中的不可预测性异常。
+
+### ADR-29: 专属宴席与台账明细双视图（卡片/表格）检索筛选与全生命周期批量操作架构决策
+* **决策结论**：
+  1. **宴席总览支持【卡片 / 表格】双模式一键切换**：在 `banquets.html` 页面提供综合查询筛选工具栏（关键词搜索、类型筛选、盈亏筛选、多维排序与重置），并提供视图切换组件，支持卡片瀑布流与表格数据列表双向无缝切换。
+  2. **批量操作与单选删除常驻可见化**：全选复选框（`#selectAllBanquets`）与批量移入回收站按钮（`#btnBatchDeleteBanquets`）常驻渲染，未选中时呈禁用态（带有选中数量提示），选中后高亮可点；卡片与表格各行均配有显式【删除】按钮与大复选框，满足单选、多选、全选删除诉求。
+  3. **专属台账收礼明细精细化管理**：在 `banquet_detail.html` 专属台账明细页提供关键词搜索、金额区间段筛选、排序、每页条数（10/20/50/全部）与客户端分页组件；批量移入回收站（`/records/batch_delete`）与批量移出（`/records/batch_unlink`）按钮常驻显示，行内配备定向删除（`/record/delete/<id>`），删除后稳定停留在当前台账页面。
+* **决策理由**：消除旧版本中批量按钮在无勾选时完全隐藏带来的功能缺失误解，满足用户对大规模收礼台账的快速排查、条件过滤与批量归整诉求。
+
+
+### ADR-30: 亲友纪念日到达提醒天数自动巡检推送与即时预警触发机制架构设计
+* **决策背景**：
+  原系统在用户新增纪念日且处于预警期，或系统随时间推移纪念日到达预警天数时，未自动向 Webhook 发送通知。主要根因包括：后台自动巡检调度器初始化时放置于函数外部导致变量未绑定异常未能常驻运行；以及新增/修改时未调用到期预警触发。
+* **架构方案**：
+  1. **常驻守护线程初始化绑定**：将 `start_anniversary_reminder_scheduler(app)` 统一纳入 `register_routes_ext` 启动生命周期，创建常驻后台 daemon 线程 `_anniversary_reminder_worker`，在应用启动 3 秒后即时执行首轮巡检，随后以 60 秒为周期轮询全局未删除且已激活的纪念日。
+  2. **智能到期判定与防刷屏机制**：通过 `parse_target_date_obj` 准确解析公历/农历纪念日的本年或次年最近公历日期并计算剩余天数 `days_left`。当满足 `0 <= days_left <= advance_days` 时入选预警队列。定时巡检时比对当天已成功投递的 `WebhookLog` 记录，杜绝同一纪念日在同一天内重复推送到群内刷屏。
+  3. **新增/编辑纪念日即时触发**：在 `reminders_view`（新增）与 `reminder_edit`（编辑）的 POST 流程中，入库成功后即时触发 `check_and_trigger_due_reminders(current_app._get_current_object(), specific_reminder=rem)`，若当前已处于预警期内立即触发通知并向前端反馈成功状态。
+* **架构成效**：彻底解决了纪念日备忘到达预警天数未自动推送的问题，形成了“后台常驻周期巡检 + 新增/编辑即时预警触发”的双轨高可靠提醒机制。
+
+### ADR-31: 亲友纪念日自定义手动推送提醒（多频次/自定义间隔）与菜单权限联动架构设计
+* **决策背景**：
+  用户在重要宴请或节日前夕，需要对指定单条或多条亲友纪念日发起主动催促或强化提醒，支持自定义推送次数（1~5 次）、自定义间隔时长（0~300 秒）及附带发起人特别说明，并要求与全局菜单独立权限（特别是仅查看权限）严格关联。
+* **架构方案**：
+  1. **全局菜单权限严格校验**：在 `/api/reminders/custom_push` 接口中，首先通过 `current_user.can_view_menu('reminders')` 校验菜单访问权，其次通过 `current_user.get_menu_perm('reminders')` 校验数据操作权限。若权限级别为 1（仅查看他人数据/只读），立即返回 HTTP 403 阻断手动推送操作；同时基于 `get_accessible_reminders_query` 严格限制用户只能推送其有权访问的数据范围。
+  2. **异步后台多频次任务调度**：支持 `repeat_count`（1~5 次）与 `interval_seconds`（0~300 秒）。对于单次即时推送立即执行，对于多次定时任务在 `threading.Thread` 中配合 `app.app_context()` 队列循环调度，保证大流量或高频次提醒不阻塞主线程。
+  3. **前端多选/单选与参数弹窗交互**：重构 `templates/reminders.html` 模板，修复此前因语法与 Block 嵌套导致的脚本未执行问题；在表格每行配备「发起推送」按钮，工具栏配备「批量推送选中提醒」按钮与全选框；点击弹出高定制化 `#pushSettingsModal` 模态窗，动态渲染待推送徽章清单、次数下拉、间隔下拉、附言输入框以及实时消息渲染卡片。
+* **架构成效**：赋予用户精细化、高可控的手动推送调度能力，并与系统细粒度权限控制机制形成严格联动，兼顾灵活性与安全性。
+
+### ADR-32: Webhook 提醒内容全要素结构化与消灭【其它】模糊提示的通知优化设计
+* **决策背景**：
+  此前推送通知内容过于简略，在分类为“其它”时直接显示无意义的【其它】标签，且缺失目标日期、倒计时、预警提前天数、备忘说明以及联系电话等关键信息，无法满足企微、钉钉、飞书等协同平台的通知诉求。
+* **架构方案**：
+  1. **智能事由提炼（彻底消灭【其它】）**：在 `format_reminder_notification_content` 中，当纪念日类型为“其它”时，优先自动提取 `notes`（如“购买小米新车”）作为具体事件名称，展示为 `【购买小米新车】`；若分类为“生日”或其它且填写了补充备忘，展示为 `【生日 (公司开业)】`；确保通知标题与正文 100% 精确反映具体事由。
+  2. **全要素结构化 Markdown 与纯文本排版**：对每一条纪念日，全量展示亲友姓名、关系标签、具体事件名称、倒计时状态（使用 `<font color="warning">` 高亮）、目标日期、下次公历日期、提前预警设置、备忘说明、联系电话以及发起人特别附言；并在纯文本行摘要中同样输出完整要素。
+  3. **跨平台 Webhook 规范适配**：优化 `trigger_webhook_event` 逻辑，杜绝标题多层中括号重复嵌套；针对企业微信机器人 Markdown、飞书多行文本换行、PushPlus HTML `<br>` 换行及钉钉 Markdown 进行标准化格式适配，保证各平台展示一致且视觉体验良好。
+* **架构成效**：推送通知从原本单调模糊的简短文本升级为全要素、高辨识度的结构化富文本卡片，极大提升了亲友纪念日提醒的实用性与可读性。
+
+
+
+### ADR-33: Webhook 多通知通道按需指定推送、标准回调群会话持久化与专属宴席全链路交付架构设计
+* **决策背景**：
+  为满足用户多机器人协同办公需求，当系统配置了多个 Webhook 通道（如企微群A、企微群B、钉钉等）时，用户在手动推送亲友纪念日时需要能够自由指定推送到具体某一个或某几个通道；同时解决企微标准 Webhook 模式下在群内 @机器人 多次仍未更新 chatid 的缺陷，并彻底解决专属宴席台账页面查询筛选、批量删除、用户标识展示及同步恢复逻辑。
+* **架构方案**：
+  1. **Webhook 多通知通道按需指定推送**：
+     - 在 `reminders_view` 视图中向前端回传所有已启用的 `available_webhooks` 通道列表；
+     - 在 `templates/reminders.html` 的 `#pushSettingsModal` 模态窗中新增多通道复选组件，展示通道名称、连接模式（长连接/标准Webhook）及状态，支持一键“全选”与“清空”；
+     - 在前端 `executeCustomPush` 中校验至少选中一个通道，并将 `webhook_ids` 提交至后端接口 `/api/reminders/custom_push`；
+     - 后端根据指定的 `webhook_ids` 过滤目标机器人，并严格进行菜单权限校验（非只读权限方可发起），推送成功后在响应中反馈具体送达的通道名称；实时预览卡片同步呈现目标通道名称。
+  2. **企业微信标准回调群会话（chatid）捕获、动态替换与群内自动响应**：
+     - 修复 `routes_ext.py` 中的 `wecom_http_callback`：针对已含有旧 chatid 的通道，采用正则动态替换最新捕获的 `chatid`，彻底修复因 `'chatid=' not in wh.webhook_url` 判断导致的多次 @机器人 无法更新会话 ID 的缺陷；
+     - 在 `app.py` 中对根路径 `/` 的 WeCom 回调请求免除 CSRF 检查与登录拦截，自动分发给 `wecom_http_callback` 处理；
+     - 增加群内即时响应：当收到企微群内 XML 消息时，自动返回带有绑定确认文案的 XML 消息，使机器人在群内立即回复：“【人情礼金记账系统】已成功捕获并绑定本群聊会话(chatid: xxx)！后续重要纪念日与记账提醒将自动推送到本群”，形成用户可见的即时闭环；
+     - 规范标准 Webhook 投递：企微标准群机器人 URL 直接通过 POST 发送，不以 chatid 为前置阻断条件；对填入本系统回调地址的误操作给出清晰友好引导。
+  3. **专属宴席台账全要素闭环与来源标识**：
+     - 在 `templates/banquets.html` 中提供卡片/表格双视图无缝切换、模糊搜索、宴席分类筛选、盈亏状态筛选、多维排序以及单选/多选/全选批量移入回收站；
+     - 在每张台账卡片与数据表格中显式渲染来源用户标识：“自动创建 (基于用户: xxx 的收礼数据)”或“手动创建 (创建人: xxx)”；
+     - 完善 `sync_banquets_from_ledger` 手动同步恢复逻辑（`force_restore=True`），当用户显式点击「从礼金账本同步数据」时，可靠重新归集已删除但礼金账本中仍有明细的专属台账。
+  4. **全选复选框与批量操作双向联动修复**：
+     - 修复纪念日备忘页面 `#selectAllReminders` 全选复选框点击不生效问题，完善主复选框与行复选框的双向事件同步机制（支持 checked 与 indeterminate 状态），并动态刷新「批量推送选中提醒 (N)」与「批量删除选中项 (N)」按钮上的计数展示。
+* **架构成效**：
+  实现了 Webhook 多通道精准分发、企微群聊会话全自动捕获闭环、纪念日备忘精细化调度与专属宴席全链路交付，系统在复杂权限与多通道环境下的鲁棒性达到生产级标准。
+
+### ADR-34: Webhook 推送日志多维生命周期治理、专属宴席一键同步复原与来源标识穿透、纪念日事件要素完整化交付
+* **决策背景**：
+  在实际生产与日常使用中，需要进一步增强 Webhook 推送审计透明度、专属宴席与礼金账本双向同调确定性，以及纪念日提醒的精准识别与交互体验：
+  1. Webhook 推送日志量逐步累积，缺乏即时检索、分类筛选与批量治理能力，且需要默认每页 10 条的分页展示；
+  2. 专属宴席在被用户移入回收站后，点击“从礼金账本同步数据”应当能够响应用户的主动诉求直接复原对应专属台账，免去先去回收站手动还原或清空的繁琐步骤；且台账需准确标明是由哪位用户在礼金账本生成的数据自动创建，或由哪位用户手动创建；
+  3. 亲友纪念日到达提醒天数后后台调度守护需可靠运行；全选复选框事件机制需防多重绑定抖动；手动多通道定向推送需严格结合菜单权限分控；推送通知消除【其它】模糊描述，全要素展现。
+* **架构方案**：
+  1. **Webhook 最新推送日志模块全面增强**：
+     - 在 `templates/admin_webhooks.html` 中提供关键词实时搜索（通道ID、响应摘要、负载内容）、事件类型筛选（测试通知、新增记账、删除记账、纪念日到期、站内广播、企微会话捕获）、状态筛选（成功/失败）；
+     - 支持单条删除、多选/全选批量删除、清空全部日志，与后端 `/admin/webhook/logs/delete/<id>`、`/admin/webhook/logs/batch_delete`、`/admin/webhook/logs/clear` 紧密联动；
+     - 默认以 10 条/页进行分页呈现，支持用户灵活调整每页条数（10、20、50、100 或全部）。
+  2. **专属宴席“从礼金账本同步数据”可靠复原与用户来源标识穿透**：
+     - 优化 `sync_banquets_from_ledger`：在 `force_restore=True`（即用户显式点击【从礼金账本同步数据】）时，若回收站中存在与有效收礼明细匹配的台账，系统自动将其从回收站复原（置 `deleted_at = None`），无需用户先去回收站手动操作；
+     - 在普通只读访问时，杜绝将收礼记录误挂到已软删除的台账上；
+     - 在卡片视图与表格视图中，统一显式渲染精准的用户标识：自动同步展示为`自动同步（由用户: xxx 在礼金账本生成的数据自动创建）`，手动创建展示为`手动创建（创建人: xxx）`。
+  3. **亲友纪念日备忘全选机制加固与多通道精准推送**：
+     - 彻底解耦 `selectAllReminders` 的事件监听，杜绝 click/change 重复绑定的抖动与反向同步 Bug；
+     - `check_and_trigger_due_reminders` 后台线程常驻守护与新增/编辑时即时预警双轮驱动；
+     - 手动推送支持按需勾选多个目标通知通道、自定义推送次数（1~5次）与间隔时长（0~300秒），并在推送前严格校验 `reminders` 菜单权限；
+     - 推送文案全要素结构化：消除【其它】，准确提取事件真实事由、倒计时、公历日期、提前天数、备忘与联系电话。
+* **架构成效**：
+  构建了闭环、可审计、高可用的 Webhook 日志生命周期与专属台账联动机制，全面提升了系统的交互流畅性与数据一致性。
+
+### ADR-35: Webhook/WebDAV 底层连接池加固、官方 aibot SDK 接入、WebDAV 密码明文显隐与纪念日可编辑多轮推送加固
+
+* **决策背景**：
+  1. **Webhook 偶发超时与 WebDAV WinError 10013 报错**：早期底层使用标准库 `urllib.request` 进行网络请求，在 Windows 某些沙盒/令牌或连接池复用场景下会抛出 `[WinError 10013]`（以一种访问权限不允许的方式做了一个访问套接字的尝试）或目标连接超时；且长连接认证依赖腾讯官方最新企业微信机器人 SDK `wecom-aibot-python-sdk`（`aibot` 模块）。
+  2. **WebDAV 密码显示体验**：密码输入框默认显示掩码圆点（••••），用户在核对复杂授权码时极易出错，缺乏明文/密文一键切换查看眼睛图标。
+  3. **纪念日推送与阈值检测**：
+     - 多轮定时推送设置了提醒次数与间隔后，因异步执行逻辑中未导入底层发送函数而在后台静默异常；
+     - 消息预览框为不可编辑的只读容器，有权限的用户无法在推送前按需微调附言或文案；
+     - 到达提醒天数阈值时，后台巡检需与手动测试推送隔离，确保自动提醒准时主动发出。
+
+* **架构方案**：
+  1. **底层网络协议栈升级（requests 连接池 + SSL 宽容性）**：
+     - 将 `webdav_utils.py` 与 `webhook_utils.py` 的底层网络通信全面重构升级为 `requests.Session()`；
+     - 配置连接池与自动重试机制，对企业内网或自签名证书设置 `verify=False` 与 12 秒稳健超时，彻底消除了旧版 `urllib.request` 的套接字异常。
+  2. **官方 `wecom-aibot-python-sdk` 深度集成与多通道自动捕获**：
+     - 引入官方 `aibot` SDK（`WSClient`, `WSClientOptions`），长连接验证直连企业微信官方 WebSocket 握手服务器（`wss://openws.work.weixin.qq.com`）；
+     - 当群内用户 @机器人 时，后台常驻守护线程 `_wecom_listener_worker` 不仅自动捕获 `chatid` 并绑定长连接机器人，还会穿透并同步更新绑定的企微标准 Webhook 通道，实现多通道会话共享。
+  3. **WebDAV 密码输入体验优化（眼睛显隐切换）**：
+     - 在 `templates/admin_backups.html` 中移除硬编码掩码占位符，设置清晰的占位提示语；
+     - 增加 `<i class="fa-regular fa-eye">` 眼睛图标切换按钮，绑定 `toggleWebdavPasswordVisibility()`，支持在 `password` 与 `text` 之间无缝切换，便于核对第三方坚果云/群晖 WebDAV 应用授权码。
+  4. **纪念日消息全量可编辑、多轮定时调度与到期自动巡检双轨保障**：
+     - **实时预览与自定义编辑**：在 `templates/reminders.html` 中将预览容器重构为标准 `<textarea id="modalPushPreviewBox">`，针对拥有编辑权限的用户开放自由编辑；配备「重置文案」按钮，可一键复原系统全要素模版；前端将 `custom_content` 打包传递至 `/api/reminders/custom_push`；
+     - **多轮后台定时调度**：修复 `routes_ext.py` 中底层发送函数与长连接函数的导入；多轮推送在守护线程中按设定的间隔时长（`interval_seconds`）稳健循环推送，并在每轮准确记录推送日志；
+     - **阈值到达主动推送**：后台调度守护进程每分钟巡检到达预警天数（`0 <= days_left <= advance_days`）的有效纪念日，使用专用 `auto_reminder` 事件标识记录日志，与日常手动推送日志彻底隔离，确保每天准时向机器人通道自动推送临近提醒。
+
+* **架构成效**：
+  全面消除了套接字权限拒绝与 SDK 依赖隐患，赋予了用户对推送文案的完全控制权与可视化核对体验，构建了稳定可靠的双向通信与自动化预警体系。
+
+### ADR-36: 全链路敏感数据零明文存储与日志深度脱敏架构决策
+
+* **决策背景**：
+  在系统引入企业微信智能机器人长连接、多通道 Webhook 推送、WebDAV 外部云备份以及大账本免密/密码只读共享等高级功能后，系统中承载了大量高敏感度的第三方鉴权凭据（如企业微信机器人 Bot Secret、Webhook 密钥 Token、WebDAV 访问密码、只读分享密码等）。若此类敏感凭据以明文形式存储于 SQLite/PostgreSQL 数据库中，或直接打印于操作日志、Webhook 日志中，一旦数据库文件被意外获取或通过审计日志旁路读取，将造成凭据外泄风险。必须在数据持久化层与日志记录层实现全链路敏感数据强制加密与深度脱敏。
+
+* **架构方案**：
+  1. **敏感业务凭据底层 AES-256-GCM 强加密落盘**：
+     - **Webhook 与机器人凭证**：`WebhookConfig` 中的 `secret_token`（多通道通知密钥）与 `bot_secret`（企业微信长连接机器人密钥）在数据库底层定义为 AES-256-GCM 密文字段（`String(512)`），通过 Python ORM `@property` 机制在业务层实现透明解密与加密，对上层业务完全无缝透明；
+     - **大账本只读共享密码**：`SharedLedgerLink` 中的 `access_password` 同样采用 AES-256-GCM 加密落盘，禁止以纯明文形式存储访问密码；
+     - **平滑兼容旧数据**：解密函数 `decrypt_credential` 扩展 `fallback_plain=True` 参数，当下层数据存在历史遗留明文时，自动平滑兼容回退，避免因版本升级引发已有配置读取失败；
+     - **WebDAV 与用户凭证**：`BackupConfig` 的 WebDAV 密码与 `User` 的安全凭证全面维持 AES-256-GCM 密文存储与单向哈希双轨制。
+  2. **Webhook 与系统日志全递归脱敏机制**：
+     - 在 `webhook_utils.py` 中引入 `_sanitize_log_data()` 递归脱敏函数；
+     - 凡是写入 `webhook_logs` 表的 `payload` 与 `response_body`，均进行递归扫描。若键名包含 `secret`、`token`、`pass`、`key`、`credential`、`auth`、`webhook_url` 等敏感关键词，一律自动替换为 `***MASKED***` 掩码字符串，彻底阻断敏感凭据流入日志持久化存储。
+  3. **多环境数据源动态探测（原生与容器卷适配）**：
+     - 在 `webhook_utils.py` 中新增 `_resolve_db_file()` 动态路径解析逻辑，自适应检测 `/app/data/gift_bookkeeping.db` 容器数据卷与本地开发目录，杜绝因运行环境不同导致写日志失败或写入到孤立数据库文件。
+
+* **架构成效**：
+  达成了“入库即加密、读取自透明、日志全脱敏、显示防泄露”的零明文安全合规标准，全面提升了系统的企业级安全风控等级。
+
+### ADR-37: 权限工单多维治理、Webhook 测试体验重塑、WebDAV 备份范围隔离与一键引用管理员配置
+
+* **决策背景**：
+  在多用户生产运行与安全审计实践中，权限工单、Webhook 测试与 WebDAV 备份体系暴露出三类亟待治理的体验与安全隐患：
+  1. **权限工单治理**：工单列表缺乏排序、分页与统计能力，随着工单累积检索效率低下；无效/历史工单无法清理；
+  2. **Webhook 测试体验**：测试超时长达 12 秒且前端无超时保护，目标通道响应慢时按钮长时间停留“测试中”，形似“无反应”；结果依赖原生 `alert()` 弹窗，阻断交互且信息简陋；
+  3. **WebDAV 备份权限与安全**：普通用户手动备份曾直接复制完整主库（含全部用户数据与 19 张全局敏感表），存在越权泄露与凭据旁路读取风险；加密密码回显逻辑不明确；管理员创建的定时任务对普通用户可被误操作；普通用户需逐项手工填写管理员的 WebDAV 服务器配置，体验繁琐。
+* **架构方案**：
+  1. **权限工单多维治理**（`routes_ext.py` + `templates/permission_tickets.html`）：
+     - 后端新增 `sort`（created_at/updated_at/status）、`order`（asc/desc）URL 参数驱动列表排序，`query.paginate()` 实现分页（默认 10 条/页，可选 5/10/20/50/100）；
+     - 新增 `POST /permission_tickets/<id>/delete` 路由，仅管理员可删除工单（带二次确认），删除动作写入 `safe_log` 审计并联动 Webhook 推送；
+     - 筛选器补充“已撤销”状态；列表卡片顶部增加“共 N 条 / 当前第 X 页”统计信息。
+  2. **Webhook 测试体验重塑**：
+     - 后端 `test_single_webhook` 超时 12s → 5s；前端 fetch 增加 `AbortController` 10 秒超时熔断；
+     - 测试结果以 toast 替代原生 `alert()`（成功绿色含状态码 / 失败红色含错误详情），按钮点击即 loading（禁用 + 转圈），5 秒自动淡出。
+  3. **WebDAV 备份范围隔离（方案 B）与权限加固**：
+     - `build_user_scoped_backup_db`：临时库中仅保留本人 `gift_records`/`banquets`/`anniversary_reminders` 三张业务表数据，DROP 19 张全局敏感表（users/backup_configs/webhook_configs 等），恢复后由 `init_database()` 自动补建；
+     - 加密密码回显规则明确：仅当未勾选“清除已保存的加密密码”时回显明文，勾选即置空；
+     - 定时任务按钮按 `can_operate = is_admin or created_by == current_user.id` 置灰（编辑/删除/启停），执行历史保持可查看；
+     - WebDAV 备份列表权限隔离：普通用户只能操作自己创建的备份文件，admin 创建的备份恢复按钮 disabled；
+     - 新增 `GET /admin/backups/reference_admin_config` 去敏接口，普通用户一键引用管理员 WebDAV 服务器地址/账号/子目录（密码不返回），支持一键更新。
+* **架构成效**：
+  工单治理形成“排序-筛选-分页-删除-审计”闭环，Webhook 测试实现“快超时-强反馈-可观测”，备份体系达成“普通用户零全局表、零越权、零凭据泄露”的隔离标准，并大幅降低普通用户配置门槛。
+
+### ADR-38: 普通用户备份恢复崩溃根治、WAL 一致性快照与别称化服务端密文引用
+
+* **决策背景**：
+  V8 落地的“过滤库”备份隔离机制在恢复链路上暴露出系统性缺陷，同时例行安全审计发现两个隐藏 Bug：
+  1. **致命崩溃（P0）**：普通用户备份是“过滤库”（19 张全局表被 DROP、仅含本人三张业务表），但恢复流程却沿用**文件级替换**直接覆盖主库 → `users` 表等核心表全部丢失 → 全站 500 崩溃。V8 的隔离机制与 V4 的文件级恢复假设相互冲突，必须按身份分流恢复策略；
+  2. **database is locked（P1）**：数据级合并方案首版在 `DETACH` 与 `commit` 顺序上与 SQLite 事务语义相悖（不允许 DETACH 存在未提交事务的数据库），合并必报锁错误；
+  3. **WAL 备份丢数据（P1）**：`build_user_scoped_backup_db` 使用 `shutil.copy2` 复制主库文件，但主库为 WAL 模式，最新写入位于 `-wal` 文件未落盘，复制得到的是过时快照——用户最新记账数据会从备份中静默丢失；
+  4. **一键引用泄露隐患（P1）**：V8 一键引用将管理员 WebDAV URL/账号填充至普通用户页面表单，密码虽留空但地址与账号依然可见，不满足“敏感信息一律不可见”标准。
+* **架构方案**：
+  1. **按身份分流的恢复策略（核心决策）**：
+     - **普通用户**：恢复改为**数据级合并**——`merge_user_scoped_backup()` 使用 `ATTACH DATABASE` 在单一 sqlite3 连接内完成跨库合并：删除主库中本人旧数据 → 备份中本人数据（防御性校验 user_id）列对齐插入，全程不触碰全局表与其他用户数据；
+     - **管理员 / can_view_others_for('ledger')**：保持原文件级替换 + WAL 清理 + `init_database()` 重建；
+     - 两个恢复入口（本地 .db 上传恢复、WebDAV 云端恢复）均含 `PRAGMA integrity_check` 预校验。
+  2. **锁错误根治**：合并函数调整为 `commit → DETACH` 顺序；合并连接设置 `PRAGMA busy_timeout = 8000`；恢复路由调用合并前先 `db.session.commit()`（落盘请求内未提交事务）+ `db.engine.dispose()`（释放连接池），函数内兜底提交 Flask-SQLAlchemy session。
+  3. **WAL 一致性快照**：`build_user_scoped_backup_db()` 放弃 `shutil.copy2`，改用 SQLite 在线备份 API（`Connection.backup()`），确保备份快照包含 `-wal` 文件中未落盘的最新数据。
+  4. **别称化服务端密文引用**：
+     - `BackupConfig` 新增 `config_alias`（配置别称，String(100)）与 `adopted_from_admin`（引用标记，Boolean）字段，`app.py` migration_sqls 追加对应 ALTER TABLE；
+     - 引用交互重构为两步：`GET reference_admin_config` 仅返回 `config_alias`/`has_password`/`adopted`（地址/账号/子目录/密码一概不返回）；`POST adopt_admin_config` 由服务端直读管理员配置、密文直传 `webdav_password`（全程不经前端），并复制 URL/账号/子目录、置 `adopted_from_admin=True`；
+     - 普通用户页面双状态 UI：已引用 → 仅显示绿色状态卡片（别称 + 安全说明）+「一键更新」/「停用引用，自行配置」；未引用 → 原表单 +「一键采用管理员配置」；
+     - 普通用户手动保存自己的配置时自动清除引用标记（视为脱离引用）；停用引用需二次确认。
+* **架构成效**：
+  彻底根治了“隔离机制与文件级恢复”的架构冲突，普通用户恢复链路从“必然崩溃”转为“安全合并不越界”；备份快照实现 WAL 一致性保证（不再丢失最新记账）；一键引用达成“普通用户全程只可见别称，地址/账号/密码零暴露”的最高安全标准。
+
+## 8. 调研总结与重构交付状态
+
+截至当前版本，系统已全面贯彻本调研报告中所确立的技术决策与架构规范：
+1. 礼金记账、专属宴席、人情对账、纪念日备忘及全系统回收站均已完成全链路联调与防御加固；
+2. 权限体系、注册准入、凭证隔离及异步容灾机制已在生产代码中完全落地；
+3. 本地服务已配置就绪，可随时对外提供高可用、安全的记账与人情对账服务。
 
 ---
 
-### 决策点 5：Session 与风控状态的存储介质
-- **背景与矛盾**：登录防暴力破解尝试计数、密保锁定及 `APP_START_TIME` 全局时间戳目前保存在单机进程内存字典中，导致 Worker 重启或多副本调度时会话撕裂。
-- **备选方案**：
-  - **选项 A（轻量方案 - 全面落地数据库持久化）**：废弃内存字典，完全基于已有的 `LoginRisk`、`SecurityRisk` 数据表记录防刷状态与锁定过期时间；将服务端重启时间戳作为系统全局参数写入 `SystemSetting` 表。
-  - **选项 B（推荐生产 - 引入 Redis 缓存容器）**：在 Compose 中引入 Redis 服务，用于处理 Session 会话管理、验证码缓存、登录风控计数及后续后台任务队列。
-  - **选项 C（纯客户端 Signed Cookie）**：仅保留 Flask 客户端 Cookie Session，放弃服务端强退所有用户的依赖机制，风控依赖标准客户端 IP 频率限制。
-
----
-
-### 决策点 6：后台定时任务（日常自动备份与纪念日）的执行机制
-- **背景与矛盾**：数据库配置了 `auto_backup_daily`，但应用内缺乏实际触发调度器，定时备份未生效。
-- **备选方案**：
-  - **选项 A（推荐 - 容器内集成 APScheduler 调度器）**：在应用启动时启动基于 Python 的 `APScheduler` 单例后台线程，每天定时扫描纪念日并执行 WebDAV 数据库备份。
-  - **选项 B（解耦 - 独立 Cron 调度容器）**：在 Compose 中增加一个专用的 `cron` 调度容器，定期通过 `curl http://web:11443/internal/tasks/auto-backup` 触发定时接口。
-  - **选项 C（生产级 - Celery + Celery Beat）**：若系统需承载大量 Webhook 异步推送与定时分析，引入 Celery + Redis 构建标准分布式任务体系。
-
----
-
-### 决策点 7：数据备份与灾备恢复技术路线
-- **背景与矛盾**：当前依赖应用层内置的 Python WebDAV 客户端将 SQLite 文件上传云端，且校验中关闭了 SSL 证书校验。
-- **备选方案**：
-  - **选项 A（保留 WebDAV 但加固）**：修复 WebDAV 客户端的 SSL 证书校验逻辑，支持通过配置 CA 根证书保障传输安全，并保持轻量简易的云盘备份模式。
-  - **选项 B（推荐 - S3 兼容对象存储驱动）**：引入标准 S3 协议支持（阿里云 OSS、腾讯云 COS、MinIO、AWS S3），提供行业标准的分块上传与版本控制能力。
-  - **选项 C（基础设施层冷备）**：废弃业务代码内的备份模块，交由基础设施层（如 Restic、BorgBackup 或宿主机 Volume 快照）负责数据容灾。
-
----
-
-### 决策点 8：TLS / SSL 证书生命周期管理方案
-- **背景与矛盾**：目前每次执行 `run.sh` 都会调用 Python 生成自签名的 SSL 证书，导致浏览器持续弹出证书不安全警告，难以用于正式生产。
-- **备选方案**：
-  - **选项 A（推荐 - 容器化 Certbot 自动续签）**：在 Compose 中集成 `certbot/certbot`，与 Nginx 容器协同实现 Let's Encrypt 免费商业级 SSL 证书的自动化申请与每 60 天无感热续签。
-  - **选项 B（外部接入反向代理管理器）**：本项目仅对外暴露纯 HTTP 接口，由集群前置的 Nginx Proxy Manager / Traefik / 宝塔面板统一托管域名与 SSL 证书。
-  - **选项 C（支持用户上传自定义生产证书）**：规范固定目录挂载（如 `./ssl/fullchain.pem` 与 `./ssl/privkey.pem`），不再默认覆写自签名证书，仅在缺失时提示。
-
----
-
-### 决策点 9：容器内运行身份与权限降级策略
-- **背景与矛盾**：当前容器默认使用 UID 0 的 root 用户运行，存在潜在的安全合规与逃逸风险。
-- **备选方案**：
-  - **选项 A（推荐 - 降级为非特权用户）**：在 Dockerfile 中预创建 UID 为 10001 的 `appuser` 系统用户，将 `/app` 及挂载数据卷目录的所有权分配给该用户，并显式指定 `USER 10001`。
-  - **选项 B（临时特权转让 - gosu / entrypoint）**：使用专用的 `entrypoint.sh` 脚本以 root 初始化挂载卷目录权限，完成后使用 `gosu appuser gunicorn ...` 降权执行应用主进程。
-  - **选项 C（维持现状并加强外部隔离）**：继续以 root 运行，但必须在 Compose 中严格配置 `read_only: true`（只读根文件系统）与 `cap_drop: [ALL]` 丢弃全部 Linux 敏感特权。
-
----
-
-### 决策点 10：容器健康探测与故障自愈策略
-- **背景与矛盾**：缺乏 HEALTHCHECK 与探活路由，无法配合 Docker/K8s 实现进程崩溃或数据库死锁的自愈重启。
-- **备选方案**：
-  - **选项 A（推荐 - 轻量专属探活路由）**：在 Flask 中开放不受 Session 与 CSRF 影响的 `/healthz` 路由，内部执行快速只读测试（如 `SELECT 1`），在 Dockerfile 中配置 `HEALTHCHECK CMD curl -f http://localhost:11443/healthz || exit 1`。
-  - **选项 B（纯 TCP 端口检查）**：配置简单的基于 TCP 端口联通性探测（无需修改应用代码，开销极低，但无法检测假死状态）。
-  - **选项 C（Gunicorn 内部心跳监控）**：依赖 Gunicorn 自身的 `--timeout=30` worker 心跳监控机制，不依赖外部容器级探测。
-
----
-
-### 决策点 11：多环境配置管理（Dev / Staging / Prod）分层规范
-- **背景与矛盾**：单一 Compose 文件混杂开发与生产假设，无法优雅适配本地研发热重载与线上安全加固。
-- **备选方案**：
-  - **选项 A（推荐 - Compose 继承与覆盖机制）**：
-    - `docker-compose.yml`（通用基础定义）
-    - `docker-compose.override.yml`（开发专用：挂载本地源码目录、开启代码修改热重载、暴露调试端口）
-    - `docker-compose.prod.yml`（生产专用：锁定资源限额、日志轮转、绑定回环接口、安全头强化）
-  - **选项 B（纯环境变量驱动）**：保持单一 Compose 文件，所有关键开关（调试模式、Worker 数、挂载路径、端口）均抽象为严格由 `.env` 控制的变量。
-  - **选项 C（云原生 Kustomize / Helm）**：直接放弃 Docker Compose 复杂方案，面向 Kubernetes 提供分环境的 Kustomize Overlay 配置。
-
----
-
-### 决策点 12：运维可观测性与日志收集技术栈集成
-- **背景与矛盾**：无日志轮转配置面临磁盘爆满威胁，缺少指标输出接口使系统成为监控黑盒。
-- **备选方案**：
-  - **选项 A（推荐实用型 - Docker 本地轮转 + 结构化日志）**：在 Compose 中为所有容器配置 `json-file` 的 `max-size: "50m"` 和 `max-file: "5"` 轮转；Python 内部集成 `python-json-logger`，使日志规范化输出为 JSON 格式便于排查。
-  - **选项 B（云原生可观测体系）**：引入 `prometheus-flask-exporter` 暴露 `/metrics` 接口，使用 Promtail + Loki + Grafana 进行全站日志与度量集中监控看板建设。
-  - **选项 C（外部集中式 Syslog / ELK）**：将 Docker 日志驱动切换为 `syslog` 或 `fluentd`，直接将所有容器日志外送至企业统一日志平台。
-
----
-
-## 报告结论与专家建议行动项（Roadmap）
-
-本项目业务功能完备、领域模型清晰，具备良好的实用价值；但在容器化演进过程中，呈现出“业务先行、运维滞后、半容器化折中”的典型特征。
-
-**专家建议第一阶段立即执行（Hotfix，1-2个工作日）**：
-1. **补齐 `.dockerignore`**，将 `.git`、`*.db` 等敏感文件从镜像构建上下文中剔除；
-2. **将 Compose 端口映射修正为 `127.0.0.1:${HOST_PORT:-15000}:${PORT:-11443}`**，封死明文旁路访问隐患；
-3. **恢复 `app.py` 中 SQLite 的 WAL 模式与繁忙等待参数**，修复 4 Workers 模式下的并发写锁死崩溃；
-4. **移除服务重启时强制覆写管理员密码的代码逻辑**，确保运维管理一致性；
-5. **在 Compose 中加入 `logging` 轮转策略**，防止服务器磁盘被容器日志撑爆。
-
-**专家建议第二阶段系统重构（Refactoring，1-2周）**：
-1. 理顺 Nginx 容器化方案，消除对宿主机 Nginx 与宿主机 Python 环境的绝对依赖，实现“纯容器化”一键拉起；
-2. 在 Dockerfile 中引入非 root 专有用户运行 Gunicorn，配置 CPU 与内存配额，落实最小权限原则；
-3. 将后台日常自动备份与重要纪念日提醒功能接入可靠的内部或外部调度引擎（如 APScheduler 或 Cron 容器），实现业务闭环真正落地。
----
-
-## 十、功能全量同步与容器架构安全加固交付总结 (2026年9月更新)
-
-### 1. 本次功能全量同步范围与技术资产
-本次已将 `gift_bookkeeping_app`（原生版本）最新研发的企业级功能与业务资产全量同步并无缝适配至 `gift_bookkeeping_app-docker` 容器化项目中：
-1. **企业微信智能机器人官方 SDK (`aibot/`) 接入**：完整引入官方 SDK，支持 WebSocket（openws）长连接双向通信、动态绑定群会话 `chatid`、异步推送 Markdown 模板卡片消息以及后台常驻守护线程。
-2. **多子菜单细粒度权限控制模型**：`User` 模型新增 `allowed_menus` 与 `menu_permissions`（JSON 格式），实现「记账大厅、专属宴席、人情对账、纪念日备忘、回收站」五大子菜单独立查看/编辑/删除分级授权与管理员凭证二阶段保护。
-3. **复合语句自然语言分词与批量录入**：引入 `split_gift_nlp_text` 智能分词器，支持通过顿号、分号、换行、连词等符号一次性输入多条礼金文本并批量解析入库。
-4. **专属宴席全生命周期协同与免密共享**：新增宴席台账详情卡片/表格双视图、批量快捷记账、人情记录双向绑定、只读共享外链（支持密码保护与金额脱敏）。
-5. **全系统统一回收站机制**：支持礼金记录与亲友纪念日软删除（`deleted_at`）、安全审计与一键原位复原。
-6. **WebDAV 与 Webhook 底层连接池架构**：全面抛弃阻塞式 `urllib`，升级为 `requests.Session()` 连接池复用与流式传输，消除网络套接字报错。
-7. **宿主机反向代理兼容升级**：优化 `nginx_ssl.conf` 中的 `proxy_set_header Connection $http_connection;`，在保持 15000 宿主机端口与容器 11443 映射不变的前提下，完美支持 WebSocket 长连接协议升级并保持常规 HTTP keepalive。
-
-### 2. 敏感数据零明文安全防护落地
-针对高敏感数据的安全合规要求，系统实现底层加固：
-- **核心凭证 AES-256-GCM 强加密**：`WebhookConfig` 的 `secret_token` 与 `bot_secret`、`SharedLedgerLink` 的 `access_password`、`BackupConfig` 的 `webdav_password` 以及用户的密码凭证全部在持久化前执行 AES-256-GCM 密文存储，并提供旧明文平滑兼容。
-- **审计日志深度脱敏**：`webhook_utils.py` 在向 `webhook_logs` 写入记录前，执行 `_sanitize_log_data()` 递归脱敏，自动屏蔽所有涉及 `secret`、`token`、`pass`、`key`、`credential` 的值。
-- **自适应数据源路径探测**：新增 `_resolve_db_file()` 探测逻辑，完美识别 Docker Compose 挂载的 `/app/data/gift_bookkeeping.db` 路径。
-
-### 3. 原有数据库数据完整性与架构风险解决
-- **数据零损失**：Docker 版原有数据库（含 3 位用户、104 条礼金记录、2 场宴席等）得到完整保留，未发生任何覆盖；内置 `init_database()` 成功执行平滑 `ALTER TABLE` 字段扩展。
-- **【P0-4】SQLite 并发死锁风险闭环**：在 `app.py` 中重新开启 SQLite WAL 模式（`PRAGMA journal_mode=WAL;`）并注入 30 秒忙等待超时（`PRAGMA busy_timeout=30000;`），彻底解决了 Gunicorn 4 Workers 并发读写的数据库锁冲突隐患。
-
----
-
-## 十一、纪念日单次推送防重机制与 WebDAV 上传 404 缺陷修复复盘 (2026年9月更新)
+## 9. 纪念日单次推送防重机制与 WebDAV 上传 404 缺陷修复复盘 (2026年9月更新)
 
 ### 1. 缺陷背景与问题成因分析
 在 Docker 生产部署验证过程中，发现了两项直接影响用户体验与系统稳定性的关键缺陷：
@@ -597,15 +566,14 @@ gift_bookkeeping_app-docker/
    - **根本原因**：原有逻辑仅依赖模糊查询 WebhookLog 当日成功记录，对于非当日首轮或日志匹配延迟时，缺乏针对纪念日实体的持久化周期防重标记；后台每 60 秒轮询一次，导致条件持续满足并持续重复触发推送。
 
 2. **【缺陷二】WebDAV 备份配置校验通过但立即上传报错 HTTP 404**：
-   - **现象**：在管理后台 WebDAV 页面输入坚果云等网盘地址（如 https://dav.jianguoyun.com/dav/），点击“测试连接”提示成功；但点击“立即上传备份至 WebDAV”时，页面抛出错误：备份失败: 上传失败 (HTTP 404)。
+   - **现象**：在管理后台 WebDAV 页面输入坚果云等网盘地址（如 https://dav.jianguoyun.com/dav/），点击"测试连接"提示成功；但点击"立即上传备份至 WebDAV"时，页面抛出错误：备份失败: 上传失败 (HTTP 404)。
    - **根本原因**：
      1. 坚果云等主流 WebDAV 服务端对根目录 /dav/ 实行写保护，禁止直接在根目录下通过 PUT 创建文件，必须上传至具体子目录（如 /dav/gift_backups/）；
      2. 之前的 webdav_utils.py 缺乏远程目录层级自动探测与递归创建能力（MKCOL），如果网盘中尚未手动创建 /gift_backups/ 文件夹，服务端直接返回 HTTP 404 Not Found；
-     3. 配置模型与页面未暴露 ackup_path 路径参数，前端无法灵活配置备份存储子路径。
+     3. 配置模型与页面未暴露 backup_path 路径参数，前端无法灵活配置备份存储子路径。
 
 3. **【缺陷三】容器化依赖缺失与运行时报错**：
-   - **现象**：在 Docker 容器以 Gunicorn 多进程启动时，由于容器初始镜像环境缺少 
-equests 与 iohttp 依赖包，导致 Worker 进程抛出 ModuleNotFoundError: No module named 'requests' 并异常退出（exit code 10）。
+   - **现象**：在 Docker 容器以 Gunicorn 多进程启动时，由于容器初始镜像环境缺少 requests 与 aiohttp 依赖包，导致 Worker 进程抛出 ModuleNotFoundError: No module named 'requests' 并异常退出（exit code 10）。
 
 ---
 
@@ -614,151 +582,45 @@ equests 与 iohttp 依赖包，导致 Worker 进程抛出 ModuleNotFoundError: 
 #### 2.1 纪念日到期单次推送防重机制（周期锁架构）
 1. **模型层引入周期锁标记**：
    在 AnniversaryReminder 模型中新增字段：
-   `python
+   ```python
    last_notified_target = db.Column(db.String(32), nullable=True) # 已通知目标周期 YYYY-MM-DD，防周期内重复推送
-   `
-   并在 pp.py 的 init_database() 平滑迁移列表中补充：
-   `python
+   ```
+   并在 app.py 的 init_database() 平滑迁移列表中补充：
+   ```python
    "ALTER TABLE anniversary_reminders ADD COLUMN last_notified_target VARCHAR(32)"
-   `
+   ```
 2. **调度层周期判定与原子提交**：
-   在 
-outes_ext.py 的 check_and_trigger_due_reminders 巡检线程中：
-   - 计算纪念日当前周期的目标公历日期字符串 	arget_cycle_str = next_date.strftime('%Y-%m-%d')；
-   - 检查 if r.last_notified_target == target_cycle_str: continue，已成功推送过的周期直接跳过，杜绝 60 秒死循环；
-   - 推送触发时，立即记录 
-.last_notified_target = target_cycle_str 并持久化 db.session.commit()；
-   - 用户编辑并修改 	arget_date 时，在 
-eminder_edit 中自动重置 last_notified_target = None，保证下一次周期能够正常预警。
+   在 routes_ext.py 的 check_and_trigger_due_reminders 巡检线程中：
+   - 计算纪念日当前周期的目标公历日期字符串 `target_cycle_str = next_date.strftime('%Y-%m-%d')`；
+   - 检查 `if r.last_notified_target == target_cycle_str: continue`，已成功推送过的周期直接跳过，杜绝 60 秒死循环；
+   - 推送触发时，立即记录 `r.last_notified_target = target_cycle_str` 并持久化 `db.session.commit()`；
+   - 用户编辑并修改 `target_date` 时，在 `reminder_edit` 中自动重置 `last_notified_target = None`，保证下一次周期能够正常预警。
 
 #### 2.2 WebDAV 智能路径解析与递归自动建目录（MKCOL）
 1. **智能路径规约与坚果云根路径保护 (_resolve_target_dir_url)**：
    - 规范化 URL 拼接，过滤首尾重复斜杠；
    - 智能识别坚果云等 WebDAV 根路径（如以 /dav 结尾），当未指定子目录时，自动挂载默认安全备份目录 /gift_backups/，防止根路径直写触发 404。
-2. **多级目录逐层递归创建 (nsure_remote_dir)**：
+2. **多级目录逐层递归创建 (ensure_remote_dir)**：
    - 从根路径逐级向下探测目录是否存在（PROPFIND），若返回 404 则自动发送 MKCOL 递归创建各层目录；
    - 确保上传 .db 备份前，目标远程目录 100% 存在，彻底消灭 404 错误。
 3. **前端交互与后台配置全链路透传**：
-   - 在 	emplates/admin_backups.html 中新增「备份存储子目录」输入框（默认 /gift_backups/）；
-   - 测试连接与保存配置时，通过 JSON / Form 全链路透传 ackup_path 参数。
+   - 在 templates/admin_backups.html 中新增「备份存储子目录」输入框（默认 /gift_backups/）；
+   - 测试连接与保存配置时，通过 JSON / Form 全链路透传 backup_path 参数。
 
 #### 2.3 容器依赖与敏感数据零明文加固
-1. **运行依赖补齐**：在 
-equirements.txt 中严格声明 
-equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错。
+1. **运行依赖补齐**：在 requirements.txt 中严格声明 requests>=2.31.0 与 aiohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错。
 2. **敏感凭据安全闭环**：WebDAV 账号密码、Webhook 密钥等高敏感数据全部强制以 AES-256-GCM 密文存储，日志自动脱敏掩码，保证生产环境数据安全。
 
 ---
 
-## 十二、V10.10 原生版全量功能同步与 SNI 多项目部署改造复盘 (2026年9月18日更新)
-
-### 1. 同步背景与总体结论
-- **背景**：自上次 Docker 版功能同步（第十章）后，原生版 `gift_bookkeeping_app` 经历了 V2 ~ V10.10 约 23 个提交的功能演进（AI 助手、权限申请工单、Webhook 全面重构、WebDAV 加密备份、SNI 部署改造等），两版出现明显功能分叉。
-- **本次动作**：将原生版全部最新功能**单向同步**至 Docker 版；同步后**两版功能完全一致**，部署形态各自独立（原生版 venv 直跑 + 宿主机 Nginx，本版 Docker Compose 编排 + 宿主机 Nginx）。
-- **同步方向安全性**：同步前完成差集比对——Docker 版相对原生版**无任何独有函数、无任何独有路由**（data/ 卷嗅探、WAL 模式、`_resolve_db_file()`、requests.Session 连接池、MKCOL 递归建目录、`last_notified_target` 防重、WebSocket `$http_connection` 透传等此前 Docker 专属特性均已在原生版逐字保留），单向覆盖零功能损失。
-- **同步范围**：覆盖 `app.py`、`models.py`、`routes_ext.py`、`webhook_utils.py`、`webdav_utils.py`，新增 `routes_ai.py`、`ai_service.py`、`web_search.py`，同步 `requirements.txt` 与 `generate_ssl_certs.py`（--domain 版）；模板层覆盖 14 个差异模板并新增 3 个（`ai_assistant.html`、`admin_ai_config.html`、`permission_tickets.html`），两版模板清单 20=20 完全一致。
-
-### 2. 全量同步的功能技术资产清单
-1. **AI 智能助手三件套**（`routes_ai.py` 路由层 + `ai_service.py` 服务层 + `web_search.py` 联网搜索层）：
-   - 多会话聊天（会话创建/重命名/删除、消息气泡对话区、推荐问题引导）；
-   - **四级配置优先级容错**：用户多配置（`ai_configs` JSON）→ 用户旧版单配置（`ai_api_key`）→ 全局环境变量（`OPENAI_API_KEY` 等）→ 管理员共享配置（仅被授权用户），逐级尝试直至成功；
-   - 联网搜索增强：`needs_search()` 关键词正则识别（天气/新闻/最新/实时/汇率等），DuckDuckGo 搜索结果注入 Prompt；
-   - 本地兜底引擎：全部配置失效时离线问答，功能永不中断；
-   - 管理员多配置管理（启用/禁用/优先级）与普通用户授权开关，AI API Key 全程 AES-256-GCM 密文存储。
-2. **权限申请工单闭环**（`PermissionTicket` 模型 + `permission_tickets.html` 模板 + `/permission_tickets` 系列 6 组路由）：
-   - 新注册用户默认无任何菜单权限；提交工单（勾选菜单 + 理由）→ 管理员审批通过（勾选授权菜单写入用户权限）/驳回（附理由）/撤销/删除/批量删除；
-   - 无权限用户首页显示友好的权限申请引导卡片，杜绝无限重定向循环。
-3. **Webhook 全面重构（V10.1 ~ V10.9.1）**：
-   - 用户级/事件级监控范围（`monitor_user_ids` / `monitor_event_types`），管理员可配置监控所有用户操作；空监控范围语义从「不限制=全部放行」修正为「不推送」，并配套 V10.9 启动数据迁移（存量通道预填全选）；
-   - 15 页面 × 12 事件类型的二维推送矩阵（`notify_pages`），页面级过滤覆盖全部功能模块（含人情对账、WebDAV 配置更新等）；
-   - 7 占位符场景化消息模板（`message_templates`：`{user}`/`{page}`/`{action}`/`{title}`/`{detail}`/`{time}`/`{count}`）；
-   - 约 40 处推送点全项目补全（礼金账本、宴席、对账、纪念日、回收站、用户管理、AI 助手、定时任务等）；
-   - V10.9.1 修复：`batch_delete` 大类矩阵补 `admin_webhooks` 页面，修复批量删除推送日志被页面级过滤拦截的缺陷。
-4. **WebDAV 加密备份与定时备份调度**（`webdav_utils.py` + `routes_ext.py` + `admin_backups.html`）：
-   - AES-256 加密 zip 备份（`pyzipper`）：自动任务用管理员预设密码（`backup_encrypt_password` 密文存储）加密，手动操作可自选；
-   - Cron 定时备份调度器：`_cron_match()` 自研 Cron 表达式解析 + 后台守护线程每 60 秒巡检执行，执行历史落库 `scheduled_task_execution_logs`；
-   - 普通用户隔离备份：`build_user_scoped_backup_db()` 仅导出含本人数据的过滤库；恢复走 `merge_user_scoped_backup()` 数据级合并，不覆盖全局表；完整库上传恢复拦截，文件级替换仅限管理员；
-   - 备份功能与定时任务分级授权（`backup_authorized` / `scheduled_task_authorized`）。
-5. **权限语义与审计修正**：
-   - 权限级别 1 语义修正为「自身全权 + 他人仅查看」（原为仅查看）；
-   - `ALL_MENUS` 五大子菜单 → **六大**（新增 `backups` 备份管理）；
-   - 审计日志 13 模块可配置记录（`/admin/audit-log-config`），未勾选模块操作不落审计。
-6. **依赖新增**：`openai>=1.0.0`、`duckduckgo_search>=4.0.0`、`pyzipper>=0.3.1`（首次部署需重建镜像）。
-
-### 3. 数据库平滑迁移策略（样例库零破坏）
-- 依据用户决策，Git 仓库内样例库 `gift_bookkeeping.db` **保留不动**（维持开箱即用演示价值），运行时真实数据位于 Docker 卷 `/app/data`；
-- 已有数据卷无需任何手工处理：启动时 `init_database()` 自动补建 **7 张新表**（`chat_sessions`、`chat_messages`、`ai_query_logs`、`scheduled_backup_tasks`、`scheduled_task_execution_logs`、`backup_attachments`、`permission_tickets`）与全部新增列（AI 配置字段、备份授权字段、Webhook 监控矩阵字段等约 30 条 `ALTER TABLE`）；
-- V10.9 逻辑修正配套数据迁移自动执行：存量 Webhook 通道空监控范围预填全选、`batch_delete` 矩阵补页，保证升级零感知。
-
-### 4. SNI 多项目共用 443 端口部署改造（Docker 专属实现）
-#### 4.1 run.sh 改造
-- `NGINX_PORT` 默认值 15001 → **443**（多项目共用，依靠 SNI 域名区分流量）；
-- 新增变量（均支持环境变量覆盖）：`PROJECT_NAME`（默认 `gift_app_docker`，与原生版 `gift_app` 自动区分，决定 Nginx 配置文件名 `$PROJECT_NAME.conf` 与 upstream 名 `${PROJECT_NAME}_backend`，防多项目重名冲突）、`SNI_DOMAIN`（默认 localhost，写入 server_name 与自签证书 CN/SAN；**为空时中止启动**）、`SSL_CERT`/`SSL_KEY`（默认 `$APP_DIR/ssl/`，可指向正式证书）、`SNI_DEFAULT_SERVER`（默认 0，因同机部署约定原生版 `gift_app` 已作 443 兑底）；
-- `setup_nginx_config()` 重写为占位符模板渲染：输出 `$NGINX_CONF_DIR/$PROJECT_NAME.conf`，剥离模板头部占位符说明注释、自动写入「自动生成勿手工修改」标识；`__BACKEND_PORT__` 填**宿主机映射端口 `HOST_PORT`（15000）**而非容器内 PORT——这是与原生版（直填 11443）的关键差异，源于 Docker 版端口链路多一层映射；
-- **三重互斥禁用**：自动将 `gift_app.conf`（原生版 V10.10 新名）/ `gift_app_native.conf`（原生版旧名）/ 本项目旧命名 `gift_app_docker.conf` 改名 `.disabled`，防止同端口多配置共存导致 502；
-- `ensure_ssl_certs()` 传 `--domain $SNI_DOMAIN`，并以 `(cd "$APP_DIR" && python3 ...)` 固定执行目录（规避 `generate_ssl_certs.py` 依赖 `os.getcwd()` 定位输出目录的路径漂移陷阱）；
-- 启动成功提示改为 `https://$SNI_DOMAIN/`（非 443 端口时自动附加端口号），帮助文本新增多项目接入示例。
-
-#### 4.2 nginx_ssl.conf 与证书脚本
-- `nginx_ssl.conf` 重写为 7 占位符模板（`__UPSTREAM_NAME__` / `__BACKEND_PORT__` / `__NGINX_PORT__` / `__SNI_DOMAIN__` / `__SSL_CERT__` / `__SSL_KEY__` / `__SSL_KEY__` 注释锚点），由 run.sh 渲染，不再手工维护；`proxy_set_header Host` 去掉 `:$server_port`（443 为标准端口）；
-- `generate_ssl_certs.py` 新增 `--domain`（写入证书 CN/SAN，自动区分 DNS/IP 条目类型且去重）与 `--days` 参数；OpenSSL 1.1.1+ 使用 `-addext`，失败自动回退 Python `cryptography` 库；不传参时行为与原版完全一致。
-
-#### 4.3 部署拓扑（改造后）
-**客户端 → 宿主机 Nginx（HTTPS 443，SNI 域名分流）→ 127.0.0.1:15000（HOST_PORT）→ Web 容器（11443）**
-
-### 5. 镜像与仓库安全加固
-- **新建 `.dockerignore`**（63 条规则）：排除 `.git`、全部数据库文件（`*.db`/`data/`，防止真实账本与密码散列打入镜像）、备份文件（`*.bak`）、证书私钥（`ssl/`/`*.key`/`*.crt`/`*.pem`）、环境凭据（`.env`）、文档与编排文件（`*.md`/`docker-compose*.yml`/`run.sh`，减小镜像体积）、`__pycache__` 与测试图片（`*.png`）等；
-- **`.gitignore` 扩充**：新增 `*.bak`、`*.bak_*`、`*.db-journal`/`-wal`/`-shm`、`data/`、`ssl/`、`.env`/`.env.*`、`*.png` 运行时附属文件忽略（样例库 `gift_bookkeeping.db` 为特意保留的开箱演示文件，不在此列）；
-- `docker-compose.yml` 端口注释同步修正为 443 SNI 分流拓扑描述。
-
-### 6. 验证结论与服务器侧遗留验证清单
-**本机（Windows）已完成的验证：**
-1. 10 个 Python 文件 `py_compile` 编译全部通过；
-2. `run.sh` 通过 `bash -n` 语法检查（Git Bash）；
-3. SNI 模板渲染模拟 3 场景（本项目默认 / `default_server=1` 开关 / 另一项目 `mengyao` 接入）：upstream 名、端口、SNI 域名、证书路径、default_server 区分全部正确，无占位符残留，模板头注释正确剥离；
-4. `generate_ssl_certs.py` 3 场景实测（默认 / 域名 `gift-docker.example.com` / IP `192.168.1.100`）：CN 与 SAN 条目类型正确且无重复；
-5. 两版模板清单 20=20 完全一致，关键模板 MD5 抽查一致。
-
-**需在 Linux 生产服务器完成的真实验证（遗留清单）：**
-1. `docker compose build` 镜像重建（验证 `openai`、`duckduckgo_search`、`pyzipper` 三个新依赖在容器内安装成功、Gunicorn Worker 正常启动）；
-2. `nginx -t` 语法校验与真实 SNI 域名分流测试（至少两个域名分别命中本项目与原生版 upstream）；
-3. `SNI_DOMAIN=<实际域名> ./run.sh start` 全流程演练（证书生成、配置渲染、互斥禁用、容器拉起、HTTPS 访问）；
-4. 已有数据卷启动时 `init_database()` 自动迁移结果抽查（7 张新表建立、Webhook 存量通道监控范围预填）。
-
----
-
-## 十三、V10.10.1 人情对账状态标签方向修复复盘 (2026年9月20日更新)
-
-### 1. 缺陷概述
-- 人情对账页面的「人情状态」标签与实际差额方向完全相反。`net_balance = 收礼总额 - 随礼总额`，当 `net > 0`（收 > 送，我方需回礼）时代码错误显示为「待还礼」；`net < 0`（送 > 收，对方欠我方）时错误显示为「待补礼」。
-- 数值计算本身（差额列）正确，仅状态标签语义与差额符号的映射错位。
-
-### 2. 根因定位
-- `gift_utils.py` 第 298-307 行状态字典：`net > 0 → 待还礼`、`net < 0 → 待补礼`，方向完全反了。正确应为 `net > 0 → 待补礼`（我方收多了需回礼）、`net < 0 → 待还礼`（我方送多了对方欠我）。
-- 顺带影响 `routes_ext.py` 筛选条件符号反（`need_return → net > 0` 应为 `net < 0`；`need_pay → net < 0` 应为 `net > 0`）与排序方向反，以及 `reconciliation.html` 徽章显示条件与下拉文案描述反。
-
-### 3. 修复方案（已执行并验证）
-- **修复原则**：差额数值计算不动，仅对调状态标签 ↔ 差额符号映射。
-- `gift_utils.py`：`net > 0 → 待补礼`（红色 danger，`我欠对方 ¥X`）；`net < 0 → 待还礼`（绿色 success，`对方欠我 ¥X`）。
-- `routes_ext.py`：`need_return` 筛选改为 `net < 0`；`need_pay` 改为 `net > 0`；排序 `need_return_first` 升序（负数排前），`need_pay_first` 降序（正数排前）。
-- `reconciliation.html`：徽章 `net < 0` 显示绿色待还礼，`net > 0` 显示红色待补礼；下拉文案改为「待还礼(尚欠我方，送 > 收)」「待补礼(我方需回，收 > 送)」。
-- 两版（原生版 + Docker 版）代码同步修改，Docker 版提交 `61c1d49`，原生版提交 `5b0ad43`（含 `Project_Survey.md` 文档同步修正）。
-
-### 4. 验证用例
-- 柏楚安（收 200 / 送 300 / 差额 -100）→ 待还礼（尚欠我方）✅
-- 反向场景（收 300 / 送 200 / 差额 +100）→ 待补礼（我方需回）✅
-- 原生版 Flask 服务重启后浏览器验证通过。
-
----
-
-## 十四、V10.10.2 样例数据体系扩充与两版统一复盘 (2026年9月20日更新)
+## 10. V10.10.2 样例数据体系扩充与两版统一复盘 (2026年9月20日更新)
 
 ### 1. 背景与目标
-- **背景**：原生版根目录样例库曾积累 1733 条仅收礼（receive）的历史演示数据，本 Docker 版样例库为 104 条含收礼/随礼的多样化数据，两版开箱演示体验不一致；且全收礼数据无法演示人情对账的「待还礼」状态流转。
-- **目标**：以本版 104 条多样化数据为基准统一扩充至约 150 条，补充随礼（send）记录形成对账双向往来闭环，并实现两版样例库字节级统一。
+- **背景**：传统版根目录样例库曾积累 1733 条仅收礼（receive）的历史演示数据，而 Docker Compose 版样例库为 104 条含收礼/随礼的多样化数据，两版开箱演示体验不一致；且传统版全收礼数据无法演示人情对账的「待还礼」状态流转。
+- **目标**：以 Docker 版 104 条多样化数据为基准统一扩充至约 150 条，补充随礼（send）记录形成对账双向往来闭环，并实现两版样例库字节级统一。
 
 ### 2. 扩充实施方案
-- **数据基准**：以本版样例库（104 条：收礼 103 + 随礼 1）为唯一基准，保留 4 场宴席台账、用户账户、Webhook 通道、共享外链等既有体系。
+- **数据基准**：以 Docker 版样例库（104 条：收礼 103 + 随礼 1）为唯一基准，保留其 4 场宴席台账、用户账户、Webhook 通道、共享外链等既有体系。
 - **新增数据**：
   - 随礼（send）42 条：覆盖婚宴、寿宴、满月酒、百日宴、周岁宴、升学宴、乔迁、开业、白事、生日等全部典型随礼场景；含「柏楚安」等亲友的收礼+随礼双向往来记录，直接演示人情对账状态流转；
   - 收礼（receive）6 条：补充挂接既有 4 场宴席台账的贺喜明细；
@@ -766,45 +628,49 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 - **最终规模**：礼金明细 151 条（收礼 107 条合计约 13.1 万 + 随礼 42 条合计约 2.3 万），纪念日提醒 6 条。
 
 ### 3. 两版统一策略
-- 扩充完成后将本版样例库原样覆盖至原生版根目录 `gift_bookkeeping.db`，两版 MD5 字节级一致（`738ea951ae5e...`）；
-- 原生版原 1733 条历史演示数据备份留存于本地（未入库）。
+- 扩充完成后将 Docker 版样例库原样覆盖至传统版根目录 `gift_bookkeeping.db`，两版 MD5 字节级一致（`738ea951ae5e...`）；
+- 传统版原 1733 条历史演示数据备份留存于本地（未入库），根目录旧 `.bak_*` 运行时备份文件维持 gitignore 忽略策略不变。
 
 ### 4. 数据安全与开箱验证
-- **零真实隐私**：全部姓名、电话（138/139 虚拟号段）、地址均为虚构演示数据；
-- **开箱即用验证**：`admin/admin123` 登录校验通过；模拟全新部署将 15 表样例库交由当前代码 `init_database()` 自动迁移，成功补齐 V10.10 全部新表（AI 会话、权限工单、定时备份等 7 表）且 151 条礼金明细完整保留；
-- **对账方向验证**：柏楚安（收 0 / 送 500 / 差额 -500）→ 待还礼（尚欠我方）✅，与 V10.10.1（第十三章）状态标签方向修复一致。
+- **零真实隐私**：全部姓名、电话（138/139 虚拟号段）、地址均为虚构演示数据；样例库不含电话/地址的历史脏数据已确认清零；
+- **开箱即用验证**：`admin/admin123` 登录校验通过（werkzeug check_password_hash）；模拟全新部署将 15 表样例库交由当前代码 `init_database()` 自动迁移，成功补齐 V10.10 全部新表（AI 会话、权限工单、定时备份等 7 表）且 151 条礼金明细完整保留；
+- **对账方向验证**：柏楚安（收 0 / 送 500 / 差额 -500）→ 待还礼（尚欠我方）✅，与 V10.10.1 状态标签方向修复一致。
 
 ### 5. 涉及文件
 - `gift_bookkeeping.db`（两版根目录样例库，字节级统一）
 - `README.md`（两版）：样例数据体系说明扩充 + V10.10.2 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
 
-## 十六、V10.10.4 f-string 兼容修复、Nginx 路径默认值调整与 run.sh POSIX 兼容化复盘 (2026年9月21日更新)
+## 12. V10.10.4 f-string 兼容修复、Nginx 路径默认值调整与 run.sh POSIX 兼容化复盘 (2026年9月21日更新)
 
 ### 1. 问题背景与根因
 - **f-string 报错**：`routes_ext.py:4441` WebDAV 备份删除推送消息中 f-string 外层单引号、表达式内也用单引号 `f'...{', '.join(filenames)}...'`。Python 3.12（PEP 701）放宽了 f-string 引号规则允许此写法，但 Docker 镜像 `python:3.11-slim` 不支持，导致 `SyntaxError: f-string: expecting '}'`，gunicorn worker 全部退出、容器无法启动。本地 venv 为 Python 3.12.13 因此不报错，问题仅在 Docker 部署时暴露。
-- **Nginx 路径不匹配**：`run.sh` 中 `NGINX_CONF_DIR` 默认值为 `/etc/nginx/conf.d`，但实际服务器部署路径为 `/opt/service/nginx/conf.d`。
-- **sh 兼容性报错**：`run.sh` 含 bash 独有语法（`${BASH_SOURCE[0]:-$0}`、`((wait_time++))`、`echo -e`、`source`、`read -r -p`），用 `sh`/`dash` 执行时报 `Bad substitution`、`() unexpected`、`[[: not found` 等。
+- **Nginx 路径不匹配**：`run.sh` 中 `NGINX_CONF_DIR` 默认值为 `/etc/nginx/conf.d`，但实际服务器部署路径为 `/opt/service/nginx/conf.d`，导致 Nginx 配置文件输出到错误目录。
+- **sh 兼容性报错**：`run.sh` 含 bash 独有语法（`${BASH_SOURCE[0]:-$0}` 数组下标、`((wait_time++))` 算术扩展、`echo -e` 的 `-e` 参数、`source` 命令、`read -r -p` 的 `-p` 参数），用 `sh`/`dash` 执行时报 `Bad substitution`、`() unexpected`、`[[: not found` 等。
 
 ### 2. 修复方案
-- **f-string 引号修复**：外层单引号改双引号，表达式内保持单引号，消息内容不变。两版逐字一致。
-- **Nginx 路径调整**：默认值改为 `/opt/service/nginx/conf.d`；目录不存在时提示用户手动创建（不自动 mkdir/不跳过/不删除），`return 1` 中止；添加注释说明可通过环境变量覆盖。
+- **f-string 引号修复**：外层单引号改双引号 `f"...{', '.join(filenames)}..."`，表达式内保持单引号，消息内容不变。两版逐字一致。
+- **Nginx 路径调整**：
+  - 默认值从 `/etc/nginx/conf.d` 改为 `/opt/service/nginx/conf.d`；
+  - 目录不存在时提示用户手动创建（不自动 mkdir、不跳过、不删除任何东西），`return 1` 中止；
+  - 添加注释说明其他用户可通过环境变量 `NGINX_CONF_DIR` 覆盖为 `/etc/nginx/conf.d`。
 - **run.sh POSIX 兼容化**（7 项改动，两版同步）：
   - `#!/bin/bash` → `#!/bin/sh`
-  - 移除 bash 自愈逻辑
-  - `${BASH_SOURCE[0]:-$0}` → `$0`
-  - 新增 `echo_e()` 函数（`printf '%b\n'`），替换全文 `echo -e`
-  - `read -r -p` → `printf + read -r`
-  - `((wait_time++))` → `wait_time=$((wait_time + 1))`（传统版独有）
-  - `source` → `.`（传统版独有）
-- **本版差异说明**：Docker 版无 venv 逻辑（无 `source`→`.` 改动）和 `((wait_time++))` 改动，其余 5 项与传统版完全一致；`echo_e` 函数两版逐字一致。
+  - 移除 bash 自愈逻辑（`if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi`），脚本已纯 POSIX 兼容不再需要切换
+  - `${BASH_SOURCE[0]:-$0}` → `$0`（数组下标是 bash 独有）
+  - 新增 `echo_e()` 函数（`printf '%b\n' "$*"`），替换全文所有 `echo -e`（dash 的 echo 不支持 `-e`）
+  - `read -r -p "提示语" answer` → `printf '提示语' >&2; read -r answer`（`-p` 是 bash 独有）
+  - `((wait_time++))` → `wait_time=$((wait_time + 1))`（传统版，`(( ))` 是 bash 独有）
+  - `source $VENV_DIR/bin/activate` → `. $VENV_DIR/bin/activate`（传统版，`source` 是 bash 独有）
 
 ### 3. 验证结论
-- Python AST 编译通过（两版 routes_ext.py）
+- Python AST 编译通过（两版 routes_ext.py，3.12 环境）
 - `bash -n` + `dash -n` 双语法校验通过（两版 run.sh）
-- `dash run.sh status` 功能测试通过：无报错
-- 全文 `echo -e` 清零扫描确认（仅注释残留）
-- bashism 残留扫描确认：全部清除
+- `dash run.sh status` 功能测试通过：无任何 `Bad substitution`/`() unexpected`/`[[: not found` 报错
+- `dash run.sh`（无参数）用法提示正常输出
+- 传统版 Flask 服务重启验证通过（PID 55448，端口 11443，admin/admin123 登录正常）
+- 全文 `echo -e` 清零扫描确认（仅注释中残留）
+- bashism 残留扫描确认：`BASH_SOURCE`、`((`、`source `、`read -r -p` 全部清除
 
 ### 4. 涉及文件
 - `routes_ext.py`（两版同步修改，第 4441 行逐字一致）
@@ -812,7 +678,7 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 - `README.md`（两版）：V10.10.4 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
 
-## 十七、V10.10.5 管理员重置密保双密保输入框修复复盘 (2026年9月21日更新)
+## 13. V10.10.5 管理员重置密保双密保输入框修复复盘 (2026年9月21日更新)
 
 ### 1. 问题背景与根因
 - **现象**：管理员在用户管理页面点击「重置密保」时，模态框只提供单个密保问题输入框，无法看到和重置第 2 个密保问题。管理员安全验证区也只展示原密保问题 1，管理员不知道问题 2 内容无法用问题 2 验证。
@@ -821,7 +687,6 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
   - **后端已支持双密保但前端未配合**：`app.py` 的 `admin_reset_user_security` 路由已尝试获取 `security_question_2`/`security_answer_2`，但模板从未提交这两个字段，导致 `q2`/`a2` 永远为空，`security_question_2` 原值不会被更新。
   - **管理员安全验证只展示问题 1**：安全验证区只显示 `security_question_1`，看不到问题 2，管理员无法用问题 2 的答案验证。
   - **默认值回填方向错误**：新密保问题 1 的 `value` 属性用旧单密保兼容字段 `u.security_question`，而非 `u.security_question_1`。
-- **本版差异说明**：Docker 版与传统版共享 `admin_users.html` 和 `app.py`，本次修改两版逐字一致，无 Docker 版特有差异。
 
 ### 2. 修复方案
 - **前端 `admin_users.html`（两版同步修改）**：
@@ -838,15 +703,14 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 ### 3. 验证结论
 - Python AST 编译通过（两版 app.py）
 - 两版文件 MD5 一致性校验通过（`admin_users.html` YES，`app.py` YES）
-- 传统版 Flask 服务重启成功（PID 39836，端口 11443 监听正常）
-- 浏览器端到端验证（传统版）：
+- Flask 服务重启成功（PID 39836，端口 11443 监听正常）
+- 浏览器端到端验证：
   - 普通用户（jack）重置密保模态框：正确显示双密保输入框，问题 1 回填"您母亲的姓名是？"，问题 2 回填"您父亲的姓名是？"
   - 测试场景 1（只填密保 1、密保 2 留空）：flash 显示"密保 2 保留原设置"，数据库验证 Q2 未变更
   - 测试场景 2（同时填两组新密保）：flash 显示两个新问题文本，数据库验证 Q1 和 Q2 均已更新
   - 管理员（admin）重置密保模态框：安全验证区正确显示双原密保问题（问题 1：你的出生地是哪里？、问题 2：你的初中学校是？），双验证输入框（`old_security_answer_1`、`old_security_answer_2`）
   - 管理员重置密码模态框：安全验证区同样正确显示双原密保问题和双验证输入框
   - 测试数据已恢复到测试前状态
-- Docker 版容器启动测试需用户后续在服务器执行 `sh run.sh start` 验证（本机无 Docker 环境）
 
 ### 4. 涉及文件
 - `templates/admin_users.html`（两版同步修改，重置密保模态框 + 重置密码模态框的安全验证区双密保展示）
@@ -854,12 +718,12 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 - `README.md`（两版）：V10.10.5 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
 
-## 十五、V10.10.3 run.sh 证书与 Nginx 配置覆盖保护复盘 (2026年9月20日更新)
+## 11. V10.10.3 run.sh 证书与 Nginx 配置覆盖保护复盘 (2026年9月20日更新)
 
 ### 1. 问题背景与根因
 - **现象**：用户自行替换的正式证书（或手工定制过内容的证书文件）在每次 `start`/`restart` 后被自签名证书静默覆盖丢失。
 - **根因**：原版 `run.sh` 的 `ensure_ssl_certs()` 每次启动都无条件调用 `generate_ssl_certs.py`，而该脚本内部直接写文件覆盖输出；`setup_nginx_config()` 同样每次无条件用模板渲染覆盖 `$NGINX_CONF_DIR/$PROJECT_NAME.conf`。两处均无「文件已存在」保护。
-- **本版差异说明**：Docker 版 `ensure_ssl_certs()` 无 venv 分支（直接用系统 python3），但覆盖问题与传统版完全相同；修复时两版 `should_overwrite` 函数保持逐字一致。
+- **风险面**：`SSL_CERT`/`SSL_KEY` 支持环境变量指向外部正式证书路径，而 `generate_ssl_certs.py` 固定输出到 `$APP_DIR/ssl/`——默认路径下用户自定义证书必然被覆盖。
 
 ### 2. 修复方案（覆盖决策权交给用户）
 - **核心原则**：文件不存在 → 直接创建（首次部署零打扰）；文件已存在 → 是否覆盖必须由用户决定，绝不默认覆盖。
@@ -868,7 +732,7 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
   - 交互式终端（`[ -t 0 ]` 为真）：弹 `y/n` 询问，默认 `n`（直接回车即保留，安全默认）；
   - 非交互环境（cron/CI/管道）：**不等待输入**，自动保留旧文件并提示可用环境变量强制更新，脚本不卡死。
 - **`ensure_ssl_certs()` 三分支重构**：证书不存在 → 直接生成；已存在且获许可 → 重新生成覆盖；已存在未获许可 → 保留现有证书并明确提示。
-- **`setup_nginx_config()` 配置保护**：已存在 `$PROJECT_NAME.conf` 时先经 `should_overwrite` 判定，未获许可则跳过渲染保留现文件；不存在时行为不变直接渲染创建（本版 `__BACKEND_PORT__` 仍填宿主机映射端口 `HOST_PORT`）。
+- **`setup_nginx_config()` 配置保护**：已存在 `$PROJECT_NAME.conf` 时先经 `should_overwrite` 判定，未获许可则跳过渲染保留现文件；不存在时行为不变直接渲染创建。
 
 ### 3. 非交互式执行兼容性设计
 - cron 定时重启等无人值守场景：`read` 前先以 `[ -t 0 ]` 检测 stdin，非终端直接返回「保留」，避免脚本永久挂起；
@@ -876,12 +740,68 @@ equests>=2.31.0 与 iohttp>=3.9.0，彻底根除 Gunicorn Worker 启动报错�
 - 用法帮助（无参数运行）同步补充两个环境变量说明与示例。
 
 ### 4. 验证结论
-- `bash -n` 语法校验：两版 run.sh 均通过（本版保持 LF 换行）；
-- 功能测试：逻辑沙箱 6/6、原生版端到端 14/14、本 Docker 版提取验证 7/7 全部通过（含两版 `should_overwrite` 函数逐字一致性、两版证书调用点一致性校验）；
-- 端到端覆盖场景：证书不存在→生成不询问；已存在非交互→内容 MD5 不变（保留）且提示正确；`SSL_FORCE_UPDATE=1`→证书内容变化（重新生成）；
+- `bash -n` 语法校验：两版 run.sh 均通过，换行符统一 LF（传统版曾因编辑引入 CRLF 已修复为 LF，git 仓内存储保持 LF）；
+- 功能测试：逻辑沙箱 6/6、传统版端到端 14/14、Docker 版 7/7 全部通过；
+- 端到端覆盖场景：证书不存在→生成不询问；已存在非交互→内容 MD5 不变（保留）且提示正确；`SSL_FORCE_UPDATE=1`→证书内容变化（重新生成）；Nginx conf 已存在非交互→手改内容保留；`NGINX_CONF_FORCE_UPDATE=1`→渲染覆盖且 `default_server`/SNI 域名正确、占位符零残留；
 - 交互式 `y` 路径与强制更新共用同一段生成/渲染代码，由强制更新场景代为验证；`bash -n` 保证 read 分支语法正确。
 
 ### 5. 涉及文件
-- `run.sh`（两版同步修改，`should_overwrite` 逐字一致）
+- `run.sh`（传统版 + Docker 版同步修改，`should_overwrite` 逐字一致）
 - `README.md`（两版）：V10.10.3 更新条目
+- `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
+
+## 14. V10.10.6 密保问题下拉菜单与个人安全设置页面复盘 (2026年9月21日更新)
+
+### 1. 需求背景
+- **需求 1**：管理员重置密保时，密保问题由可编辑文本框改为下拉菜单（显示预置的 12 个问题 + 一个"自定义"选项，选择后用户可自定义密保问题）。
+- **需求 2**：管理员查看凭证时，安全验证区从只显示 1 个密保改为显示 2 个密保，输入密码或任意一个密保答案均可查看凭证。
+- **需求 3**：新增普通用户登录后可查看/修改自身密码或密保（重置需先认证，输入旧密码或两个旧密保任意一个即可），该页面数据须与管理员用户管理页面同步。
+- **需求 4**：注册页密保问题也同步改为下拉菜单 + 自定义选项。
+
+### 2. 实现方案
+
+#### 优化 1：重置密保下拉菜单（`admin_users.html`）
+- 将重置密保模态框中两个密保问题的 `<input type="text">` 改为 `<select>` + 隐藏 `<input>` 的复合控件。
+- 下拉菜单统一包含 12 个预置密保问题 + 1 个"自定义问题..."选项，两组共用同一列表。
+- JS 函数 `onSecurityQuestionSelectChange(selectEl)` 处理切换逻辑：选择预置问题直接写入隐藏 input 并隐藏自定义框；选择"自定义问题..."时显示自定义输入框。
+- `DOMContentLoaded` 时根据当前密保问题值初始化下拉选中状态：匹配预置问题则选中对应选项，否则选中"自定义"并显示输入框。
+
+#### 优化 2：查看凭证双密保验证（`admin_users.html`）
+- 安全验证区 HTML 从 1 个密保问题标签 + 1 个答案输入框改为 2 个密保问题标签 + 2 个答案输入框（`credVerifyAnsInput1` / `credVerifyAnsInput2`）。
+- 问题 2 条件显示（`{% if u.security_question_2 %}`）。
+- JS `fetchAndRenderCredentials` 增加第 4 参数 `ans2Verify`，`submitAdminVerifyCred` 读取两个答案输入框并传递给后端。
+- 后端 `admin_user_credentials` 路由已支持 `verify_security_answer_2` 参数（L2660），无需修改后端代码。
+
+#### 新增 3：普通用户个人安全设置页面
+- **新建 `templates/profile_security.html`**：卡片 A 修改密码（表单 POST 到 `/change-password` 路由）+ 卡片 B 修改密保（表单 POST 到 `/profile/security` 路由）。
+- 修改密保卡片包含：当前密保信息展示区、安全验证区（旧密码 + 原密保问题 1 答案 + 原密保问题 2 答案，三选一）、新密保问题输入区（双下拉菜单 + 自定义输入复合控件）。
+- **新增 `app.py` 路由 `/profile/security`**：
+  - GET：渲染 `profile_security.html`
+  - POST：身份验证（`check_password` 或 `check_any_security_answer` 或 `check_security_answers`，答对任一即可）→ 校验密保问题 1 和答案 1 必填 → 校验密保问题 2 与答案 2 成对 → 校验两新密保问题不同 → `set_security_answers` → `db.session.commit` → `log_action` 审计日志 → `trigger_webhook_event` Webhook 推送
+- **`base.html` 导航栏**：用户下拉菜单在"导出数据"上方新增"个人安全设置"入口（`url_for('profile_security')`）。
+
+#### 注册页自定义密保选项（`register.html`）
+- 两个密保问题下拉框从各 6 个固定选项扩展为统一的 12 个预置问题 + "自定义问题..."选项。
+- 选择自定义时显示隐藏的 `<input>` 供用户输入自定义问题。
+- JS 提交校验逻辑适配：从 `getElementById` 读取 `<select>` 值改为 `querySelector` 读取隐藏 `<input>` 值。
+
+### 3. 验证结论
+- Python AST 编译通过（两版 app.py，3.12 环境）
+- 两版 5 个共享文件 MD5 一致性校验全部通过（app.py、admin_users.html、base.html、register.html、profile_security.html）
+- Flask 服务重启成功（PID 54768，端口 11443 监听正常）
+- 浏览器端到端验证：
+  - **导航栏入口**：admin 用户下拉菜单正确显示"个人安全设置"链接，URL 指向 `/profile/security`
+  - **个人安全设置页面**：修改密码卡片和修改密保卡片正常渲染，当前密保信息正确展示，安全验证区三个输入框，新密保下拉菜单 12 个预置 + 自定义选项，页面加载时自动识别当前密保问题类型
+  - **修改密保流程**：输入旧密码验证通过 → 选择预置问题 + 输入答案 → 提交成功，flash 显示成功消息，当前密保信息自动更新
+  - **重置密保模态框**：两组下拉菜单 + 自定义复合控件正确渲染，自动回显当前密保问题
+  - **查看凭证模态框**：双密保问题 + 双答案输入框正确展示，密码验证通过后凭证显示最新数据（证明普通用户修改密保后管理员页面同步）
+  - 测试数据已恢复到测试前状态
+
+### 4. 涉及文件
+- `templates/admin_users.html`（两版同步修改：重置密保下拉菜单 + 查看凭证双密保验证）
+- `templates/profile_security.html`（两版同步新增：普通用户个人安全设置页面）
+- `templates/base.html`（两版同步修改：导航栏添加个人安全设置入口）
+- `templates/register.html`（两版同步修改：注册页密保问题下拉菜单 + 自定义选项）
+- `app.py`（两版同步修改：新增 `profile_security` 路由）
+- `README.md`（两版）：V10.10.6 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
