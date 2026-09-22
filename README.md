@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'dafd8308-7bc7-4c54-93e0-b4a88cc75398'
-  PropagateID: 'dafd8308-7bc7-4c54-93e0-b4a88cc75398'
-  ReservedCode1: '2682cdeb-bac4-4f7a-8172-3f89a91fb657'
-  ReservedCode2: '2682cdeb-bac4-4f7a-8172-3f89a91fb657'
+  ProduceID: 'faabd2e1-cc21-4cce-bc91-32aa9589a574'
+  PropagateID: 'faabd2e1-cc21-4cce-bc91-32aa9589a574'
+  ReservedCode1: '2d30dc33-cd5e-41bf-89b7-2ddc1c0a28fe'
+  ReservedCode2: '2d30dc33-cd5e-41bf-89b7-2ddc1c0a28fe'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -830,6 +830,28 @@ PROJECT_NAME=mengyao SNI_DOMAIN=mengyao.example.com SNI_DEFAULT_SERVER=0 ./run.s
 - `app.py`（两版同步修改：`init_database()` 新增 orphan index 修复）
 - `routes_ext.py`（两版同步修改：两处管理员恢复路由改用 `sqlite3.backup()` 原子操作）
 
+### V10.10.9：SNI_DOMAIN 多域名支持 — 一个项目绑定多个域名（2026-09-22）
+
+#### 新增功能
+`SNI_DOMAIN` 环境变量现支持**空格分隔的多个域名**，第一个域名写入证书 CN，全部域名写入证书 SAN 与 Nginx `server_name`。
+
+#### 使用方式
+```bash
+# 单域名（向后兼容，无变化）
+SNI_DOMAIN=gift-docker.example.com ./run.sh start
+
+# 多域名：空格分隔，第一个为证书 CN，全部写入 SAN 与 server_name
+SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
+```
+
+#### 修改内容
+- `generate_ssl_certs.py`（两版同步）：`--domain` 参数支持空格分隔多域名解析，第一个域名写入 CN，全部域名去重后写入 SAN（OpenSSL 与 cryptography 双路径均支持）
+- `run.sh`（两版同步）：注释更新说明多域名用法；访问地址提示取第一个域名；帮助文本新增多域名示例
+
+#### 涉及文件
+- `generate_ssl_certs.py`（两版同步修改：多域名 SAN 支持）
+- `run.sh`（两版同步修改：注释、日志、访问地址、帮助文本）
+
 ## 📂 项目文件结构
 
 ```text
@@ -922,7 +944,7 @@ chmod +x run.sh
 > PROJECT_NAME=mengyao SNI_DOMAIN=mengyao.example.com SNI_DEFAULT_SERVER=0 ./run.sh start
 > ```
 > - `PROJECT_NAME`：项目标识，决定 Nginx 配置文件名与 upstream 名（默认 gift_app）
-> - `SNI_DOMAIN`：SNI 域名，写入 server_name 与证书 CN/SAN（默认 localhost）
+> - `SNI_DOMAIN`：SNI 域名，写入 server_name 与证书 CN/SAN（默认 localhost）；支持空格分隔多域名，如 `SNI_DOMAIN="a.com b.com"`，第一个为证书 CN，全部写入 SAN 与 server_name
 > - `SNI_DEFAULT_SERVER`：是否作为 443 兑底 default_server，多项目只应有一个设为 1（默认 1）
 > - `SSL_CERT` / `SSL_KEY`：可指向正式证书路径，默认使用自动生成的自签证书
 

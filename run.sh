@@ -8,7 +8,7 @@ fi
 
 # ===== SNI 多项目共用端口配置（全部支持环境变量覆盖，多项目部署时各项目设不同值即可） =====
 PROJECT_NAME="${PROJECT_NAME:-gift_app_docker}"   # 项目标识：决定 Nginx 配置文件名($PROJECT_NAME.conf)与 upstream 名(${PROJECT_NAME}_backend)，默认与传统原生版 gift_app 区分
-SNI_DOMAIN="${SNI_DOMAIN:-localhost}"            # SNI 域名：写入 server_name 与自签证书 CN/SAN，多项目各设一个域名
+SNI_DOMAIN="${SNI_DOMAIN:-localhost}"            # SNI 域名：写入 server_name 与自签证书 CN/SAN，支持空格分隔多域名（如 SNI_DOMAIN="a.com b.com"），第一个域名为证书 CN，全部写入 SAN 与 server_name
 SSL_CERT="${SSL_CERT:-$APP_DIR/ssl/server.crt}" # SSL 证书路径（可指向正式证书）
 SSL_KEY="${SSL_KEY:-$APP_DIR/ssl/server.key}"   # SSL 私钥路径
 SNI_DEFAULT_SERVER="${SNI_DEFAULT_SERVER:-0}"   # 是否作为该监听端口的兑底 default_server（1=是 0=否，多项目共端口时只应有一个项目为 1；同一台服务器若原生版 gift_app 已作兑底，Docker 版保持 0）
@@ -91,6 +91,7 @@ ensure_ssl_certs() {
     # 两份证书文件均不存在时，无需询问，直接创建（首次部署场景）
     if [ ! -f "$SSL_CERT" ] && [ ! -f "$SSL_KEY" ]; then
         echo_e "${GREEN}未检测到 SSL 证书文件，正在生成自签名证书 (域名: $SNI_DOMAIN)...${NC}"
+        # SNI_DOMAIN 支持空格分隔多域名，第一个写入 CN，全部写入 SAN
         mkdir -p "$APP_DIR/ssl"
         local cert_script="$APP_DIR/generate_ssl_certs.py"
         # 固定在 APP_DIR 下执行，确保证书始终输出到 $APP_DIR/ssl（不依赖调用时所在目录）
@@ -102,6 +103,7 @@ ensure_ssl_certs() {
     # 文件已存在：必须先取得用户/环境变量许可，才允许覆盖更新（保护自定义证书、正式证书）
     elif should_overwrite "$SSL_CERT" "$SSL_FORCE_UPDATE" "SSL_FORCE_UPDATE"; then
         echo_e "${GREEN}确认更新，正在重新生成 SSL 自签名证书 (域名: $SNI_DOMAIN)...${NC}"
+        # SNI_DOMAIN 支持空格分隔多域名，第一个写入 CN，全部写入 SAN
         mkdir -p "$APP_DIR/ssl"
         local cert_script="$APP_DIR/generate_ssl_certs.py"
         # 固定在 APP_DIR 下执行，确保证书始终输出到 $APP_DIR/ssl（不依赖调用时所在目录）
@@ -311,7 +313,9 @@ start_service() {
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
         echo_e "   容器内监听端口: $PORT"
         echo_e "   宿主机映射端口: $HOST_PORT"
-        echo_e "   HTTPS 访问地址: https://$SNI_DOMAIN"$( [ "$NGINX_PORT" = "443" ] || echo ":$NGINX_PORT" )" (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
+        # 多域名时取第一个作为访问地址提示
+        local primary_domain="${SNI_DOMAIN%% *}"
+        echo_e "   HTTPS 访问地址: https://$primary_domain"$( [ "$NGINX_PORT" = "443" ] || echo ":$NGINX_PORT" )" (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
     else
         echo_e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
         exit 1
@@ -386,6 +390,7 @@ case "$1" in
         echo_e "  ${GREEN}clean${NC}   : 仅手动清理垃圾缓存与压缩 .git"
         echo ""
         echo_e "  多项目共用 443 端口（SNI 分流）示例: SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./$0 start"
+        echo_e "  多域名示例: SNI_DOMAIN=\"gift-docker.example.com gift-docker2.example.com\" ./$0 start"
         echo_e ""
         echo_e "  文件覆盖策略（已存在的证书/Nginx 配置，默认先询问):"
         echo_e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
