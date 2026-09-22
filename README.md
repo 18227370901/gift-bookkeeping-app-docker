@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '4401238c-adc8-4888-8b14-0f30e4bc50ec'
-  PropagateID: '4401238c-adc8-4888-8b14-0f30e4bc50ec'
-  ReservedCode1: '8523216b-7041-477a-a5fd-613487a7456d'
-  ReservedCode2: '8523216b-7041-477a-a5fd-613487a7456d'
+  ProduceID: '9bc1edf8-3a8d-4dfe-bebb-fb71d5e8d152'
+  PropagateID: '9bc1edf8-3a8d-4dfe-bebb-fb71d5e8d152'
+  ReservedCode1: '41ffc7f9-6e0c-4060-99ee-dcf22fb60b47'
+  ReservedCode2: '41ffc7f9-6e0c-4060-99ee-dcf22fb60b47'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -780,6 +780,22 @@ PROJECT_NAME=mengyao SNI_DOMAIN=mengyao.example.com SNI_DEFAULT_SERVER=0 ./run.s
 - `templates/admin_ai_config.html`（两版同步修改：新增测试按钮 + JS 函数 + 结果展示）
 - `run.sh`（传统版：移除互斥逻辑 + 新增 `check_port_conflict()` + `default_server` 降级）
 - `run.sh`（Docker 版：同上，检测 `$HOST_PORT` 而非 `$PORT`）
+
+### V10.10.8 补丁：init_database() 管理员用户名冲突修复（2026-09-22）
+
+#### 问题背景
+传统版在服务器上启动时报错 `UNIQUE constraint failed: users.username`，导致服务无法启动。Docker 版也可能存在同样隐患。
+
+#### 根因
+`init_database()` 中每次启动都会将管理员用户名同步为环境变量 `ADMIN_USER` 的值（L896 `admin.username = initial_user`）。如果数据库中已有另一个普通用户使用了相同用户名，UPDATE 操作会触发 UNIQUE 约束冲突，导致 `db.session.commit()` 抛出异常，服务启动失败。
+
+#### 修复
+- 修改 `else` 分支：先检查 `admin.username != initial_user`，不同时再查数据库是否已有其他用户占用该用户名
+- 被占用则跳过用户名修改，只更新密码和状态，并打印警告日志
+- 日志中显示实际管理员用户名而非环境变量值
+
+#### 涉及文件
+- `app.py`（两版同步修改：`init_database()` 管理员同步逻辑增加用户名冲突检测）
 
 ## 📂 项目文件结构
 
