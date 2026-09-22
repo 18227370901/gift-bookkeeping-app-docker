@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'ead8415e-7c05-4bd3-874f-7d413ec4a2b1'
-  PropagateID: 'ead8415e-7c05-4bd3-874f-7d413ec4a2b1'
-  ReservedCode1: '7fbef79f-0dd4-4fa4-a766-f3ee54596b8b'
-  ReservedCode2: '7fbef79f-0dd4-4fa4-a766-f3ee54596b8b'
+  ProduceID: '8612c9bc-c602-4ae2-9feb-3bb0c81f4bfe'
+  PropagateID: '8612c9bc-c602-4ae2-9feb-3bb0c81f4bfe'
+  ReservedCode1: '5f8bd5cf-39d7-4cc2-9b23-38d12dff624b'
+  ReservedCode2: '5f8bd5cf-39d7-4cc2-9b23-38d12dff624b'
 ---
 
 # 礼金记账与金融数据集成系统技术调研与架构决策报告 (Project Survey)
@@ -965,4 +965,32 @@ db.session.commit()             # ← UNIQUE constraint failed
 ### 5. 涉及文件
 - `app.py`（两版同步修改：`init_database()` 管理员同步逻辑增加用户名冲突检测）
 - `README.md`（两版）：V10.10.8 补丁更新条目
+- `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
+
+## 18. V10.10.8 补丁2：移除 `__main__` 冗余管理员初始化 (2026年9月22日更新)
+
+### 1. 问题背景
+
+补丁1修复了 `init_database()` 中的用户名冲突，但 `app.py` 的 `__main__` 入口块仍残留 `--admin-user`/`--admin-pass` 命令行参数和重复的管理员创建/更新逻辑。该冗余代码与 `init_database()`（模块级 L912 自动执行）功能重叠，存在以下隐患：
+- `init_database()` 已在模块级自动执行，`__main__` 块再次调用属于重复执行
+- `--admin-user`/`--admin-pass` 参数的管理员创建逻辑绕过了 `init_database()` 的冲突检测，可能再次触发 UNIQUE 约束冲突
+- 两套管理员初始化逻辑并存，维护成本高且容易产生行为不一致
+
+### 2. 修复方案
+
+- 移除 `__main__` 块中的 `init_database()` 重复调用（模块级已自动执行）
+- 移除 `--admin-user` / `--admin-pass` 命令行参数定义
+- 移除对应的管理员创建/更新逻辑（约 16 行）
+- 添加注释说明管理员初始化统一由 `init_database()` 负责
+
+### 3. 验证结果
+
+- Python AST 编译通过（两版 app.py）
+- 两版 app.py MD5 一致性校验通过（`0C123D433238E1645EA02A8499C686E2`）
+- Flask 服务重启成功（PID 57492，端口 11443），`/login` 页面 HTTP 200 正常响应
+
+### 4. 涉及文件
+
+- `app.py`（两版同步修改：`__main__` 块移除冗余管理员初始化，-16/+2 行）
+- `README.md`（两版）：V10.10.8 补丁2 更新条目
 - `Project_Survey.md` / `Project_Survey_Docker.md`：本复盘章节
