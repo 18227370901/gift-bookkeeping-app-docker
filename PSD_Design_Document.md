@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '98be3849-2fab-4b45-a8bd-8fc6c57025cf'
-  PropagateID: '98be3849-2fab-4b45-a8bd-8fc6c57025cf'
-  ReservedCode1: '7ac923ca-646a-4f0b-80be-19b869d9d4eb'
-  ReservedCode2: '7ac923ca-646a-4f0b-80be-19b869d9d4eb'
+  ProduceID: 'a7e14e7f-1f27-41b5-ab84-fc34e8897429'
+  PropagateID: 'a7e14e7f-1f27-41b5-ab84-fc34e8897429'
+  ReservedCode1: '7026ccd3-26f2-42a5-80e1-5353348c7c98'
+  ReservedCode2: '7026ccd3-26f2-42a5-80e1-5353348c7c98'
 ---
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
@@ -60,7 +60,7 @@ AIGC:
 | 前端 | Jinja2 + Bootstrap 5 + Font-Awesome + Chart.js（Bootstrap/Font-Awesome 通过 CDN 引入） | — |
 | PWA | manifest.json + sw.js (Service Worker) | — |
 | 反向代理 | Nginx（宿主机安装，非容器化） | nginx_ssl.conf 占位符模板 |
-| 部署脚本 | run.sh (POSIX sh 兼容) | 410 行 |
+| 部署脚本 | run.sh (POSIX sh 兼容) | 424 行 |
 
 ### 三、代码规模统计
 
@@ -103,7 +103,7 @@ AIGC:
 | 前端框架 | Jinja2 + Bootstrap 5 + Chart.js（Bootstrap/Font-Awesome 通过 CDN 引入） | — | `templates/base.html` |
 | PWA | manifest.json + sw.js | — | `static/` 目录 |
 | 反向代理 | Nginx（宿主机安装） | — | `nginx_ssl.conf`；`run.sh` |
-| 部署脚本 | run.sh (POSIX sh 兼容) | — | `run.sh`（410 行） |
+| 部署脚本 | run.sh (POSIX sh 兼容) | — | `run.sh`（424 行） |
 | 容器编排 | docker-compose.yml | 3.8 | `docker-compose.yml` |
 
 ### 1.3 最新端到端架构拓扑图
@@ -177,7 +177,7 @@ graph TB
 |---|---|---|---|
 | Python 后端 | 19 | ~10,900 | `routes_ext.py` 4,744 行 |
 | HTML 模板 | 21 | ~11,100 | `admin_webhooks.html` 1,426 行 |
-| 配置/脚本 | 8 | ~700 | `run.sh` 410 行 |
+| 配置/脚本 | 8 | ~700 | `run.sh` 424 行 |
 | **合计** | **48** | **~22,700** | 中型单体应用 |
 
 | 路由分布 | 路由数 | 文件 |

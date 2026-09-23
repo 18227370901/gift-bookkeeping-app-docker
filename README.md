@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '63ab803a-5e3c-4304-a1d5-7c7dce1035d9'
-  PropagateID: '63ab803a-5e3c-4304-a1d5-7c7dce1035d9'
-  ReservedCode1: '7e9cdcd1-537b-4e27-851a-6d1690c6800e'
-  ReservedCode2: '7e9cdcd1-537b-4e27-851a-6d1690c6800e'
+  ProduceID: 'ba70bdeb-c58a-4efb-8997-532e349a6d56'
+  PropagateID: 'ba70bdeb-c58a-4efb-8997-532e349a6d56'
+  ReservedCode1: 'b3227044-a213-49a0-aff2-f40c31b112a3'
+  ReservedCode2: 'b3227044-a213-49a0-aff2-f40c31b112a3'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -851,6 +851,36 @@ SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
 #### 涉及文件
 - `generate_ssl_certs.py`（两版同步修改：多域名 SAN 支持）
 - `run.sh`（两版同步修改：注释、日志、访问地址、帮助文本）
+
+### V10.10.11：run.sh 缓存清理增强 — 多 SNI 输出、restart 去重与清理前后体积对比（2026-09-23）
+
+#### 问题背景
+1. **多 SNI 域名访问地址只显示第一个**：配置多个 SNI 域名时，启动成功后的提示仅输出第一个域名（`primary_domain="${SNI_DOMAIN%% *}"`），其余域名不可见。
+2. **restart 重复清理缓存**：`restart` 内部先调 `stop_service()`（含 `cleanup_cache()`）再调 `start_service()`（含 `cleanup_cache()`），导致缓存清理执行两次，浪费时间与 I/O。
+3. **清理效果不可见**：`cleanup_cache()` 执行 Docker 清理后只有一句"清理完成"，用户无法直观感知清理了多少缓存。
+
+#### 变更内容
+- **多 SNI 域名全部展示**（`start_service()`）：
+  - 删除 `local primary_domain="${SNI_DOMAIN%% *}"` 截取逻辑
+  - 改为 `for _sni_domain in $SNI_DOMAIN` 遍历全部域名，逐个输出 HTTPS 访问地址
+  - 端口逻辑保持（443 不带端口，非 443 附加 `:端口`）
+- **restart 缓存清理去重**（`stop_service()` + `restart_service()`）：
+  - `stop_service()` 新增 `skip_clean` 参数：传 `skip_clean` 时跳过 `cleanup_cache()`
+  - `restart_service()` 调用 `stop_service skip_clean`，由 `start_service()` 统一在构建前清理一次
+  - 效果：`restart` 从清理 2 次降为 1 次，`start`/`stop` 行为不变
+- **清理前后体积对比**（`cleanup_cache()`）：
+  - 清理前记录 `docker system df --format '{{.Type}}:{{.Size}}'` 的 Images 与 Build Cache 行
+  - 清理后再次统计，输出 `[清理前]` 与 `[清理后]` 两行占用对比
+  - `docker system df` 不可用时静默跳过，不影响原有流程
+
+#### 验证结论
+- `bash -n` + `dash -n` POSIX 语法校验通过
+- 多域名模拟验证：443 端口 3 域名全部输出、非 443 端口带端口输出、单域名正常
+- 清理逻辑模拟验证：`[清理前]`/`[清理后]` 体积对比输出正常
+- 触发时机不变：`start` 构建前清理、`stop` 停止后清理、`restart` 仅启动前清理一次
+
+#### 涉及文件
+- `run.sh`（仅 Docker 版）：`start_service()` 多域名输出 + `stop_service()`/`restart_service()` 去重 + `cleanup_cache()` 体积对比
 
 ### V10.10.10：run.sh 自动清理 Docker 构建缓存（2026-09-22）
 

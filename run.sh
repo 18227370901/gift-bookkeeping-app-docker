@@ -205,9 +205,17 @@ cleanup_cache() {
     rm -rf /tmp/gift-backup 2>/dev/null || true
     # Docker 构建缓存清理：清理悬空镜像与构建缓存（不影响正在运行的容器和其他项目的镜像）
     if command -v docker > /dev/null 2>&1; then
+        # 清理前记录 Docker 镜像与构建缓存占用（用于清理前后体积对比展示）
+        local _df_before=$(docker system df --format '{{.Type}}:{{.Size}}' 2>/dev/null | grep -E '^(Images|Build Cache):' | tr '\n' '; ')
         docker image prune -f 2>/dev/null || true
         docker builder prune -f 2>/dev/null || true
         echo_e "${GREEN}✅ Docker 构建缓存清理完成（悬空镜像 + 构建缓存）${NC}"
+        # 清理后再次统计，输出占用变化对比（docker system df 不可用时静默跳过）
+        local _df_after=$(docker system df --format '{{.Type}}:{{.Size}}' 2>/dev/null | grep -E '^(Images|Build Cache):' | tr '\n' '; ')
+        if [ -n "$_df_before" ] && [ -n "$_df_after" ]; then
+            echo_e "   Docker 占用变化: [清理前] $_df_before"
+            echo_e "   Docker 占用变化: [清理后] $_df_after"
+        fi
     fi
 }
 
@@ -337,12 +345,15 @@ stop_service() {
     $DOCKER_COMPOSE down
     echo_e "${GREEN}✅ Docker 容器集群已停止${NC}"
     # 停止后自动清理上一次构建的残留层（悬空镜像 + 构建缓存），避免磁盘膨胀
-    cleanup_cache
+    # restart 流程中传 skip_clean 跳过本次清理（由 start_service 统一清理，避免重复执行两次）
+    if [ "$1" != "skip_clean" ]; then
+        cleanup_cache
+    fi
 }
 
 restart_service() {
     echo_e "${YELLOW}正在重启 Docker 容器集群...${NC}"
-    stop_service
+    stop_service skip_clean
     sleep 2
     start_service
 }
