@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人情记账宝 — PSD 系统设计与重构决策文档</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:'default',flowchart:{useMaxWidth:true,htmlLabels:true},securityLevel:'loose'});</script>
+<style>
+:root{--pri:#2563eb;--pri-lt:#dbeafe;--acc:#dc2626;--acc-lt:#fee2e2;--bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#1e293b;--text-mut:#64748b;--code-bg:#f1f5f9;--green:#16a34a;--green-lt:#dcfce7;--amber:#d97706;--amber-lt:#fef3c7;--red:#dc2626;--red-lt:#fee2e2}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+header{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;padding:40px 20px;text-align:center;border-radius:0 0 20px 20px;box-shadow:0 4px 20px rgba(0,0,0,.15)}
+header h1{font-size:2em;margin-bottom:8px}
+header .meta{color:#bfdbfe;font-size:.9em;margin-top:8px}
+header .meta span{margin:0 8px}
+nav{position:sticky;top:0;z-index:100;background:var(--card);border-bottom:2px solid var(--border);padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+nav .nav-inner{max-width:1200px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px}
+nav a{text-decoration:none;color:var(--pri);padding:4px 12px;border-radius:6px;font-size:.85em;transition:all .15s;white-space:nowrap}
+nav a:hover{background:var(--pri-lt)}
+section{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:30px;margin:24px 0;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+h2{font-size:1.6em;color:#1e3a5f;border-bottom:3px solid var(--pri);padding-bottom:8px;margin-bottom:20px}
+h3{font-size:1.25em;color:#334155;margin-top:24px;margin-bottom:12px}
+h4{font-size:1.05em;color:var(--pri);margin-top:16px;margin-bottom:8px}
+p{margin:8px 0}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.9em}
+th{background:#1e3a5f;color:#fff;padding:10px 12px;text-align:left;font-weight:600;border:1px solid #1e3a5f}
+td{padding:8px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even){background:var(--code-bg)}
+tr:hover td{background:var(--pri-lt)}
+code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"Fira Code","Cascadia Code",Consolas,monospace;font-size:.88em;color:#334155}
+pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:8px;overflow-x:auto;margin:12px 0;font-size:.85em;line-height:1.5}
+pre code{background:none;color:inherit;padding:0;font-size:1em}
+.mermaid{text-align:center;margin:20px 0;padding:16px;background:#fdfdfe;border:1px solid var(--border);border-radius:8px}
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:.8em;font-weight:600}
+.badge-red{background:var(--red-lt);color:var(--red)}
+.badge-green{background:var(--green-lt);color:var(--green)}
+.badge-amber{background:var(--amber-lt);color:var(--amber)}
+.badge-blue{background:var(--pri-lt);color:var(--pri)}
+.drift{border-left:4px solid var(--acc);padding:12px 16px;margin:12px 0;background:var(--acc-lt);border-radius:0 8px 8px 0}
+.drift strong{color:var(--acc)}
+.callout{border-left:4px solid var(--pri);padding:12px 16px;margin:12px 0;background:var(--pri-lt);border-radius:0 8px 8px 0}
+.callout-amber{border-left:4px solid var(--amber);padding:12px 16px;margin:12px 0;background:var(--amber-lt);border-radius:0 8px 8px 0}
+ul,ol{margin:8px 0 8px 24px}
+li{margin:4px 0}
+.toc-box{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:16px;margin:16px 0}
+.toc-box ol{margin-left:20px}
+.toc-box a{color:var(--pri);text-decoration:none}
+.toc-box a:hover{text-decoration:underline}
+.summary-box{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border-radius:12px;padding:24px;margin:20px 0}
+.summary-box h3{color:#fff}
+.summary-box p{color:#bfdbfe}
+.summary-box code{background:rgba(255,255,255,.15);color:#fff}
+@media(max-width:768px){.container{padding:10px}section{padding:16px}h2{font-size:1.3em}nav .nav-inner{overflow-x:auto;flex-wrap:nowrap}}
+</style>
+</head>
+<body>
+<header>
+<h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
+<div class="meta">
+<span>Docker 版</span>·<span>版本: V10.10.10</span>·<span>生成日期: 2026-09-23</span>·<span>审计范围: 48 文件 / ~22,700 行代码</span>
+</div>
+</header>
+
+<nav>
+<div class="nav-inner">
+<a href="#phase0">阶段0 资产盘点</a>
+<a href="#part1">1.全局概览</a>
+<a href="#part2">2.漂移矩阵</a>
+<a href="#part3">3.架构模式</a>
+<a href="#part4">4.耦合度诊断</a>
+<a href="#part5">5.替换决策</a>
+<a href="#part6">6.前后端规格</a>
+<a href="#part7">7.数据持久化</a>
+<a href="#part8">8.工程安全</a>
+<a href="#part9">9.演进路线</a>
+</div>
+</nav>
+
+<div class="container">
+
+<!-- ==================== 阶段 0 ==================== -->
+<section id="phase0">
+<h2>阶段 0：资产自发现与执行计划</h2>
+
+<h3>一、历史设计资产盘点</h3>
+<p>对项目根目录递归扫描后，发现 <strong>3 份核心文档</strong>，无 wiki、会议纪要或其他外部架构文件。</p>
+<table>
+<tr><th>#</th><th>文件路径</th><th>行数</th><th>预估用途</th><th>时效性判定</th></tr>
+<tr><td>1</td><td><code>README.md</code></td><td>1091</td><td><strong>用户手册 + 版本变更日志</strong>：功能模块详解、默认凭证说明、V2~V10.10.8 逐版本修复记录</td><td><span class="badge badge-green">最新</span>（持续更新至 2026-09-22）</td></tr>
+<tr><td>2</td><td><code>Project_Survey_Docker.md</code></td><td>1137+</td><td><strong>技术调研与架构决策报告（PSD 主体）</strong>：系统概述、痛点审计、ADR-01~ADR-38、模块设计规范、多轮复盘（第 9~10 章）</td><td><span class="badge badge-amber">较新</span>（ADR 覆盖至 V10.10.2，部分章节存在与代码的局部漂移）</td></tr>
+<tr><td>3</td><td><code>Docker_Deployment_Plan.md</code></td><td>1107+</td><td><strong>容器化部署方案（方案 B 企业级高可用）</strong>：多容器架构蓝图、Dockerfile 逐行注释、docker-compose.yml 完整设计、CI/CD 流水线、安全加固、可观测性</td><td><span class="badge badge-red">设计意图文档，大量未落地</span>（实际 Dockerfile/compose 远比文档简单）</td></tr>
+</table>
+
+<h4>初步漂移预判</h4>
+<div class="drift">
+<p><strong>Drift-01 容器架构</strong>：<code>Docker_Deployment_Plan.md</code> 描述 5 容器集群（Nginx + Web×2 + PostgreSQL + Redis + Certbot）+ 双网络隔离 + 只读根文件系统 → <code>docker-compose.yml</code> 仅 1 个 Web 容器 + SQLite + 单网络；Dockerfile 为单阶段构建。状态：<strong>画饼未实现</strong></p>
+</div>
+<div class="drift">
+<p><strong>Drift-02 akshare 金融数据集成</strong>：<code>Project_Survey_Docker.md</code> 多处描述集成 akshare 金融量化库 → <code>requirements.txt</code> 无 akshare；代码中无 import。状态：<strong>完全未落地</strong></p>
+</div>
+<div class="drift">
+<p><strong>Drift-03 Redis/PostgreSQL 生产配置</strong>：部署方案详细描述 Redis 会话共享 + PG 连接池 + 健康探针 → 代码中无 Redis 初始化、无 /healthz 路由。状态：<strong>未实现</strong></p>
+</div>
+
+<h3>二、代码骨架与技术栈初判</h3>
+<table>
+<tr><th>层面</th><th>技术选型</th><th>版本/来源</th></tr>
+<tr><td>后端语言</td><td>Python</td><td>3.11（Dockerfile python:3.11-slim）</td></tr>
+<tr><td>Web 框架</td><td>Flask</td><td>3.0.3</td></tr>
+<tr><td>ORM</td><td>Flask-SQLAlchemy</td><td>3.1.1</td></tr>
+<tr><td>认证</td><td>Flask-Login + Flask-WTF (CSRF)</td><td>0.6.3 / 1.2.1</td></tr>
+<tr><td>WSGI 容器</td><td>Gunicorn</td><td>22.0.0（4 workers）</td></tr>
+<tr><td>加密</td><td>cryptography (AES-256-GCM)</td><td>42.0.8</td></tr>
+<tr><td>数据库</td><td>SQLite（WAL 模式）/ PostgreSQL（可选）</td><td>—</td></tr>
+<tr><td>AI</td><td>OpenAI SDK + DuckDuckGo Search</td><td>openai>=1.0, duckduckgo_search>=4.0</td></tr>
+<tr><td>企微机器人</td><td>wecom-aibot-python-sdk + websockets + pyee</td><td>>=1.0.2 / >=12.0 / >=11.0</td></tr>
+<tr><td>备份加密</td><td>pyzipper (AES-256 zip)</td><td>>=0.3.1</td></tr>
+<tr><td>前端</td><td>Jinja2 + Bootstrap 5 + Font-Awesome + Chart.js（Bootstrap/Font-Awesome 通过 CDN 引入）</td><td>—</td></tr>
+<tr><td>PWA</td><td>manifest.json + sw.js (Service Worker)</td><td>—</td></tr>
+<tr><td>反向代理</td><td>Nginx（宿主机安装，非容器化）</td><td>nginx_ssl.conf 占位符模板</td></tr>
+<tr><td>部署脚本</td><td>run.sh (POSIX sh 兼容)</td><td>410 行</td></tr>
+</table>
+
+<h4>代码规模统计</h4>
+<table>
+<tr><th>类别</th><th>文件数</th><th>总行数</th><th>说明</th></tr>
+<tr><td>Python 后端</td><td>19</td><td>~10,900</td><td>routes_ext.py 4,744 行（最大）、app.py 2,842 行</td></tr>
+<tr><td>HTML 模板</td><td>21</td><td>~11,100</td><td>admin_webhooks.html 1,426 行、admin_users.html 1,293 行</td></tr>
+<tr><td>配置/脚本</td><td>8</td><td>~700</td><td>Dockerfile、docker-compose.yml、run.sh 等</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>48</strong></td><td><strong>~22,700</strong></td><td>中型单体应用</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 1 部分 ==================== -->
+<section id="part1">
+<h2>第 1 部分：项目全局概览</h2>
+
+<h3>1.1 业务定位</h3>
+<p>人情礼金记账系统是一套面向中国家庭/小团队的人情往来与礼金资产记账管理系统。核心业务涵盖：礼金收支记录、专属宴席大账本、人情往来对账、亲友纪念日智能提醒、全系统统一回收站、多渠道 Webhook 消息推送、WebDAV 云端备份、AI 助手及细粒度权限管控。</p>
+<p><strong>实际部署形态</strong>：Docker 单容器（Flask + Gunicorn + SQLite），宿主机 Nginx 反向代理（SNI 多项目共用 443 端口）。</p>
+
+<h3>1.2 真实技术栈全景清单</h3>
+<table>
+<tr><th>层面</th><th>技术选型</th><th>版本</th><th>代码依据</th></tr>
+<tr><td>后端语言</td><td>Python</td><td>3.11</td><td>Dockerfile:1</td></tr>
+<tr><td>Web 框架</td><td>Flask</td><td>3.0.3</td><td>requirements.txt:1</td></tr>
+<tr><td>ORM</td><td>Flask-SQLAlchemy</td><td>3.1.1</td><td>requirements.txt:2</td></tr>
+<tr><td>认证</td><td>Flask-Login</td><td>0.6.3</td><td>requirements.txt:4</td></tr>
+<tr><td>CSRF 防护</td><td>Flask-WTF</td><td>1.2.1</td><td>requirements.txt:3</td></tr>
+<tr><td>密码哈希</td><td>Werkzeug</td><td>3.0.3</td><td>requirements.txt:5</td></tr>
+<tr><td>WSGI 容器</td><td>Gunicorn</td><td>22.0.0（4 workers）</td><td>requirements.txt:6；Dockerfile:27</td></tr>
+<tr><td>加密</td><td>cryptography (AES-256-GCM)</td><td>42.0.8</td><td>requirements.txt:7；models.py:10</td></tr>
+<tr><td>数据库</td><td>SQLite（WAL）/ PostgreSQL（可选）</td><td>—</td><td>app.py:76-85</td></tr>
+<tr><td>AI SDK</td><td>openai</td><td>>=1.0.0</td><td>requirements.txt:14；ai_service.py:13</td></tr>
+<tr><td>联网搜索</td><td>duckduckgo_search</td><td>>=4.0.0</td><td>requirements.txt:15；web_search.py:10</td></tr>
+<tr><td>企微机器人</td><td>wecom-aibot-python-sdk + websockets + pyee</td><td>>=1.0.2</td><td>requirements.txt:11-13；aibot/ 目录</td></tr>
+<tr><td>HTTP 客户端</td><td>requests + aiohttp</td><td>>=2.31 / >=3.9</td><td>requirements.txt:9-10</td></tr>
+<tr><td>备份加密</td><td>pyzipper (AES-256 zip)</td><td>>=0.3.1</td><td>requirements.txt:16；webdav_utils.py:26</td></tr>
+<tr><td>前端框架</td><td>Jinja2 + Bootstrap 5 + Chart.js（Bootstrap/Font-Awesome 通过 CDN 引入）</td><td>—</td><td>templates/base.html</td></tr>
+<tr><td>PWA</td><td>manifest.json + sw.js</td><td>—</td><td>static/ 目录</td></tr>
+<tr><td>反向代理</td><td>Nginx（宿主机安装）</td><td>—</td><td>nginx_ssl.conf；run.sh</td></tr>
+<tr><td>部署脚本</td><td>run.sh (POSIX sh 兼容)</td><td>—</td><td>run.sh（410 行）</td></tr>
+<tr><td>容器编排</td><td>docker-compose.yml</td><td>3.8</td><td>docker-compose.yml</td></tr>
+</table>
+
+<h3>1.3 最新端到端架构拓扑图</h3>
+<pre class="mermaid">
+graph TB
+    subgraph 互联网["互联网用户终端"]
+        USER["用户浏览器 Bootstrap5+Chart.js+PWA"]
+    end
+    subgraph 宿主机["宿主机 Linux"]
+        subgraph Nginx层["Nginx 反向代理 宿主机安装"]
+            NGINX["nginx_ssl.conf SNI多项目共用443 TLS1.2/1.3终止"]
+        end
+        subgraph Docker层["Docker Engine"]
+            subgraph 容器["gift_bookkeeping_web 容器"]
+                GUN["Gunicorn 4 Workers bind 0.0.0.0:11443 app:app"]
+                subgraph FlaskApp["Flask 应用 单体"]
+                    APP["app.py 2842行 认证/风控/权限/审计/CSV 37个路由"]
+                    EXT["routes_ext.py 4744行 宴席/纪念日/回收站 Webhook/WebDAV/备份/工单 110个路由"]
+                    AI["routes_ai.py 356行 AI聊天/会话/配置 14个路由"]
+                end
+                subgraph 工具层["业务工具层 框架无关"]
+                    GIFT["gift_utils.py NLP拆分/对账计算"]
+                    AISVC["ai_service.py 多配置优先级/本地兜底"]
+                    WSEARCH["web_search.py DuckDuckGo搜索"]
+                end
+                subgraph 基础设施["基础设施层"]
+                    HOOK["webhook_utils.py 918行 多通道推送/日志脱敏"]
+                    WDAV["webdav_utils.py 489行 PROPFIND/MKCOL/PUT/GET"]
+                    AIBOT["aibot/ 9文件1109行 企微SDK封 WebSocket长连接"]
+                end
+                subgraph 数据层["数据层"]
+                    SQLITE[("SQLite WAL模式 data/gift_bookkeeping.db 22张表")]
+                end
+                subgraph 后台["后台守护线程"]
+                    T1["纪念日巡检线程 60s周期"]
+                    T2["备份调度线程 60s检查Cron"]
+                    T3["企微长连接监听 chatid自动捕获"]
+                end
+            end
+        end
+        SSL["generate_ssl_certs.py 自签证书"]
+        RUN["run.sh start/stop/restart/status"]
+    end
+    subgraph 外部["外部服务"]
+        WD["WebDAV 坚果云/NAS/Nextcloud"]
+        WH["Webhook 企微/钉钉/飞书/Bark/PushPlus"]
+        WECOM["企微WebSocket wss://openws.work.weixin.qq.com"]
+        OPENAI["OpenAI API 兼容Base URL"]
+        DDG["DuckDuckGo Search"]
+    end
+    USER -->|HTTPS 443| NGINX
+    NGINX -->|HTTP HOST_PORT| GUN
+    GUN --> FlaskApp
+    FlaskApp --> 工具层
+    FlaskApp --> 基础设施
+    FlaskApp --> 数据层
+    FlaskApp --> 后台
+    HOOK --> WH
+    HOOK --> WECOM
+    WDAV --> WD
+    AISVC --> OPENAI
+    AISVC --> DDG
+    RUN --> Docker层
+    SSL --> NGINX
+</pre>
+
+<h3>1.4 代码规模总览</h3>
+<table>
+<tr><th>类别</th><th>文件数</th><th>总行数</th><th>最大文件</th></tr>
+<tr><td>Python 后端</td><td>19</td><td>~10,900</td><td>routes_ext.py 4,744 行</td></tr>
+<tr><td>HTML 模板</td><td>21</td><td>~11,100</td><td>admin_webhooks.html 1,426 行</td></tr>
+<tr><td>配置/脚本</td><td>8</td><td>~700</td><td>run.sh 410 行</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>48</strong></td><td><strong>~22,700</strong></td><td>中型单体应用</td></tr>
+</table>
+<table>
+<tr><th>路由分布</th><th>路由数</th><th>文件</th></tr>
+<tr><td>核心路由（认证/用户/日志/CSV）</td><td>37</td><td>app.py</td></tr>
+<tr><td>扩展路由（宴席/纪念日/回收站/Webhook/备份/工单）</td><td>110</td><td>routes_ext.py</td></tr>
+<tr><td>AI 路由（聊天/会话/配置/授权）</td><td>14</td><td>routes_ai.py</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>161</strong></td><td>—</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 2 部分 ==================== -->
+<section id="part2">
+<h2>第 2 部分：文档-代码差异与漂移矩阵 (Drift Matrix)</h2>
+
+<h3>2.1 重大漂移（架构级）</h3>
+<table>
+<tr><th>#</th><th>模块/功能</th><th>历史文档记载</th><th>代码真实实现</th><th>状态</th><th>影响</th></tr>
+<tr><td>D-01</td><td><strong>容器架构</strong></td><td>5 容器集群：Nginx + Web×2 + PostgreSQL + Redis + Certbot，双网络隔离</td><td>docker-compose.yml 仅 1 个 Web 容器 + SQLite + 单网络单卷</td><td><span class="badge badge-red">画饼未实现</span></td><td><strong>高</strong>：误导新成员对系统能力的预期</td></tr>
+<tr><td>D-02</td><td><strong>akshare 金融集成</strong></td><td>§1.1 "具备金融量化/市场数据中台能力（集成 akshare）"</td><td>requirements.txt 无 akshare；全代码库无 import akshare</td><td><span class="badge badge-red">完全未落地</span></td><td><strong>中</strong>：早期设计探索遗留</td></tr>
+<tr><td>D-03</td><td><strong>Redis 会话共享</strong></td><td>"LOGIN_FAIL_COUNTS 迁移至 Redis"；"Flask-Session Redis 驱动"</td><td>无 Redis 依赖；风控用内存字典 + DB 表 LoginRisk；Flask 原生 Cookie Session</td><td><span class="badge badge-red">未实现</span></td><td><strong>高</strong>：多 Worker 下内存字典不共享</td></tr>
+<tr><td>D-04</td><td><strong>健康探针 /healthz</strong></td><td>"新增轻量级 /healthz 路由，执行 PG + Redis PING 探活"</td><td>代码中无 /healthz 路由定义</td><td><span class="badge badge-red">未实现</span></td><td><strong>低</strong>：单容器部署无编排需求</td></tr>
+<tr><td>D-05</td><td><strong>PostgreSQL 默认</strong></td><td>"默认配置为 postgresql://gift_user:..."</td><td>app.py:76-78 默认 SQLite，仅当 DATABASE_URL 非空时切换 PG</td><td><span class="badge badge-amber">SQLite 为默认</span></td><td><strong>低</strong>：代码设计支持 PG 切换</td></tr>
+</table>
+
+<h3>2.2 中等漂移（实现级）</h3>
+<table>
+<tr><th>#</th><th>模块/功能</th><th>历史文档记载</th><th>代码真实实现</th><th>状态</th><th>影响</th></tr>
+<tr><td>D-06</td><td>Gunicorn 启动参数</td><td>ADR-01 "gunicorn -w 4 -k gthread --threads 4 --timeout 60"</td><td>Dockerfile:27：无 gthread、无 threads、无 timeout</td><td><span class="badge badge-amber">部分漂移</span></td><td><strong>中</strong>：并发能力有限</td></tr>
+<tr><td>D-07</td><td>Dockerfile 多阶段构建</td><td>Builder + Runner 两阶段，非 root UID 10001，只读根文件系统，HEALTHCHECK</td><td>单阶段构建，无 USER、无 HEALTHCHECK</td><td><span class="badge badge-red">未实现</span></td><td><strong>中</strong>：镜像较大，安全性低于预期</td></tr>
+<tr><td>D-08</td><td>Celery 异步任务</td><td>ADR-04 "企业级方案引入 Redis + Celery"</td><td>使用 threading.Thread(daemon=True) 守护线程</td><td><span class="badge badge-amber">方案降级</span></td><td><strong>低</strong>：单容器规模够用</td></tr>
+<tr><td>D-09</td><td>数据库迁移</td><td>docker-entrypoint.sh + init-db/01-init.sql</td><td>init_database() 函数在模块加载时执行，ALTER TABLE 逐条尝试</td><td><span class="badge badge-amber">实现不同</span></td><td><strong>中</strong>：迁移策略脆弱</td></tr>
+<tr><td>D-10</td><td>权限级别 1 语义</td><td>ADR-25 "级别 1 为全局绝对全只读"</td><td>app.py:527-528：级别 1 对自身实体 return True（可编辑自身）</td><td><span class="badge badge-green">文档已修正</span></td><td><strong>低</strong>：后续版本说明已修正</td></tr>
+</table>
+
+<h3>2.3 轻微漂移（细节级）</h3>
+<table>
+<tr><th>#</th><th>模块/功能</th><th>历史文档记载</th><th>代码真实实现</th><th>状态</th></tr>
+<tr><td>D-11</td><td>Nginx 端口</td><td>15001</td><td>run.sh:29 默认 NGINX_PORT=443（V10.10 SNI 改造后变更）</td><td><span class="badge badge-blue">已重构</span></td></tr>
+<tr><td>D-12</td><td>Nginx 容器化</td><td>Nginx 容器</td><td>宿主机安装 Nginx，run.sh 渲染配置文件</td><td><span class="badge badge-blue">方案变更</span></td></tr>
+<tr><td>D-13</td><td>CI/CD 流水线</td><td>完整 GitHub Actions（SAST + Build + Scan + Push + Deploy）</td><td>仓库中无 .github/workflows/ 目录</td><td><span class="badge badge-red">未实现</span></td></tr>
+</table>
+
+<h3>2.4 漂移根因分析</h3>
+<table>
+<tr><th>根因</th><th>影响范围</th><th>说明</th></tr>
+<tr><td>设计先行，实现降级</td><td>D-01, D-03, D-07, D-08</td><td>Docker_Deployment_Plan.md 是理想化的企业级架构蓝图，实际落地时降级为单容器方案</td></tr>
+<tr><td>早期探索遗留</td><td>D-02</td><td>akshare 金融集成是项目早期定位探索，后续聚焦纯记账功能后废弃</td></tr>
+<tr><td>迭代中演进</td><td>D-10, D-11, D-12</td><td>权限语义和 Nginx 部署方式在迭代中变更，部分 ADR 未同步更新</td></tr>
+<tr><td>DevOps 未落地</td><td>D-04, D-13</td><td>健康探针和 CI/CD 属于规划但未投入资源实现</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 3 部分 ==================== -->
+<section id="part3">
+<h2>第 3 部分：架构模式识别</h2>
+
+<h3>3.1 整体架构判定：单体应用（Monolith）</h3>
+<table>
+<tr><th>维度</th><th>判定</th><th>证据</th></tr>
+<tr><td>部署单元</td><td>单一可执行单元</td><td>单个 Docker 容器，单 app:app WSGI 入口</td></tr>
+<tr><td>进程模型</td><td>单进程多 Worker</td><td>Gunicorn 4 workers，无微服务进程</td></tr>
+<tr><td>数据共享</td><td>共享数据库</td><td>所有模块操作同一 SQLite 文件</td></tr>
+<tr><td>代码组织</td><td>模块化但未分层</td><td>3 个路由文件 + 工具模块，无 Service/Repository 层</td></tr>
+</table>
+
+<h3>3.2 路由装配方式</h3>
+<pre><code># app.py:3163-3178 — 路由注册入口
+register_routes_ext(
+    app,
+    log_operation=log_action,
+    get_accessible_records_query=get_accessible_records_query,
+    get_accessible_banquets_query=get_accessible_banquets_query,
+    ...
+)
+from routes_ai import register_ai_routes
+register_ai_routes(app, log_action=log_action)</code></pre>
+<p>采用<strong>函数注册模式</strong>：核心路由直接在 app.py 中用 @app.route 装饰器定义（37 个）；扩展路由通过 register_routes_ext() 函数注入（110 个）；AI 路由通过 register_ai_routes() 函数注入（14 个）。</p>
+<p>特点：依赖通过函数参数传递，未使用依赖注入框架；无蓝图（Blueprint）拆分；无 URL 前缀分组。</p>
+
+<h3>3.3 ORM 使用模式</h3>
+<table>
+<tr><th>维度</th><th>实际方式</th><th>证据</th></tr>
+<tr><td>ORM 框架</td><td>Flask-SQLAlchemy 3.1.1</td><td>models.py:7</td></tr>
+<tr><td>模型定义</td><td>22 模型类，单文件 models.py（927 行）</td><td>models.py</td></tr>
+<tr><td>查询模式</td><td>以 Model.query.filter() 为主</td><td>app.py:960、routes_ext.py 全文</td></tr>
+<tr><td>原生 SQL</td><td>3 类场景、16 处 sqlite3.connect() 调用：迁移(app.py:662-879)、备份/恢复(routes_ext.py 11 处)、Webhook日志(webhook_utils.py 5 处)</td><td>绕过 ORM 直接 sqlite3.connect()</td></tr>
+<tr><td>事务管理</td><td>隐式提交（db.session.commit() 散落各路由），无统一事务边界</td><td>全代码库 60+ 次 commit</td></tr>
+</table>
+
+<h3>3.4 通信模式</h3>
+<table>
+<tr><th>通信类型</th><th>实现方式</th><th>代码位置</th></tr>
+<tr><td>前端 ↔ 后端</td><td>SSR（Jinja2）+ AJAX（fetch 返回 JSON）</td><td>templates/ + 各路由 jsonify()</td></tr>
+<tr><td>后端 ↔ 外部 API</td><td>同步 HTTP（requests.Session），12 秒超时</td><td>webhook_utils.py:44-81；webdav_utils.py:82-89</td></tr>
+<tr><td>后端 ↔ 企微长连接</td><td>异步 WebSocket（aibot SDK + asyncio）</td><td>webhook_utils.py:278-318；aibot/ws.py</td></tr>
+<tr><td>后台任务</td><td>threading.Thread(daemon=True) 守护线程</td><td>routes_ext.py:401,692,2823</td></tr>
+<tr><td>后端 ↔ AI</td><td>同步 OpenAI SDK 调用，30 秒超时</td><td>ai_service.py:127-156</td></tr>
+</table>
+
+<h3>3.5 前端架构</h3>
+<table>
+<tr><th>维度</th><th>实际方式</th></tr>
+<tr><td>渲染模式</td><td>服务端渲染（SSR）为主，关键交互用 AJAX 增强</td></tr>
+<tr><td>模板继承</td><td>base.html 基础布局 + 20 个业务页面模板</td></tr>
+<tr><td>状态管理</td><td>无前端框架，依赖 Flask session + Jinja2 模板变量</td></tr>
+<tr><td>组件复用</td><td>Bootstrap 5 组件 + 自定义 JS 内联脚本（无构建工具）</td></tr>
+<tr><td>API 通信</td><td>fetch() 调用 JSON API，CSRF Token 通过 X-CSRFToken Header 传递</td></tr>
+<tr><td>PWA</td><td>Service Worker (sw.js) + manifest.json</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 4 部分 ==================== -->
+<section id="part4">
+<h2>第 4 部分：架构耦合度诊断</h2>
+
+<h3>4.1 纯业务代码（框架无关，可直接复用）</h3>
+<table>
+<tr><th>文件</th><th>行数</th><th>复用评级</th><th>说明</th></tr>
+<tr><td>gift_utils.py</td><td>322</td><td><span class="badge badge-green">A 级</span></td><td>纯 Python，无 Flask 依赖。NLP 拆分、对账计算、大写金额转换，可 100% 移植</td></tr>
+<tr><td>web_search.py</td><td>70</td><td><span class="badge badge-green">A 级</span></td><td>纯 Python，DuckDuckGo 搜索封装，仅依赖 ddgs 库</td></tr>
+<tr><td>ai_service.py（核心逻辑）</td><td>362</td><td><span class="badge badge-blue">B 级</span></td><td>依赖 models.py（SQLAlchemy），但 AI 调用与配置优先级逻辑本身框架无关</td></tr>
+</table>
+
+<h3>4.2 强侵入代码（强依赖框架 API，替换必须重写）</h3>
+<table>
+<tr><th>文件</th><th>行数</th><th>耦合点</th><th>替换代价</th></tr>
+<tr><td>app.py</td><td>2842</td><td>Flask app、request、session、flash、render_template、url_for、@app.route、@login_required、Flask-WTF CSRF</td><td><span class="badge badge-red">高</span></td></tr>
+<tr><td>routes_ext.py</td><td>4744</td><td>同上 + threading.Thread + sqlite3 直连 + current_app 上下文</td><td><span class="badge badge-red">极高</span></td></tr>
+<tr><td>routes_ai.py</td><td>356</td><td>@app.route、@login_required、jsonify、render_template</td><td><span class="badge badge-amber">中</span></td></tr>
+<tr><td>models.py</td><td>927</td><td>Flask-SQLAlchemy 的 db.Model 基类、UserMixin</td><td><span class="badge badge-amber">中</span></td></tr>
+<tr><td>webhook_utils.py</td><td>918</td><td>sqlite3 直连（绕过 ORM）+ Flask current_app 间接依赖</td><td><span class="badge badge-amber">中高</span></td></tr>
+<tr><td>webdav_utils.py</td><td>489</td><td>requests 库（非 Flask 依赖），但 BackupConfig 模型耦合 SQLAlchemy</td><td><span class="badge badge-green">低</span></td></tr>
+</table>
+
+<h3>4.3 分层退化坏味道（反模式）</h3>
+
+<h4>反模式 1：胖 Controller（Fat Controller）</h4>
+<div class="callout-amber">
+<p>routes_ext.py 4744 行承载 110 个路由，大量路由超过 100 行，最复杂路由（admin_restore_webdav_backup）超过 200 行。业务逻辑直接内联于路由函数，无 Service 层抽象。</p>
+</div>
+
+<h4>反模式 2：SQL 外露（绕过 ORM 直接操作 sqlite3）</h4>
+<pre><code># webhook_utils.py:115 — 直接 sqlite3 写日志，绕过 SQLAlchemy
+conn = sqlite3.connect(_resolve_db_file(), timeout=10)
+c = conn.cursor()
+c.execute("INSERT INTO webhook_logs ...")
+
+# app.py:662-673 — 迁移时直接 sqlite3 修复孤儿索引
+_fix_conn.execute("PRAGMA writable_schema=1")
+_orphan_indexes = _fix_conn.execute("SELECT name FROM sqlite_master WHERE ...")</code></pre>
+<div class="callout-amber">
+<p>3 处独立 sqlite3.connect() 绕过 ORM，在多 Worker 下可能产生连接竞争；_resolve_db_file() 硬编码路径探测逻辑与 app.py 中的路径逻辑重复。</p>
+</div>
+
+<h4>反模式 3：全局可变状态（多 Worker 不安全）</h4>
+<pre><code># app.py:1062-1065 — 模块级内存字典，多 Worker 下不共享
+LOGIN_FAIL_COUNTS = {}
+LOGIN_LOCK_UNTILS = {}
+FORGOT_SECURITY_FAIL_COUNTS = {}
+FORGOT_SECURITY_LOCK_UNTILS = {}</code></pre>
+<div class="callout-amber">
+<p>Gunicorn 4 workers 下，每个 Worker 维护独立字典，风控计数被 4 倍稀释。虽然 LoginRisk DB 表做了双写，但内存字典增加了复杂度。</p>
+</div>
+
+<h4>反模式 4：init_database() 在模块加载时执行</h4>
+<pre><code># app.py:936-939 — 模块级自动执行，import 即触发
+try:
+    init_database()
+except Exception as _e:
+    print(f"[Warning] 应用启动自动初始化数据库提示: {_e}")</code></pre>
+<div class="callout-amber">
+<p>任何 import app（如测试、CLI 工具）都会触发数据库迁移，违反幂等性原则。</p>
+</div>
+
+<h4>反模式 5：Webhook 推送代码重复散布</h4>
+<pre><code># 在 app.py、routes_ext.py、routes_ai.py 中共 100+ 处以下模式重复出现（全代码库 149 处）：
+try:
+    trigger_webhook_event(
+        WebhookConfig.query.filter_by(is_enabled=True).all(), 'event_type',
+        f'标题', f'详情',
+        page_key='xxx', user_name=current_user.username,
+        operator_id=current_user.id
+    )
+except Exception:
+    pass  # 静默吞掉异常</code></pre>
+<div class="callout-amber">
+<p>100+ 处 try/except: pass 模式，异常被静默吞噬，推送失败不可观测。</p>
+</div>
+
+<h4>反模式 6：数据库迁移策略脆弱</h4>
+<pre><code># app.py:866-872 — 逐条 ALTER TABLE + try/except 忽略异常
+for sql in migration_sqls:
+    try:
+        conn.execute(db.text(sql))
+        conn.commit()
+    except Exception:
+        pass  # 字段已存在则忽略</code></pre>
+<div class="callout-amber">
+<p>~60 条迁移 SQL 逐条尝试，无法追踪迁移版本，无法回滚，无法区分"字段已存在"和"其他错误"。</p>
+</div>
+</section>
+
+<!-- ==================== 第 5 部分 ==================== -->
+<section id="part5">
+<h2>第 5 部分：架构替换与轻量化可行性决策</h2>
+
+<h3>5.1 替换动机评估</h3>
+<table>
+<tr><th>维度</th><th>现状</th><th>是否构成瓶颈</th><th>分析</th></tr>
+<tr><td>框架重量</td><td>Flask 3.0.3，轻量级框架</td><td><span class="badge badge-green">否</span></td><td>Flask 本身极轻量，不是性能瓶颈</td></tr>
+<tr><td>性能</td><td>Gunicorn 4 Worker 单线程模式</td><td><span class="badge badge-amber">潜在瓶颈</span></td><td>缺少 gthread，每 Worker 单线程；Webhook/AI 调用同步阻塞</td></tr>
+<tr><td>可维护性</td><td>4744 行 routes_ext.py 单文件</td><td><span class="badge badge-red">是</span></td><td>胖 Controller 严重影响可维护性，非框架问题</td></tr>
+<tr><td>扩展性</td><td>单容器 + SQLite + 内存风控</td><td><span class="badge badge-green">当前够用</span></td><td>目标场景家庭/小团队（< 50 人），SQLite WAL 足够</td></tr>
+<tr><td>安全</td><td>AES-256-GCM + CSRF + 风控</td><td><span class="badge badge-green">良好</span></td><td>主要风险是多 Worker 内存风控不共享</td></tr>
+</table>
+
+<h3>5.2 替换代价 vs 收益矩阵</h3>
+<table>
+<tr><th>方案</th><th>迁移工作量</th><th>预期收益</th><th>ROI</th></tr>
+<tr><td><strong>维持 Flask，局部治理</strong></td><td>低（2-4 人周）</td><td>可维护性提升 40%，性能提升 20%</td><td><span class="badge badge-green">高 ROI</span></td></tr>
+<tr><td>Flask → FastAPI</td><td>高（8-12 人周）</td><td>异步性能、自动文档、类型安全</td><td><span class="badge badge-amber">中 ROI</span></td></tr>
+<tr><td>Flask → Django</td><td>极高（16+ 人周）</td><td>Admin、ORM 更强、迁移框架</td><td><span class="badge badge-red">低 ROI</span></td></tr>
+<tr><td>Flask → 纯 ASGI（Starlette）</td><td>极高（12+ 人周）</td><td>极致轻量、异步原生</td><td><span class="badge badge-red">低 ROI</span></td></tr>
+</table>
+
+<h3>5.3 模块可替换性资产分级表</h3>
+<table>
+<tr><th>级别</th><th>模块</th><th>文件</th><th>说明</th></tr>
+<tr><td><strong>Level 1</strong>（纯业务复用）</td><td>NLP 记账解析、对账计算</td><td>gift_utils.py</td><td>纯 Python，零框架依赖</td></tr>
+<tr><td><strong>Level 1</strong></td><td>联网搜索</td><td>web_search.py</td><td>仅依赖 ddgs</td></tr>
+<tr><td><strong>Level 1</strong></td><td>WebDAV 协议操作</td><td>webdav_utils.py（协议层）</td><td>requests 库操作，非 Flask 依赖</td></tr>
+<tr><td><strong>Level 2</strong>（适配可复用）</td><td>数据模型</td><td>models.py</td><td>需从 Flask-SQLAlchemy 迁移到纯 SQLAlchemy</td></tr>
+<tr><td><strong>Level 2</strong></td><td>AI 服务核心</td><td>ai_service.py</td><td>需解耦 models.py 依赖</td></tr>
+<tr><td><strong>Level 2</strong></td><td>企微 SDK 封装</td><td>aibot/</td><td>独立模块，仅通过 webhook_utils 间接关联</td></tr>
+<tr><td><strong>Level 3</strong>（需重写适配层）</td><td>Webhook 推送引擎</td><td>webhook_utils.py</td><td>sqlite3 直连日志需重构为 ORM</td></tr>
+<tr><td><strong>Level 3</strong></td><td>认证与风控</td><td>app.py:155-210,1062-1144</td><td>Flask-Login + Flask-WTF 需替换</td></tr>
+<tr><td><strong>Level 4</strong>（架构级推倒）</td><td>全部路由处理器</td><td>app.py + routes_ext.py + routes_ai.py</td><td>161 个路由与 Flask 深度耦合，必须逐个重写</td></tr>
+<tr><td><strong>Level 4</strong></td><td>前端模板</td><td>templates/ (21 HTML)</td><td>Jinja2 模板与 Flask url_for/flash 深度绑定</td></tr>
+</table>
+
+<h3>5.4 明确结论</h3>
+<div class="summary-box">
+<h3>不建议替换，仅局部治理</h3>
+<p><strong>理由 1</strong>：Flask 不是瓶颈。性能瓶颈在于 Gunicorn 缺少 gthread 和同步阻塞的外部调用，而非 Flask 本身。</p>
+<p><strong>理由 2</strong>：迁移代价极高。161 个路由 + 21 个模板与 Flask 深度耦合（Level 4），任何框架替换需 8-16 人周全量重写。</p>
+<p><strong>理由 3</strong>：纯业务模块已解耦。核心业务逻辑（gift_utils.py）已达 Level 1 可复用，即使未来迁移，业务逻辑层可零成本移植。</p>
+<p><strong>理由 4</strong>：真正需要治理的是代码组织（拆分 routes_ext.py）、工程实践（引入 Alembic、添加测试）、性能调优（Gunicorn gthread）。</p>
+<p><strong>理由 5</strong>：如果未来确需替换，推荐采用 FastAPI + 渐进式迁移（Flask 路由逐步转为 FastAPI），因为 FastAPI 路由签名与 Flask 最接近，迁移成本最低。</p>
+</div>
+</section>
+
+<!-- ==================== 第 6 部分 ==================== -->
+<section id="part6">
+<h2>第 6 部分：前后端详尽规格</h2>
+
+<h3>6.1 前端架构</h3>
+
+<h4>6.1.1 模板继承体系</h4>
+<pre><code>base.html (379行 — 全局布局骨架)
+├── 导航栏（动态菜单渲染，基于 current_user.can_access_menu()）
+├── Flash 消息区（3.5s 自动淡出）
+├── 广播通知横幅 + 通知抽屉 Modal
+├── {% block content %}（各业务页面填充）
+├── 全局 JS：CSRF Token 注入 / PWA SW 注册 / 密码显隐切换 / 防偷窥遮罩
+│
+├── index.html (1030行 — 礼金账本)
+├── banquets.html (601行 — 宴席总览，卡片/表格双视图)
+├── banquet_detail.html (923行 — 宴席台账详情)
+├── reconciliation.html (337行 — 人情对账)
+├── reminders.html (807行 — 纪念日备忘)
+├── recycle_bin.html (350行 — 统一回收站)
+├── login.html (189行) / register.html (162行) / forgot_password.html (177行)
+├── admin_users.html (1293行 — 用户管理)
+├── admin_logs.html (252行 — 审计日志)
+├── admin_webhooks.html (1426行 — Webhook 配置)
+├── admin_backups.html (1201行 — WebDAV 备份)
+├── admin_broadcasts.html (223行 — 系统广播)
+├── admin_ai_config.html (421行 — AI 配置)
+├── ai_assistant.html (453行 — AI 聊天)
+├── permission_tickets.html (443行 — 权限工单)
+├── shared_ledger.html (162行 — 免登录分享)
+├── profile_security.html (242行 — 个人安全设置)
+└── change_password.html (49行)</code></pre>
+
+<h4>6.1.2 菜单权限映射</h4>
+<table>
+<tr><th>端点名</th><th>菜单 Key</th><th>说明</th></tr>
+<tr><td>index, add_record, edit_record, export_csv, import_csv</td><td>ledger</td><td>礼金账本</td></tr>
+<tr><td>banquets_view, banquet_detail_view, banquet_edit, banquets_sync</td><td>banquets</td><td>专属宴席</td></tr>
+<tr><td>reconciliation_view, reconciliation_sync, api_person_ledger</td><td>reconciliation</td><td>人情对账</td></tr>
+<tr><td>reminders_view, reminder_edit, api_trigger_reminder_push</td><td>reminders</td><td>纪念日备忘</td></tr>
+<tr><td>recycle_bin_view, restore_record, purge_record</td><td>recycle_bin</td><td>回收站</td></tr>
+</table>
+
+<h4>6.1.3 前端状态管理</h4>
+<table>
+<tr><th>状态类型</th><th>管理方式</th><th>代码依据</th></tr>
+<tr><td>用户会话</td><td>Flask session（Cookie 签名）</td><td>app.py:1232-1238</td></tr>
+<tr><td>CSRF Token</td><td>session['csrf_token'] → meta 注入 → JS 读取</td><td>app.py:227-228；base.html:6</td></tr>
+<tr><td>页面筛选/排序/分页</td><td>URL Query Parameters</td><td>app.py:951-958</td></tr>
+<tr><td>临时 UI 状态</td><td>内联 JS 变量 + DOM 操作（无框架）</td><td>各模板内 script 块</td></tr>
+<tr><td>广播已读状态</td><td>AJAX POST → DB BroadcastRead</td><td>base.html:162</td></tr>
+</table>
+
+<h4>6.1.4 API 通信模式</h4>
+<p>所有 AJAX 请求通过 fetch() 发起，CSRF Token 通过 X-CSRFToken Header 传递。base.html 全局 Fetch 拦截器自动注入 CSRF Token 到所有非 GET 请求，401 响应特殊处理（need_verify 豁免）。</p>
+
+<h4>6.1.5 PWA 架构</h4>
+<table>
+<tr><th>组件</th><th>文件</th><th>功能</th></tr>
+<tr><td>Manifest</td><td>static/manifest.json</td><td>应用名称、图标（SVG emoji data URI）、主题色</td></tr>
+<tr><td>Service Worker</td><td>static/sw.js</td><td>静态资源缓存 + 离线降级（带超时熔断）</td></tr>
+</table>
+
+<h3>6.2 后端核心服务分层</h3>
+
+<h4>6.2.1 实际分层结构</h4>
+<pre><code>┌─────────────────────────────────────────────┐
+│  HTTP 中间件层 (app.py)                      │
+│  @app.before_request × 3:                    │
+│    1. check_session_timeout() — 会话超时/重启检测
+│    2. csrf_protect() — CSRF 校验 + 企微回调豁免
+│    3. handle_wecom_root_callback() — 企微根路径分发
+│  @app.after_request: add_header() — 禁缓存头
+│  @app.context_processor: inject_globals() — 注入权限函数
+│  @app.before_request (routes_ext.py:712):
+│    check_menu_permissions() — 菜单级权限拦截
+├─────────────────────────────────────────────┤
+│  路由处理器层 (Controller 层)                 │
+│  app.py: 37 个路由 (认证/用户/日志/CSV)       │
+│  routes_ext.py: 110 个路由 (业务/备份/Webhook)
+│  routes_ai.py: 14 个路由 (AI)               │
+├─────────────────────────────────────────────┤
+│  业务工具层 (无 Service 层抽象，逻辑内联于路由) │
+│  gift_utils.py / ai_service.py /            │
+│  webhook_utils.py / webdav_utils.py        │
+├─────────────────────────────────────────────┤
+│  数据访问层 (ORM)                            │
+│  models.py: 22 模型 (Flask-SQLAlchemy)     │
+│  + 16 处原生 sqlite3 直连(迁移/备份/日志)    │
+├─────────────────────────────────────────────┤
+│  后台守护线程                                │
+│  1. 纪念日巡检线程 (60s 周期)                │
+│  2. 备份调度线程 (60s 检查 Cron)             │
+│  3. 企微长连接监听 (常驻)                    │
+└─────────────────────────────────────────────┘</code></pre>
+<p><strong>关键缺失</strong>：无独立 Service 层。业务逻辑直接内联于路由函数中。</p>
+
+<h4>6.2.2 中间件流水线</h4>
+<pre class="mermaid">
+sequenceDiagram
+    participant Client as 客户端
+    participant Nginx as Nginx 443
+    participant Worker as Gunicorn Worker
+    participant B1 as check_session_timeout
+    participant B2 as csrf_protect
+    participant B3 as handle_wecom_callback
+    participant B4 as check_menu_permissions
+    participant Route as 路由处理器
+    Client->>Nginx: HTTPS 请求
+    Nginx->>Worker: HTTP proxy_pass
+    Worker->>B1: 请求进入
+    Note over B1: 公开端点豁免 / 超时检测
+    B1->>B2: 已登录
+    Note over B2: 企微回调豁免 / CSRF校验
+    B2->>B3: CSRF 通过
+    Note over B3: 仅根路径 / 企微分发
+    B3->>B4: 非企微请求
+    Note over B4: 菜单级权限拦截
+    B4->>Route: 权限通过
+    Route-->>Worker: 业务处理+渲染
+    Worker-->>Nginx: HTTP 响应
+    Nginx-->>Client: HTTPS 响应
+</pre>
+
+<h4>6.2.3 后台异步任务</h4>
+<table>
+<tr><th>任务</th><th>线程名</th><th>启动位置</th><th>周期</th><th>功能</th></tr>
+<tr><td>纪念日巡检</td><td>_anniversary_reminder_worker</td><td>routes_ext.py:401</td><td>60s</td><td>扫描到达预警天数的纪念日，自动推送 Webhook</td></tr>
+<tr><td>备份调度</td><td>_backup_scheduler_worker</td><td>routes_ext.py:692</td><td>60s</td><td>检查 ScheduledBackupTask 表，按 Cron 执行备份</td></tr>
+<tr><td>企微长连接</td><td>_wecom_listener_worker</td><td>routes_ext.py:5215（函数定义于 webhook_utils.py:836）</td><td>常驻</td><td>WebSocket 长连接监听，自动捕获 chatid</td></tr>
+<tr><td>多轮推送</td><td>临时 Thread</td><td>routes_ext.py:2823</td><td>一次性</td><td>纪念日自定义多轮推送（1~5 次，可配间隔）</td></tr>
+</table>
+
+<h3>6.3 核心 API 规范清单</h3>
+
+<h4>API 概览（10 个核心接口）</h4>
+<table>
+<tr><th>#</th><th>路径</th><th>方法</th><th>鉴权</th><th>功能</th></tr>
+<tr><td>1</td><td>/login</td><td>GET/POST</td><td>公开</td><td>用户登录（含风控/验证码）</td></tr>
+<tr><td>2</td><td>/record/add</td><td>POST</td><td>@login_required</td><td>新增礼金记录（含 NLP 批量拆分）</td></tr>
+<tr><td>3</td><td>/api/ai/chat</td><td>POST</td><td>@login_required + can_use_ai()</td><td>AI 聊天（多配置+联网搜索+本地兜底）</td></tr>
+<tr><td>4</td><td>/admin/user/permissions/&lt;int:user_id&gt;</td><td>POST</td><td>is_admin</td><td>设置用户菜单级权限</td></tr>
+<tr><td>5</td><td>/admin/user/&lt;int:user_id&gt;/credentials</td><td>GET/POST</td><td>is_admin + 二次验证</td><td>查看用户凭证（AES-256 解密）</td></tr>
+<tr><td>6</td><td>/api/reminders/custom_push</td><td>POST</td><td>@login_required + reminders</td><td>纪念日多通道定时推送</td></tr>
+<tr><td>7</td><td>/banquets/sync</td><td>GET/POST</td><td>@login_required + banquets</td><td>从礼金账本同步生成宴席台账</td></tr>
+<tr><td>8</td><td>/admin/backups/trigger（别名 /admin/backup/create）</td><td>POST</td><td>@login_required + is_admin 或 can_use_backup()</td><td>触发 WebDAV 备份（过滤库/全库）</td></tr>
+<tr><td>9</td><td>/export/csv</td><td>GET</td><td>@login_required + ledger</td><td>CSV 导出（全量/筛选/当前页/勾选）</td></tr>
+<tr><td>10</td><td>/api/ai/config/test</td><td>POST</td><td>is_admin</td><td>测试 AI 配置连通性</td></tr>
+</table>
+
+<h4>核心接口详述（Top 5）</h4>
+
+<p><strong>(1) POST /record/add — 新增礼金记录</strong></p>
+<table>
+<tr><th>项目</th><th>说明</th></tr>
+<tr><td>路径</td><td>app.py:1605</td></tr>
+<tr><td>鉴权</td><td>@login_required + ledger 菜单权限</td></tr>
+<tr><td>请求体</td><td>name(必填), amount(必填), event_reason(必填), record_type(receive/send), banquet_id(可选), nlp_text(可选)</td></tr>
+<tr><td>校验</td><td>名称非空、金额 > 0、权限级别校验</td></tr>
+<tr><td>响应</td><td>302 重定向回首页 + Flash 消息</td></tr>
+<tr><td>Webhook</td><td>触发 create/ledger 事件推送</td></tr>
+</table>
+
+<p><strong>(2) POST /api/ai/chat — AI 聊天</strong></p>
+<table>
+<tr><th>项目</th><th>说明</th></tr>
+<tr><td>路径</td><td>routes_ai.py:61</td></tr>
+<tr><td>鉴权</td><td>@login_required + current_user.can_use_ai()</td></tr>
+<tr><td>请求体</td><td>JSON {"query": "string", "session_id": int?}</td></tr>
+<tr><td>处理链</td><td>① needs_search() 判断是否联网 → ② search_and_summarize() DuckDuckGo → ③ _build_config_list() 四级优先级配置 → ④ _call_openai() 逐个尝试 → ⑤ 全失败走 _local_question() 兜底</td></tr>
+<tr><td>响应</td><td>JSON {code: 200, data: {response, used_openai, used_config_name, used_search, latency_ms, suggestions, session_id}}</td></tr>
+<tr><td>错误码</td><td>400(空内容) / 403(无权限) / 404(会话不存在) / 500(处理异常)</td></tr>
+</table>
+
+<p><strong>(3) POST /admin/user/permissions/&lt;int:user_id&gt; — 设置菜单权限</strong></p>
+<table>
+<tr><th>项目</th><th>说明</th></tr>
+<tr><td>路径</td><td>app.py:2496</td></tr>
+<tr><td>鉴权</td><td>is_admin only</td></tr>
+<tr><td>请求体</td><td>Form: ledger_perm, banquets_perm, ..., ai_authorized, backup_authorized</td></tr>
+<tr><td>校验</td><td>权限值 0-3 整数；防自降权</td></tr>
+<tr><td>Webhook</td><td>触发 status_change/admin_users 事件</td></tr>
+</table>
+
+<p><strong>(4) POST /api/reminders/custom_push — 纪念日多通道推送</strong></p>
+<table>
+<tr><th>项目</th><th>说明</th></tr>
+<tr><td>鉴权</td><td>@login_required + reminders 菜单权限（级别 >= 2 可操作）</td></tr>
+<tr><td>请求体</td><td>JSON {reminder_ids: [int], webhook_ids: [int], repeat_count: 1-5, interval_seconds: 0-300, custom_content: "string"}</td></tr>
+<tr><td>校验</td><td>至少选中 1 个通道；权限级别 1 返回 403</td></tr>
+<tr><td>处理</td><td>单次立即推送；多次启动后台守护线程循环推送</td></tr>
+</table>
+
+<p><strong>(5) POST /admin/backups/trigger — 触发 WebDAV 备份</strong></p>
+<table>
+<tr><th>项目</th><th>说明</th></tr>
+<tr><td>鉴权</td><td>@login_required + is_admin 或 can_use_backup()</td></tr>
+<tr><td>处理链</td><td>① build_user_scoped_backup_db()（普通用户=过滤库/管理员=全库） → ② 可选 AES-256 加密 zip → ③ upload_backup() 上传至 WebDAV → ④ 审计日志</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 7 部分 ==================== -->
+<section id="part7">
+<h2>第 7 部分：数据持久化设计</h2>
+
+<h3>7.1 核心实体关系（ER 图）</h3>
+<pre class="mermaid">
+erDiagram
+    User ||--o{ GiftRecord : "创建"
+    User ||--o{ Banquet : "创建"
+    User ||--o{ AnniversaryReminder : "创建"
+    User ||--o{ WebhookConfig : "配置"
+    User ||--o{ ChatSession : "拥有"
+    User ||--o{ PermissionTicket : "申请"
+    User ||--o{ BackupConfig : "配置"
+    Banquet ||--o{ GiftRecord : "归属"
+    Banquet ||--o{ SharedLedgerLink : "分享"
+    ChatSession ||--o{ ChatMessage : "包含"
+    ScheduledBackupTask ||--o{ ScheduledTaskExecutionLog : "执行历史"
+    WebhookConfig ||--o{ WebhookLog : "推送日志"
+    User ||--o{ OperationLog : "操作"
+    Broadcast ||--o{ BroadcastRead : "已读"
+    User ||--o{ BroadcastRead : "已读"
+
+    User {
+        int id PK
+        string username UK
+        string password_hash
+        string encrypted_password
+        boolean is_admin
+        text menu_permissions
+        text ai_configs
+        boolean ai_authorized
+        boolean backup_authorized
+    }
+    GiftRecord {
+        int id PK
+        string name
+        float amount
+        string event_reason
+        string record_type
+        int banquet_id FK
+        int user_id FK
+        datetime deleted_at
+    }
+    Banquet {
+        int id PK
+        string title
+        string event_type
+        float budget
+        float banquet_cost
+        int user_id FK
+        datetime deleted_at
+    }
+    WebhookConfig {
+        int id PK
+        int user_id FK
+        string channel_name
+        text notify_pages
+        text message_templates
+        string connection_type
+        string bot_id
+        string bot_secret_encrypted
+    }
+    BackupConfig {
+        int id PK
+        int user_id
+        string webdav_url
+        string webdav_username
+        string webdav_password_encrypted
+        string config_alias
+        boolean adopted_from_admin
+    }
+</pre>
+
+<h3>7.2 核心表字段约束</h3>
+
+<h4>users 表（models.py:77-127）</h4>
+<table>
+<tr><th>字段</th><th>类型</th><th>约束</th><th>说明</th></tr>
+<tr><td>id</td><td>Integer</td><td>PK, AUTO</td><td>—</td></tr>
+<tr><td>username</td><td>String(64)</td><td>UNIQUE, NOT NULL</td><td>登录用户名</td></tr>
+<tr><td>password_hash</td><td>String(256)</td><td>NOT NULL</td><td>Werkzeug generate_password_hash</td></tr>
+<tr><td>encrypted_password</td><td>String(512)</td><td>nullable</td><td>AES-256-GCM 可逆密文</td></tr>
+<tr><td>is_admin</td><td>Boolean</td><td>default False</td><td>管理员标记</td></tr>
+<tr><td>menu_permissions</td><td>Text</td><td>default '{}'</td><td>JSON: 各菜单权限级别</td></tr>
+<tr><td>ai_configs</td><td>Text</td><td>default '[]'</td><td>JSON 数组: AI 多配置</td></tr>
+<tr><td>ai_authorized</td><td>Boolean</td><td>default False</td><td>AI 授权标记</td></tr>
+</table>
+
+<h4>gift_records 表（models.py:485-522）</h4>
+<table>
+<tr><th>字段</th><th>类型</th><th>约束</th><th>说明</th></tr>
+<tr><td>id</td><td>Integer</td><td>PK, AUTO</td><td>—</td></tr>
+<tr><td>name</td><td>String(64)</td><td>NOT NULL</td><td>客人姓名</td></tr>
+<tr><td>amount</td><td>Float</td><td>NOT NULL</td><td>礼金金额</td></tr>
+<tr><td>event_reason</td><td>String(128)</td><td>NOT NULL</td><td>办席事由</td></tr>
+<tr><td>record_type</td><td>String(20)</td><td>default 'receive'</td><td>receive / send</td></tr>
+<tr><td>banquet_id</td><td>Integer</td><td>FK→banquets.id, nullable</td><td>归属宴席</td></tr>
+<tr><td>user_id</td><td>Integer</td><td>FK→users.id, NOT NULL</td><td>创建者</td></tr>
+<tr><td>deleted_at</td><td>DateTime</td><td>nullable</td><td>软删除标记</td></tr>
+</table>
+
+<h3>7.3 全部表清单（22 张表）</h3>
+<table>
+<tr><th>#</th><th>表名</th><th>模型类</th><th>核心用途</th></tr>
+<tr><td>1</td><td>users</td><td>User</td><td>用户/权限/AI配置</td></tr>
+<tr><td>2</td><td>gift_records</td><td>GiftRecord</td><td>礼金收支记录</td></tr>
+<tr><td>3</td><td>banquets</td><td>Banquet</td><td>宴席大账本</td></tr>
+<tr><td>4</td><td>anniversary_reminders</td><td>AnniversaryReminder</td><td>纪念日备忘</td></tr>
+<tr><td>5</td><td>webhook_configs</td><td>WebhookConfig</td><td>推送配置</td></tr>
+<tr><td>6</td><td>webhook_logs</td><td>WebhookLog</td><td>推送日志</td></tr>
+<tr><td>7</td><td>backup_configs</td><td>BackupConfig</td><td>WebDAV 配置</td></tr>
+<tr><td>8</td><td>scheduled_backup_tasks</td><td>ScheduledBackupTask</td><td>定时任务</td></tr>
+<tr><td>9</td><td>scheduled_task_execution_logs</td><td>ScheduledTaskExecutionLog</td><td>执行历史</td></tr>
+<tr><td>10</td><td>shared_ledger_links</td><td>SharedLedgerLink</td><td>分享外链</td></tr>
+<tr><td>11</td><td>chat_sessions</td><td>ChatSession</td><td>AI 会话</td></tr>
+<tr><td>12</td><td>chat_messages</td><td>ChatMessage</td><td>AI 消息</td></tr>
+<tr><td>13</td><td>ai_query_logs</td><td>AIQueryLog</td><td>AI 查询日志</td></tr>
+<tr><td>14</td><td>permission_tickets</td><td>PermissionTicket</td><td>权限工单</td></tr>
+<tr><td>15</td><td>operation_logs</td><td>OperationLog</td><td>审计日志</td></tr>
+<tr><td>16</td><td>broadcasts / broadcast_reads</td><td>Broadcast / BroadcastRead</td><td>系统广播</td></tr>
+<tr><td>17</td><td>login_risks / security_risks</td><td>LoginRisk / SecurityRisk</td><td>风控</td></tr>
+<tr><td>—</td><td>system_settings</td><td>SystemSetting</td><td>系统配置 KV</td></tr>
+<tr><td>—</td><td>registration_tokens</td><td>RegistrationToken</td><td>邀请令牌</td></tr>
+<tr><td>—</td><td>backup_attachments</td><td>BackupAttachment</td><td>备份附件</td></tr>
+</table>
+
+<h3>7.4 索引有效性评估</h3>
+<table>
+<tr><th>评估项</th><th>现状</th><th>风险</th></tr>
+<tr><td>users.username</td><td>UNIQUE 约束自动索引</td><td><span class="badge badge-green">正常</span></td></tr>
+<tr><td>gift_records.user_id</td><td>FK 约束无显式索引</td><td><span class="badge badge-amber">SQLite 自动索引 FK，PG 不自动</span></td></tr>
+<tr><td>gift_records.deleted_at</td><td>无索引，每条查询均过滤</td><td><span class="badge badge-amber">低风险（数据量 < 10000）</span></td></tr>
+<tr><td>webhook_logs.created_at</td><td>无索引，日志查询按时间排序</td><td><span class="badge badge-red">中风险（日志量增长后变慢）</span></td></tr>
+<tr><td>operation_logs.created_at</td><td>无索引，有按时间删除操作</td><td><span class="badge badge-red">中风险（日志量大时变慢）</span></td></tr>
+</table>
+
+<h3>7.5 事务机制</h3>
+<table>
+<tr><th>维度</th><th>现状</th><th>风险</th></tr>
+<tr><td>事务边界</td><td>无显式事务，commit 散落各路由</td><td><span class="badge badge-amber">中：多步操作中间失败可能部分写入</span></td></tr>
+<tr><td>隔离级别</td><td>SQLite 默认 SERIALIZABLE（WAL 模式）</td><td><span class="badge badge-green">正常</span></td></tr>
+<tr><td>超时</td><td>connect_args={'timeout': 30}</td><td><span class="badge badge-green">正常</span></td></tr>
+<tr><td>并发控制</td><td>WAL 模式 + PRAGMA busy_timeout=30000</td><td><span class="badge badge-green">正常</span></td></tr>
+<tr><td>备份恢复</td><td>ATTACH DATABASE 跨库合并，commit→DETACH 顺序</td><td><span class="badge badge-green">已修复（V9）</span></td></tr>
+<tr><td>迁移</td><td>60+ 条 ALTER TABLE 逐条 try/except: pass</td><td><span class="badge badge-red">高：无版本追踪，无回滚</span></td></tr>
+</table>
+
+<h3>7.6 数据库迁移策略</h3>
+<div class="callout-amber">
+<p>当前迁移策略为"ALTER TABLE 逐条尝试 + 异常忽略"（app.py:681-872）：</p>
+<ul>
+<li>无法区分"字段已存在"和"SQL 语法错误"</li>
+<li>无迁移版本号追踪</li>
+<li>无回滚/降级能力</li>
+<li>每次启动全量执行 60 条 SQL，即使已是最新版本</li>
+</ul>
+</div>
+</section>
+
+<!-- ==================== 第 8 部分 ==================== -->
+<section id="part8">
+<h2>第 8 部分：工程与安全保障</h2>
+
+<h3>8.1 环境变量与配置分离</h3>
+<table>
+<tr><th>变量名</th><th>来源</th><th>默认值</th><th>敏感级别</th><th>代码依据</th></tr>
+<tr><td>SECRET_KEY</td><td>os.environ</td><td>'gift-bookkeeping-secret-key-2026-prod-secure'</td><td><span class="badge badge-red">核心绝密</span></td><td>app.py:43</td></tr>
+<tr><td>SESSION_COOKIE_SECURE</td><td>os.environ</td><td>'false'</td><td>中</td><td>app.py:53</td></tr>
+<tr><td>DATABASE_URL</td><td>os.environ</td><td>空（降级 SQLite）</td><td>高</td><td>app.py:76</td></tr>
+<tr><td>ADMIN_USER</td><td>os.environ</td><td>'admin'</td><td>中</td><td>app.py:901</td></tr>
+<tr><td>ADMIN_PASS</td><td>os.environ</td><td>'admin123'</td><td><span class="badge badge-red">高</span></td><td>app.py:902</td></tr>
+<tr><td>HOST_PORT</td><td>docker-compose.yml</td><td>15000</td><td>低</td><td>docker-compose.yml:12</td></tr>
+<tr><td>OPENAI_API_KEY</td><td>os.environ</td><td>空</td><td><span class="badge badge-red">高</span></td><td>ai_service.py:90</td></tr>
+</table>
+<div class="drift">
+<p><strong>配置分离现状</strong>：.gitignore 已忽略 .env；但 docker-compose.yml 中 SECRET_KEY 硬编码为 gift-bookkeeping-docker-prod-secret-key（docker-compose.yml:14），ADMIN_PASS 默认 admin123（docker-compose.yml:17）。</p>
+</div>
+
+<h3>8.2 认证与鉴权模型</h3>
+<pre class="mermaid">
+flowchart TD
+    REQ["HTTP 请求进入"] --> AUTH{"已认证?"}
+    AUTH -->|否| PUB{"公开端点?"}
+    PUB -->|是| PASS["放行"]
+    PUB -->|否| LOGIN["重定向 /login"]
+    AUTH -->|是| TIMEOUT{"会话超时?"}
+    TIMEOUT -->|是| LOGOUT["强制登出"]
+    TIMEOUT -->|否| RESTART{"服务重启?"}
+    RESTART -->|是| LOGOUT
+    RESTART -->|否| MENU{"菜单权限?"}
+    MENU -->|管理员| ALLOW["全量放行"]
+    MENU -->|有权限| PERM{"数据权限级别?"}
+    MENU -->|无权限| TICKET["重定向权限工单页"]
+    PERM -->|Level 0| SELF["仅自身数据"]
+    PERM -->|Level 1| VIEW["自身全权+查看他人"]
+    PERM -->|Level 2| EDIT["+修改他人"]
+    PERM -->|Level 3| DEL["+删除他人"]
+    SELF --> ADMIN{"操作管理员数据?"}
+    VIEW --> ADMIN
+    EDIT --> ADMIN
+    DEL --> ADMIN
+    ADMIN -->|是| DENY["403 拒绝"]
+    ADMIN -->|否| OK["允许操作"]
+</pre>
+
+<h4>权限矩阵</h4>
+<table>
+<tr><th>级别</th><th>查看自身</th><th>修改自身</th><th>删除自身</th><th>查看他人</th><th>修改他人</th><th>删除他人</th><th>操作管理员数据</th></tr>
+<tr><td>0</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr><td>1</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr><td>2</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+<tr><td>3</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td></tr>
+</table>
+<p><strong>安全红线</strong>：普通用户任何级别均不可操作管理员创建的数据（is_entity_owner_admin 拦截，app.py:479-490）。</p>
+
+<h3>8.3 加密体系</h3>
+<table>
+<tr><th>数据类型</th><th>加密算法</th><th>密钥来源</th><th>代码依据</th></tr>
+<tr><td>密码哈希</td><td>Werkzeug generate_password_hash</td><td>—</td><td>models.py:129</td></tr>
+<tr><td>密码可逆密文</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:130</td></tr>
+<tr><td>密保答案哈希</td><td>Werkzeug generate_password_hash</td><td>—</td><td>models.py:220</td></tr>
+<tr><td>密保答案密文</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:221</td></tr>
+<tr><td>Webhook Secret Token</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:848-852</td></tr>
+<tr><td>企微 Bot Secret</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:867-873</td></tr>
+<tr><td>WebDAV 密码</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:948-952</td></tr>
+<tr><td>备份加密密码</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:976-986</td></tr>
+<tr><td>分享链接密码</td><td>AES-256-GCM</td><td>SECRET_KEY SHA-256</td><td>models.py:760-770</td></tr>
+<tr><td>备份文件加密</td><td>AES-256 zip (pyzipper)</td><td>用户指定密码</td><td>webdav_utils.py:362-383</td></tr>
+</table>
+<p><strong>日志脱敏</strong>：webhook_utils.py:84-97 递归扫描 JSON，键名含 secret/token/pass/key/credential/auth/webhook_url 的值替换为 ***MASKED***。</p>
+
+<h3>8.4 Dockerfile 与构建分析</h3>
+<table>
+<tr><th>维度</th><th>现状</th><th>设计文档对比</th></tr>
+<tr><td>基础镜像</td><td>python:3.11-slim</td><td>文档要求 python:3.11.9-slim-bookworm</td></tr>
+<tr><td>构建阶段</td><td>单阶段</td><td>文档要求两阶段（Builder + Runner）</td></tr>
+<tr><td>非 root 用户</td><td>无 USER 指令</td><td>文档要求 UID 10001</td></tr>
+<tr><td>健康检查</td><td>无 HEALTHCHECK</td><td>文档要求 curl -f /healthz</td></tr>
+<tr><td>运行参数</td><td>--workers=4</td><td>文档要求 -k gthread --threads 4 --timeout 60</td></tr>
+<tr><td>镜像体积</td><td>~350MB</td><td>文档目标 145-155MB</td></tr>
+</table>
+
+<h3>8.5 Nginx 配置</h3>
+<p>实际部署使用<strong>宿主机 Nginx</strong>（非容器化），run.sh 渲染 nginx_ssl.conf 占位符模板：</p>
+<table>
+<tr><th>配置项</th><th>值</th><th>代码依据</th></tr>
+<tr><td>监听端口</td><td>443（SNI 多项目共用）</td><td>nginx_ssl.conf:23；run.sh:29</td></tr>
+<tr><td>TLS 协议</td><td>TLS 1.2 / 1.3</td><td>nginx_ssl.conf:32</td></tr>
+<tr><td>HSTS</td><td>max-age=63072000; includeSubDomains</td><td>nginx_ssl.conf:40</td></tr>
+<tr><td>HTTP/2</td><td>开启</td><td>nginx_ssl.conf:24</td></tr>
+<tr><td>上游</td><td>127.0.0.1:HOST_PORT（Docker 映射端口）</td><td>nginx_ssl.conf:17</td></tr>
+<tr><td>超时</td><td>60s（connect/read/send）</td><td>nginx_ssl.conf:66-68</td></tr>
+<tr><td>文件上传限制</td><td>20M</td><td>nginx_ssl.conf:46</td></tr>
+</table>
+
+<h3>8.6 风控体系</h3>
+<table>
+<tr><th>机制</th><th>实现</th><th>代码位置</th></tr>
+<tr><td>登录失败计数</td><td>内存字典 + DB 表 LoginRisk</td><td>app.py:1062,1085-1099</td></tr>
+<tr><td>登录锁定</td><td>内存 LOCK_UNTILS + DB lock_until</td><td>app.py:1097-1099</td></tr>
+<tr><td>算术验证码</td><td>session['login_captcha_ans']，达到最大失败次数后强制</td><td>app.py:1175-1188</td></tr>
+<tr><td>密保风控</td><td>FORGOT_SECURITY_FAIL_COUNTS + SecurityRisk 表</td><td>app.py:1128-1143</td></tr>
+<tr><td>密码复杂度</td><td>至少 6 位，含字母和数字</td><td>app.py:146-152</td></tr>
+<tr><td>会话超时</td><td>可配置（默认 60 分钟）</td><td>app.py:98-104,186-204</td></tr>
+<tr><td>重启强制重登</td><td>APP_START_TIME 时间戳比对</td><td>app.py:46,168-182</td></tr>
+<tr><td>Session Token</td><td>每次登录 secrets.token_hex(16)，防多设备</td><td>app.py:1232-1236</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 9 部分 ==================== -->
+<section id="part9">
+<h2>第 9 部分：综合问题排查与渐进演进路线图</h2>
+
+<h3>9.1 五维技术债清单</h3>
+
+<h4>维度 1：代码质量</h4>
+<table>
+<tr><th>#</th><th>问题</th><th>严重度</th><th>代码位置</th><th>影响</th></tr>
+<tr><td>Q-01</td><td>routes_ext.py 4744 行单文件，110 个路由全部内联于函数闭包</td><td><span class="badge badge-red">高</span></td><td>routes_ext.py 全文</td><td>可维护性极差</td></tr>
+<tr><td>Q-02</td><td>无 Service 层抽象，业务逻辑直接内联于路由处理器</td><td><span class="badge badge-red">高</span></td><td>全代码库</td><td>无法单元测试，逻辑无法复用</td></tr>
+<tr><td>Q-03</td><td>100+ 处 try/except: pass 静默吞噬异常（全代码库 149 处）</td><td><span class="badge badge-amber">中</span></td><td>app.py / routes_ext.py / routes_ai.py</td><td>推送失败不可观测</td></tr>
+<tr><td>Q-04</td><td>decrypt_credential 有重复 try-except 块，第二个块永远不可达</td><td><span class="badge badge-green">低</span></td><td>models.py:60-73</td><td>死代码</td></tr>
+<tr><td>Q-05</td><td>webhook_utils.py 硬编码 sqlite3.connect("gift_bookkeeping.db")</td><td><span class="badge badge-amber">中</span></td><td>webhook_utils.py:218,258</td><td>Docker data/ 目录路径不匹配</td></tr>
+</table>
+
+<h4>维度 2：高并发性能</h4>
+<table>
+<tr><th>#</th><th>问题</th><th>严重度</th><th>代码位置</th><th>影响</th></tr>
+<tr><td>P-01</td><td>Gunicorn 缺少 -k gthread --threads 4，每 Worker 单线程</td><td><span class="badge badge-red">高</span></td><td>Dockerfile:27</td><td>并发能力仅 4 个请求</td></tr>
+<tr><td>P-02</td><td>风控内存字典多 Worker 不共享</td><td><span class="badge badge-amber">中</span></td><td>app.py:1062-1065</td><td>风控计数被 4 倍稀释</td></tr>
+<tr><td>P-03</td><td>Webhook 推送每次主线程查询 DB</td><td><span class="badge badge-green">低</span></td><td>全代码库 112 次调用</td><td>可缓存优化</td></tr>
+<tr><td>P-04</td><td>AI 聊天 30 秒同步阻塞</td><td><span class="badge badge-amber">中</span></td><td>ai_service.py:127-156</td><td>高并发下 Worker 被占用</td></tr>
+</table>
+
+<h4>维度 3：扩展性</h4>
+<table>
+<tr><th>#</th><th>问题</th><th>严重度</th><th>影响</th></tr>
+<tr><td>S-01</td><td>无 Blueprint 模块化，所有路由在 3 个文件中</td><td><span class="badge badge-red">高</span></td><td>无法独立部署/测试单个模块</td></tr>
+<tr><td>S-02</td><td>数据库迁移无版本追踪（Alembic 缺失）</td><td><span class="badge badge-red">高</span></td><td>无法安全升级/回滚 schema</td></tr>
+<tr><td>S-03</td><td>无单元测试 / 集成测试</td><td><span class="badge badge-red">高</span></td><td>重构无安全网</td></tr>
+<tr><td>S-04</td><td>init_database() 在模块加载时自动执行</td><td><span class="badge badge-amber">中</span></td><td>import 即触发迁移，测试困难</td></tr>
+</table>
+
+<h4>维度 4：安全漏洞</h4>
+<table>
+<tr><th>#</th><th>问题</th><th>严重度</th><th>代码位置</th><th>影响</th></tr>
+<tr><td>SEC-01</td><td>docker-compose.yml 中 SECRET_KEY 硬编码</td><td><span class="badge badge-red">高</span></td><td>docker-compose.yml:14</td><td>密钥泄露后伪造 session</td></tr>
+<tr><td>SEC-02</td><td>ADMIN_PASS 默认 admin123 且每次启动同步重置</td><td><span class="badge badge-red">高</span></td><td>app.py:902,929</td><td>弱密码 + 不可改</td></tr>
+<tr><td>SEC-03</td><td>webhook_utils 硬编码 sqlite3.connect 路径</td><td><span class="badge badge-amber">中</span></td><td>webhook_utils.py:218,258</td><td>Docker data/ 目录找不到文件</td></tr>
+<tr><td>SEC-04</td><td>subprocess.run(script, shell=True) 执行自定义脚本</td><td><span class="badge badge-amber">中</span></td><td>routes_ext.py:556-557</td><td>命令注入风险</td></tr>
+<tr><td>SEC-05</td><td>自定义 CSRF 中间件而非 Flask-WTF 内置</td><td><span class="badge badge-green">低</span></td><td>app.py:214-238</td><td>可能遗漏边界</td></tr>
+</table>
+
+<h4>维度 5：部署运维</h4>
+<table>
+<tr><th>#</th><th>问题</th><th>严重度</th><th>影响</th></tr>
+<tr><td>O-01</td><td>Dockerfile 无 HEALTHCHECK 指令</td><td><span class="badge badge-amber">中</span></td><td>容器挂死无感知</td></tr>
+<tr><td>O-02</td><td>无 CI/CD 流水线</td><td><span class="badge badge-amber">中</span></td><td>手动构建部署，易出错</td></tr>
+<tr><td>O-03</td><td>无日志结构化输出（print() 而非 logging）</td><td><span class="badge badge-amber">中</span></td><td>无日志级别</td></tr>
+<tr><td>O-04</td><td>run.sh 每次重启 init_database() 重新覆盖管理员密码</td><td><span class="badge badge-red">高</span></td><td>用户修改密码后重启被覆盖回 admin123</td></tr>
+<tr><td>O-05</td><td>无 Prometheus 指标暴露</td><td><span class="badge badge-green">低</span></td><td>无可观测性</td></tr>
+</table>
+
+<h3>9.2 分期演进路线图</h3>
+
+<h4>P0 紧急修复（1-2 周）</h4>
+<table>
+<tr><th>#</th><th>任务</th><th>改动范围</th><th>风险</th><th>验证方式</th></tr>
+<tr><td>P0-1</td><td><strong>Gunicorn 添加 gthread</strong></td><td>Dockerfile:27 添加 --threads=4 -k gthread --timeout=60</td><td>低</td><td>并发请求测试</td></tr>
+<tr><td>P0-2</td><td><strong>SECRET_KEY 环境变量化</strong></td><td>docker-compose.yml:14 → SECRET_KEY=${SECRET_KEY}</td><td>低</td><td>启动验证</td></tr>
+<tr><td>P0-3</td><td><strong>管理员密码不再每次覆盖</strong></td><td>app.py:918-933 → 仅在 ADMIN_PASS 非空且不等于 admin123 时更新</td><td>中</td><td>重启后密码不变</td></tr>
+<tr><td>P0-4</td><td><strong>修复 webhook_utils 硬编码路径</strong></td><td>webhook_utils.py:218,258 → 使用 _resolve_db_file()</td><td>低</td><td>Docker 部署验证</td></tr>
+<tr><td>P0-5</td><td><strong>Dockerfile 添加 HEALTHCHECK</strong></td><td>Dockerfile 末尾添加 HEALTHCHECK 指令</td><td>低</td><td>docker ps 验证</td></tr>
+</table>
+
+<h4>P1 架构治理（1-2 月）</h4>
+<table>
+<tr><th>#</th><th>任务</th><th>改动范围</th><th>策略</th></tr>
+<tr><td>P1-1</td><td><strong>路由 Blueprint 拆分</strong></td><td>routes_ext.py → 6 个 Blueprint</td><td>绞杀者模式：逐个提取</td></tr>
+<tr><td>P1-2</td><td><strong>引入 Service 层</strong></td><td>从路由处理器提取核心业务逻辑为 services/ 模块</td><td>先提取高频/复杂逻辑</td></tr>
+<tr><td>P1-3</td><td><strong>引入 Alembic 迁移</strong></td><td>替代 init_database() 中的 60+ 条 ALTER TABLE</td><td>初始化基线迁移</td></tr>
+<tr><td>P1-4</td><td><strong>Webhook 推送异常可观测</strong></td><td>100+ 处 try/except: pass → 统一封装 safe_trigger_webhook()</td><td>批量替换</td></tr>
+<tr><td>P1-5</td><td><strong>添加 /healthz 端点</strong></td><td>app.py 新增轻量级路由</td><td>返回 {"status": "UP"}</td></tr>
+<tr><td>P1-6</td><td><strong>风控状态统一至 DB</strong></td><td>移除内存字典，仅依赖 LoginRisk/SecurityRisk 表</td><td>消除多 Worker 不共享</td></tr>
+</table>
+
+<h4>P2 能力提升（3-6 月）</h4>
+<table>
+<tr><th>#</th><th>任务</th><th>说明</th></tr>
+<tr><td>P2-1</td><td>添加单元测试</td><td>核心业务逻辑测试覆盖率 > 60%</td></tr>
+<tr><td>P2-2</td><td>日志结构化</td><td>print() → Python logging + JSON 格式化</td></tr>
+<tr><td>P2-3</td><td>Dockerfile 多阶段构建</td><td>Builder + Runner 两阶段，非 root 用户，镜像降至 ~150MB</td></tr>
+<tr><td>P2-4</td><td>CI/CD 流水线</td><td>GitHub Actions: lint + test + build + scan + push</td></tr>
+<tr><td>P2-5</td><td>前端组件化</td><td>逐步引入轻量前端框架（Alpine.js / HTMX）</td></tr>
+<tr><td>P2-6</td><td>PostgreSQL 可选切换</td><td>测试 DATABASE_URL 切换 PG 的端到端流程</td></tr>
+</table>
+
+<h3>9.3 绞杀者模式（Strangler Pattern）演进步骤</h3>
+<pre class="mermaid">
+graph LR
+    subgraph P1["阶段1: Blueprint 拆分 1月"]
+        A1["routes_ext.py → 6个Blueprint"]
+        A2["app.py核心路由 → auth_bp"]
+    end
+    subgraph P2["阶段2: API 网关 2月"]
+        B1["Flask Blueprint → FastAPI Router"]
+        B2["新增API端点直接用FastAPI"]
+        B3["旧SSR路由保持Flask"]
+    end
+    subgraph P3["阶段3: 前后端分离 3-6月"]
+        C1["前端Jinja2 → React/Vue SPA"]
+        C2["Flask仅API → FastAPI全量"]
+    end
+    subgraph P4["阶段4: 微服务可选 6+月"]
+        D1["AI服务 → 独立微服务"]
+        D2["Webhook推送 → 独立微服务"]
+        D3["备份服务 → 独立微服务"]
+    end
+    P1 --> P2 --> P3 --> P4
+</pre>
+<div class="callout">
+<p><strong>关键原则</strong>：</p>
+<ol>
+<li>旧路由永不删除，仅标记 deprecated：Flask 旧路由继续运行，新功能在新框架中开发</li>
+<li>Nginx 按路径分流：/api/v2/* → FastAPI，/* → Flask，逐步扩大覆盖范围</li>
+<li>业务逻辑层（Level 1 模块）零成本移植：gift_utils.py / web_search.py / webdav_utils.py 可直接被新框架复用</li>
+<li>每个阶段可独立交付：无需等待全部完成即可投入生产</li>
+</ol>
+</div>
+
+</section>
+
+<!-- ==================== 文档总结 ==================== -->
+<div class="summary-box">
+<h3>文档总结</h3>
+<p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
+<p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-09-23 | 审计范围: 48 文件 / ~22,700 行代码 | 161 个路由 | 22 张数据表</p>
+</div>
+
+</div>
+</body>
+</html>
