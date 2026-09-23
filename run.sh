@@ -191,7 +191,7 @@ setup_nginx_config() {
     fi
 }
 
-# ===== 清理缓存与 .git 冗余垃圾 =====
+# ===== 清理缓存与 .git 冗余垃圾 + Docker 构建缓存 =====
 cleanup_cache() {
     echo_e "${GREEN}正在清理本地缓存与 .git 冗余垃圾...${NC}"
     cd "$APP_DIR" || return
@@ -203,6 +203,12 @@ cleanup_cache() {
     find "$APP_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     find "$APP_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
     rm -rf /tmp/gift-backup 2>/dev/null || true
+    # Docker 构建缓存清理：清理悬空镜像与构建缓存（不影响正在运行的容器和其他项目的镜像）
+    if command -v docker > /dev/null 2>&1; then
+        docker image prune -f 2>/dev/null || true
+        docker builder prune -f 2>/dev/null || true
+        echo_e "${GREEN}✅ Docker 构建缓存清理完成（悬空镜像 + 构建缓存）${NC}"
+    fi
 }
 
 # ===== Docker 操作函数 =====
@@ -327,6 +333,8 @@ stop_service() {
     cd "$APP_DIR" || exit 1
     $DOCKER_COMPOSE down
     echo_e "${GREEN}✅ Docker 容器集群已停止${NC}"
+    # 停止后自动清理上一次构建的残留层（悬空镜像 + 构建缓存），避免磁盘膨胀
+    cleanup_cache
 }
 
 restart_service() {

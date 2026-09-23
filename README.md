@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'faabd2e1-cc21-4cce-bc91-32aa9589a574'
-  PropagateID: 'faabd2e1-cc21-4cce-bc91-32aa9589a574'
-  ReservedCode1: '2d30dc33-cd5e-41bf-89b7-2ddc1c0a28fe'
-  ReservedCode2: '2d30dc33-cd5e-41bf-89b7-2ddc1c0a28fe'
+  ProduceID: '63ab803a-5e3c-4304-a1d5-7c7dce1035d9'
+  PropagateID: '63ab803a-5e3c-4304-a1d5-7c7dce1035d9'
+  ReservedCode1: '7e9cdcd1-537b-4e27-851a-6d1690c6800e'
+  ReservedCode2: '7e9cdcd1-537b-4e27-851a-6d1690c6800e'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -851,6 +851,32 @@ SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
 #### 涉及文件
 - `generate_ssl_certs.py`（两版同步修改：多域名 SAN 支持）
 - `run.sh`（两版同步修改：注释、日志、访问地址、帮助文本）
+
+### V10.10.10：run.sh 自动清理 Docker 构建缓存（2026-09-22）
+
+#### 问题背景
+`docker compose up -d --build` 每次构建都会产生构建缓存层和悬空镜像（dangling images），长期累积会占用大量磁盘空间。此前 `run.sh` 的 `cleanup_cache()` 只清理 Git 垃圾和 Python 缓存，完全未涉及 Docker 构建缓存清理。
+
+#### 修复内容
+- **`cleanup_cache()`** 新增两项 Docker 清理（仅 Docker 版）：
+  - `docker image prune -f`：清理悬空镜像（`<none>:<none>` 标签的残留层，不影响正在使用的镜像）
+  - `docker builder prune -f`：清理 Docker 构建缓存（`--build` 产生的中间层缓存，不影响正在运行的容器）
+- **`stop_service()`** 新增 `cleanup_cache()` 调用：停止容器后自动清理上一次构建的残留层
+
+#### 触发时机
+| 命令 | 清理时机 | 说明 |
+|------|----------|------|
+| `start` | 构建前 | 清理旧缓存，再构建新镜像 |
+| `stop` | 容器停止后 | 容器已停，清理残留层 |
+| `restart` | 停止时 + 启动前 | 双重清理（stop + start 各一次） |
+
+#### 安全性
+- 不加 `--all` 标志，不清理其他项目的未使用镜像
+- 只清理悬空镜像和构建缓存，不影响正在运行的容器
+- `-f` 跳过交互确认，兼容 cron 非交互场景
+
+#### 涉及文件
+- `run.sh`（仅 Docker 版）：`cleanup_cache()` 新增 Docker 清理逻辑 + `stop_service()` 新增清理调用
 
 ## 📂 项目文件结构
 
