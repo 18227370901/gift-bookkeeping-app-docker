@@ -319,9 +319,12 @@ start_service() {
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
         echo_e "   容器内监听端口: $PORT"
         echo_e "   宿主机映射端口: $HOST_PORT"
-        # 多域名时取第一个作为访问地址提示
-        local primary_domain="${SNI_DOMAIN%% *}"
-        echo_e "   HTTPS 访问地址: https://$primary_domain"$( [ "$NGINX_PORT" = "443" ] || echo ":$NGINX_PORT" )" (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
+        # 输出全部 SNI 域名的访问地址（SNI_DOMAIN 支持空格分隔多域名）
+        for _sni_domain in $SNI_DOMAIN; do
+            _port_suffix=""
+            [ "$NGINX_PORT" != "443" ] && _port_suffix=":$NGINX_PORT"
+            echo_e "   HTTPS 访问地址: https://$_sni_domain$_port_suffix (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
+        done
     else
         echo_e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
         exit 1
