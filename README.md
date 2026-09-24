@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '0f510fdd-eb78-4d13-bf0c-ee1575d5e801'
-  PropagateID: '0f510fdd-eb78-4d13-bf0c-ee1575d5e801'
-  ReservedCode1: 'd385e63f-64f9-473b-a549-959602f9b2ba'
-  ReservedCode2: 'd385e63f-64f9-473b-a549-959602f9b2ba'
+  ProduceID: '508fec33-01ce-4f65-9274-26a815735761'
+  PropagateID: '508fec33-01ce-4f65-9274-26a815735761'
+  ReservedCode1: '7ef05556-fa84-4b58-a272-e57dbe89571e'
+  ReservedCode2: '7ef05556-fa84-4b58-a272-e57dbe89571e'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -918,12 +918,12 @@ SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
 - **演示体验保留**：151 条样例礼金、4 场宴席、6 条纪念日、样例分享外链口令（`123456`/`666888`，以默认密钥重新加密写入）等开箱功能不变
 - **文件级抹除**：`VACUUM` 重建数据库文件，清除被删数据的磁盘残留页
 - **Git 历史重写**：`git filter-repo` 从全部历史（传统版 25 个提交、Docker 版 10 个提交）彻底移除旧版 db 后 force push；**全部历史 commit hash 已变更**，旧克隆副本请重新克隆
+- **防线文档化**：推送前校验规则（9 项）沉淀至本文档"样例库维护约定"小节，规则与工具解耦，更换任何开发/协作工具均可按文档执行推送前核查
 - APK 版仓库经检查从未追踪过 db 文件，无泄露，无需处理
 
 #### 涉及文件
-- `gift_bookkeeping.db`（样例库内容清理 + Git 历史移除）
-- `check_sample_data.py`（新增：推送前敏感数据校验防线，9 项规则异常即拦截）
-- `README.md`（样例说明同步更新）
+- `gift_bookkeeping.db`（样例库数据清理 + Git 历史移除）
+- `README.md`（样例说明、样例库维护 9 项规则文档化）
 
 ## 📂 项目文件结构
 
@@ -1121,9 +1121,23 @@ git stash pop
    - 预设坚果云标准 WebDAV 接入示例（通用公共端点与演示账号名，应用密码默认为空，配置后经 AES-256-GCM 强加密存储），默认禁用自动备份。
 
 **样例库维护约定（V10.10.12）**：
-- 样例库 `gift_bookkeeping.db` 随仓库分发，严禁将真实配置数据（WebDAV 凭据、Webhook 密钥、真实用户、注册邀请码等）写入后推送
-- **每次推送前必跑校验**：`python check_sample_data.py`（9 项规则：真实用户名、冻结状态、会话令牌、WebDAV/Webhook 凭据密文、邀请码、分享口令密文等）
-- 退出码 `0` = 校验通过可推送；`1` = 发现敏感数据残留，禁止推送，需先按 V10.10.12 流程清理
+- 样例库 `gift_bookkeeping.db` 随仓库分发，严禁将真实配置数据（WebDAV 凭据、Webhook 密钥、真实用户、注册邀请码等）写入后推送；传统版与 Docker 版样例库须保持字节级一致（MD5 相同）
+- **每次推送前必须逐项核查以下 9 项规则**（规则与工具解耦，任何开发/协作工具均可按表执行，不依赖特定脚本）：
+
+| # | 检查项 | 规则 |
+|---|--------|------|
+| 1 | 真实用户名 | `users` 表不得存在真实用户名（如 `ghca`） |
+| 2 | 冻结演示用户 | `demo_user_frozen` 必须存在且 `is_active=0`（冻结状态，登录被拦截） |
+| 3 | 会话令牌 | `users` 表全部 `session_token` 必须为空 |
+| 4 | WebDAV 密码 | `backup_configs.webdav_password` 必须为空 |
+| 5 | WebDAV 地址 | `backup_configs.webdav_url` 必须为通用公共端点 `https://dav.jianguoyun.com/dav/` |
+| 6 | Webhook 密钥 | `webhook_configs` 的 `secret_token` / `bot_secret` 必须为空 |
+| 7 | Webhook 地址 | `webhook_configs.webhook_url` 必须含 `SAMPLE` / `DEMO` / `EXAMPLE` 样例标记 |
+| 8 | 注册邀请码 | `registration_tokens` 表必须为空 |
+| 9 | 分享口令 | `shared_ledger_links.access_password` 可用默认密钥解密且为 `123456` / `666888` |
+
+- 9 项全部通过 = 可以推送；任一异常 = 禁止推送，须先按 V10.10.12 流程清理后复检
+- 校验脚本为可选的本地实现（不随仓库分发、不提交 Git），按上表规则自行核验亦可
 
 ---
 
