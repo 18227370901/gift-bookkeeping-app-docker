@@ -3,15 +3,15 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'a7e14e7f-1f27-41b5-ab84-fc34e8897429'
-  PropagateID: 'a7e14e7f-1f27-41b5-ab84-fc34e8897429'
-  ReservedCode1: '7026ccd3-26f2-42a5-80e1-5353348c7c98'
-  ReservedCode2: '7026ccd3-26f2-42a5-80e1-5353348c7c98'
+  ProduceID: '2f14de4a-bf25-4893-b825-596c8c03d9c3'
+  PropagateID: '2f14de4a-bf25-4893-b825-596c8c03d9c3'
+  ReservedCode1: '5d83a5b3-902f-4592-92ff-b14cf642dace'
+  ReservedCode2: '5d83a5b3-902f-4592-92ff-b14cf642dace'
 ---
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.10 · 生成日期: 2026-09-23 · 审计范围: 48 文件 / ~22,700 行代码
+> **Docker 版** · 版本: V10.10.13 · 生成日期: 2026-09-24 · 审计范围: 48 文件 / ~22,700 行代码
 
 ---
 
@@ -447,12 +447,12 @@ for sql in migration_sqls:
 #### 6.1.1 模板继承体系
 
 ```
-base.html (379行 — 全局布局骨架)
+base.html (493行 — 全局布局骨架)
 ├── 导航栏（动态菜单渲染，基于 current_user.can_access_menu()）
 ├── Flash 消息区（3.5s 自动淡出）
 ├── 广播通知横幅 + 通知抽屉 Modal
 ├── {% block content %}（各业务页面填充）
-├── 全局 JS：CSRF Token 注入 / PWA SW 注册 / 密码显隐切换 / 防偷窥遮罩
+├── 全局 JS：CSRF Token 注入 / PWA SW 注册 / 密码显隐切换 / 防偷窥遮罩 / 黑夜·白天主题切换
 │
 ├── index.html (1030行 — 礼金账本)
 ├── banquets.html (601行 — 宴席总览)
@@ -490,6 +490,19 @@ base.html (379行 — 全局布局骨架)
 | 页面筛选/排序/分页 | URL Query Parameters | `app.py:951-958` |
 | 临时 UI 状态 | 内联 JS 变量 + DOM 操作（无框架） | 各模板内 `<script>` 块 |
 | 广播已读状态 | AJAX `POST /api/broadcast/mark_read/<id>` → DB `BroadcastRead` | `base.html:162` |
+| 主题偏好 | `localStorage('gift_theme')` → `<html data-bs-theme>`（Bootstrap 5.3 原生），导航栏按钮切换，默认白天 | `base.html` V10.10.13 新增 |
+
+#### 6.1.5 主题系统与输入框提示语（V10.10.13 新增）
+
+| 项目 | 规格 | 说明 |
+|---|---|---|
+| 双主题 | 白天（默认）/ 黑夜 | Bootstrap 5.3 原生 `data-bs-theme` 属性驱动，自动适配全部组件（表格/弹窗/下拉/表单/徽章） |
+| 切换入口 | 导航栏右侧月亮/太阳圆形按钮；免登录页同样可用；外链页右上角悬浮按钮 | `base.html`、`shared_ledger.html` |
+| 持久化 | `localStorage('gift_theme')`，刷新/重启服务后保持；`<head>` 首帧读取避免闪烁 | `base.html` |
+| CSS 变量 | `--app-bg`/`--app-card-bg`/`--app-card-header-bg`/`--app-border`/`--app-border-soft`/`--app-footer-bg`/`--app-hover-bg`/`--app-ai-bg`/`--app-ai-text`/`--ph-color`/`--ph-opacity`；白天取值与原版一致零回归 | `base.html` 全局 `<style>` |
+| 浅色工具类覆盖 | 暗色下统一覆盖 `bg-white`/`bg-light`/`text-dark`/`text-muted`/`table-light` 表头 | `base.html` `[data-theme=dark]` 作用域 |
+| 特殊页面 | AI 助手聊天页（24 处硬编码色变量化）、AI 助手配置页（卡片变量化）、免登录分享外链页（独立变量+悬浮按钮） | `ai_assistant.html` / `admin_ai_config.html` / `shared_ledger.html` |
+| placeholder 美化 | 全局 `::placeholder` 统一：浅灰蓝 `--ph-color`、字重 400、0.875em、半透明、聚焦淡出；覆盖约 122 处占位提示，仅改视觉不改文案 | `base.html` 全局 `<style>` |
 
 #### 6.1.4 PWA 架构
 

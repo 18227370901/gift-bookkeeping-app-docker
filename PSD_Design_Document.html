@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.10.10</span>·<span>生成日期: 2026-09-23</span>·<span>审计范围: 48 文件 / ~22,700 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.10.13</span>·<span>生成日期: 2026-09-24</span>·<span>审计范围: 48 文件 / ~22,700 行代码</span>
 </div>
 </header>
 
@@ -494,12 +494,12 @@ for sql in migration_sqls:
 <h3>6.1 前端架构</h3>
 
 <h4>6.1.1 模板继承体系</h4>
-<pre><code>base.html (379行 — 全局布局骨架)
+<pre><code>base.html (493行 — 全局布局骨架)
 ├── 导航栏（动态菜单渲染，基于 current_user.can_access_menu()）
 ├── Flash 消息区（3.5s 自动淡出）
 ├── 广播通知横幅 + 通知抽屉 Modal
 ├── {% block content %}（各业务页面填充）
-├── 全局 JS：CSRF Token 注入 / PWA SW 注册 / 密码显隐切换 / 防偷窥遮罩
+├── 全局 JS：CSRF Token 注入 / PWA SW 注册 / 密码显隐切换 / 防偷窥遮罩 / 黑夜·白天主题切换
 │
 ├── index.html (1030行 — 礼金账本)
 ├── banquets.html (601行 — 宴席总览，卡片/表格双视图)
@@ -538,10 +538,23 @@ for sql in migration_sqls:
 <tr><td>页面筛选/排序/分页</td><td>URL Query Parameters</td><td>app.py:951-958</td></tr>
 <tr><td>临时 UI 状态</td><td>内联 JS 变量 + DOM 操作（无框架）</td><td>各模板内 script 块</td></tr>
 <tr><td>广播已读状态</td><td>AJAX POST → DB BroadcastRead</td><td>base.html:162</td></tr>
+<tr><td>主题偏好</td><td>localStorage('gift_theme') → html data-bs-theme（Bootstrap 5.3 原生），导航栏按钮切换，默认白天</td><td>base.html V10.10.13 新增</td></tr>
 </table>
 
 <h4>6.1.4 API 通信模式</h4>
 <p>所有 AJAX 请求通过 fetch() 发起，CSRF Token 通过 X-CSRFToken Header 传递。base.html 全局 Fetch 拦截器自动注入 CSRF Token 到所有非 GET 请求，401 响应特殊处理（need_verify 豁免）。</p>
+
+<h4>6.1.6 主题系统与输入框提示语（V10.10.13 新增）</h4>
+<table>
+<tr><th>项目</th><th>规格</th><th>说明</th></tr>
+<tr><td>双主题</td><td>白天（默认）/ 黑夜</td><td>Bootstrap 5.3 原生 data-bs-theme 属性驱动，自动适配全部组件（表格/弹窗/下拉/表单/徽章）</td></tr>
+<tr><td>切换入口</td><td>导航栏右侧月亮/太阳圆形按钮；免登录页同样可用；外链页右上角悬浮按钮</td><td>base.html、shared_ledger.html</td></tr>
+<tr><td>持久化</td><td>localStorage('gift_theme')，刷新/重启服务后保持；head 首帧读取避免闪烁</td><td>base.html</td></tr>
+<tr><td>CSS 变量</td><td>--app-bg/--app-card-bg/--app-card-header-bg/--app-border/--app-border-soft/--app-footer-bg/--app-hover-bg/--app-ai-bg/--app-ai-text/--ph-color/--ph-opacity；白天取值与原版一致零回归</td><td>base.html 全局 style</td></tr>
+<tr><td>浅色工具类覆盖</td><td>暗色下统一覆盖 bg-white/bg-light/text-dark/text-muted/table-light 表头</td><td>base.html [data-theme=dark] 作用域</td></tr>
+<tr><td>特殊页面</td><td>AI 助手聊天页（24 处硬编码色变量化）、AI 助手配置页（卡片变量化）、免登录分享外链页（独立变量+悬浮按钮）</td><td>ai_assistant.html / admin_ai_config.html / shared_ledger.html</td></tr>
+<tr><td>placeholder 美化</td><td>全局 ::placeholder 统一：浅灰蓝 --ph-color、字重 400、0.875em、半透明、聚焦淡出；覆盖约 122 处占位提示，仅改视觉不改文案</td><td>base.html 全局 style</td></tr>
+</table>
 
 <h4>6.1.5 PWA 架构</h4>
 <table>
