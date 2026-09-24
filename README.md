@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'ba70bdeb-c58a-4efb-8997-532e349a6d56'
-  PropagateID: 'ba70bdeb-c58a-4efb-8997-532e349a6d56'
-  ReservedCode1: 'b3227044-a213-49a0-aff2-f40c31b112a3'
-  ReservedCode2: 'b3227044-a213-49a0-aff2-f40c31b112a3'
+  ProduceID: 'd3c626d3-e78d-4476-9e4d-23105c4f38e0'
+  PropagateID: 'd3c626d3-e78d-4476-9e4d-23105c4f38e0'
+  ReservedCode1: '8f79a72b-b82b-4b75-88b5-3be5357cce78'
+  ReservedCode2: '8f79a72b-b82b-4b75-88b5-3be5357cce78'
 ---
 
 # 人情礼金记账系统 (Gift Bookkeeping App)
@@ -852,6 +852,32 @@ SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
 - `generate_ssl_certs.py`（两版同步修改：多域名 SAN 支持）
 - `run.sh`（两版同步修改：注释、日志、访问地址、帮助文本）
 
+### V10.10.10：run.sh 自动清理 Docker 构建缓存（2026-09-22）
+
+#### 问题背景
+`docker compose up -d --build` 每次构建都会产生构建缓存层和悬空镜像（dangling images），长期累积会占用大量磁盘空间。此前 `run.sh` 的 `cleanup_cache()` 只清理 Git 垃圾和 Python 缓存，完全未涉及 Docker 构建缓存清理。
+
+#### 修复内容
+- **`cleanup_cache()`** 新增两项 Docker 清理（仅 Docker 版）：
+  - `docker image prune -f`：清理悬空镜像（`<none>:<none>` 标签的残留层，不影响正在使用的镜像）
+  - `docker builder prune -f`：清理 Docker 构建缓存（`--build` 产生的中间层缓存，不影响正在运行的容器）
+- **`stop_service()`** 新增 `cleanup_cache()` 调用：停止容器后自动清理上一次构建的残留层
+
+#### 触发时机
+| 命令 | 清理时机 | 说明 |
+|------|----------|------|
+| `start` | 构建前 | 清理旧缓存，再构建新镜像 |
+| `stop` | 容器停止后 | 容器已停，清理残留层 |
+| `restart` | 停止时 + 启动前 | 双重清理（stop + start 各一次） |
+
+#### 安全性
+- 不加 `--all` 标志，不清理其他项目的未使用镜像
+- 只清理悬空镜像和构建缓存，不影响正在运行的容器
+- `-f` 跳过交互确认，兼容 cron 非交互场景
+
+#### 涉及文件
+- `run.sh`（仅 Docker 版）：`cleanup_cache()` 新增 Docker 清理逻辑 + `stop_service()` 新增清理调用
+
 ### V10.10.11：run.sh 缓存清理增强 — 多 SNI 输出、restart 去重与清理前后体积对比（2026-09-23）
 
 #### 问题背景
@@ -882,31 +908,21 @@ SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
 #### 涉及文件
 - `run.sh`（仅 Docker 版）：`start_service()` 多域名输出 + `stop_service()`/`restart_service()` 去重 + `cleanup_cache()` 体积对比
 
-### V10.10.10：run.sh 自动清理 Docker 构建缓存（2026-09-22）
+### V10.10.12：样例库敏感数据彻底清理与 Git 历史重写（2026-09-24，传统版 + Docker 版同步）
 
 #### 问题背景
-`docker compose up -d --build` 每次构建都会产生构建缓存层和悬空镜像（dangling images），长期累积会占用大量磁盘空间。此前 `run.sh` 的 `cleanup_cache()` 只清理 Git 垃圾和 Python 缓存，完全未涉及 Docker 构建缓存清理。
+随仓库分发的根目录样例库 `gift_bookkeeping.db`（历史遗留自早期运行库路径）中残留了部分真实配置数据：真实 WebDAV 完整地址与密码密文、Webhook 签名凭据密文、真实注册邀请码、`ghca` 用户标识及其密保问题与早期密码哈希等。克隆部署时（`data/` 目录不存在，`app.py` 回退使用根目录 db），WebDAV 与 Webhook 配置页输入框会回填显示这些真实数据。
 
-#### 修复内容
-- **`cleanup_cache()`** 新增两项 Docker 清理（仅 Docker 版）：
-  - `docker image prune -f`：清理悬空镜像（`<none>:<none>` 标签的残留层，不影响正在使用的镜像）
-  - `docker builder prune -f`：清理 Docker 构建缓存（`--build` 产生的中间层缓存，不影响正在运行的容器）
-- **`stop_service()`** 新增 `cleanup_cache()` 调用：停止容器后自动清理上一次构建的残留层
-
-#### 触发时机
-| 命令 | 清理时机 | 说明 |
-|------|----------|------|
-| `start` | 构建前 | 清理旧缓存，再构建新镜像 |
-| `stop` | 容器停止后 | 容器已停，清理残留层 |
-| `restart` | 停止时 + 启动前 | 双重清理（stop + start 各一次） |
-
-#### 安全性
-- 不加 `--all` 标志，不清理其他项目的未使用镜像
-- 只清理悬空镜像和构建缓存，不影响正在运行的容器
-- `-f` 跳过交互确认，兼容 cron 非交互场景
+#### 修复内容（传统版与 Docker 版样例库字节级一致）
+- **字段级清理**：真实用户 `ghca` 重命名为 `demo_user_frozen` 并冻结（`is_active=0`，登录拦截），密码/密保哈希与密文全部替换为样例值；凭据/令牌/密文清空（WebDAV 应用密码、Webhook `secret_token`/`bot_secret`、`admin` 有效会话令牌）；6 条真实注册邀请码删除
+- **演示体验保留**：151 条样例礼金、4 场宴席、6 条纪念日、样例分享外链口令（`123456`/`666888`，以默认密钥重新加密写入）等开箱功能不变
+- **文件级抹除**：`VACUUM` 重建数据库文件，清除被删数据的磁盘残留页
+- **Git 历史重写**：`git filter-repo` 从全部历史（传统版 25 个提交、Docker 版 10 个提交）彻底移除旧版 db 后 force push；**全部历史 commit hash 已变更**，旧克隆副本请重新克隆
+- APK 版仓库经检查从未追踪过 db 文件，无泄露，无需处理
 
 #### 涉及文件
-- `run.sh`（仅 Docker 版）：`cleanup_cache()` 新增 Docker 清理逻辑 + `stop_service()` 新增清理调用
+- `gift_bookkeeping.db`（样例库内容清理 + Git 历史移除）
+- `README.md`（样例说明同步更新）
 
 ## 📂 项目文件结构
 
@@ -1079,6 +1095,7 @@ git stash pop
 1. **多角色用户账户**：
    - 超级管理员：`admin` / `admin123`（具备全部子菜单与系统管理控制权，密保答案经加盐哈希安全存储）
    - 普通测试用户：`testuser` / `test123456`（具备记账、宴席、对账与备忘权限）
+   - 冻结演示用户：`demo_user_frozen`（初始状态为冻结 `is_active=0`，登录会被拦截，仅用于演示用户管理与解冻流程；V10.10.12 样例库安全清理产物）
 2. **专属宴席台账 (4 场标准典范)**：
    - `2026年 儿子大婚浪漫喜宴`（事由：结婚，预算 6.8 万，花销 6.28 万，已关联收礼明细）
    - `2026年 宝宝周岁满月答谢宴`（事由：满月酒，预算 2 万，花销 1.68 万，已关联收礼明细）
@@ -1094,13 +1111,13 @@ git stash pop
    - 企业微信官方智能机器人（WebSocket 长连接 openws 模式）
    - 企业微信群机器人（Webhook URL 模式）
    - 钉钉群机器人（Webhook URL 模式）
-   - *安全说明*：所有机器人的密钥（`bot_secret` 与 `secret_token`）在数据库底层均经过 **AES-256-GCM 强加密存储**，开箱默认状态为已禁用（`is_enabled=0`），零明文落盘，绝无凭证泄露风险。
+    - *安全说明*：机器人密钥字段（`bot_secret` 与 `secret_token`）默认为空，用户配置后经 **AES-256-GCM 强加密存储**；开箱默认状态为已禁用（`is_enabled=0`），零明文落盘，绝无凭证泄露风险。
 5. **大账本只读共享外链 (2 组)**：
    - 儿子大婚与宝宝满月对外分享外链，口令（`123456` / `666888`）底层通过 AES-256-GCM 强加密存储，支持设置隐藏金额/备注等安全查看策略。
 6. **系统广播通知 (2 条)**：
    - 涵盖版本升级全量功能特性公告及初次使用安全提醒。
 7. **WebDAV 外部云端备份配置**：
-   - 预设坚果云标准 WebDAV 接入示例，应用密码经 AES-256-GCM 强加密存储，默认禁用自动备份。
+   - 预设坚果云标准 WebDAV 接入示例（通用公共端点与演示账号名，应用密码默认为空，配置后经 AES-256-GCM 强加密存储），默认禁用自动备份。
 
 ---
 
