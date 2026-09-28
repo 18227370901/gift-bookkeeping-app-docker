@@ -1,553 +1,53 @@
 #!/bin/sh
 
+# ============================================================
+# run.sh (Docker版) — 仅保留配置区 + source bin/ 模块 + 启停操作
+# 函数已拆分到 bin/ 目录，本文件仅负责编排调用
+# ============================================================
+
 # ===== 配置区域 =====
 APP_DIR="/opt/service/gift-bookkeeping-app-docker"
 if [ ! -d "$APP_DIR" ]; then
     APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 fi
 
-# ===== SNI 多项目共用端口配置（全部支持环境变量覆盖，多项目部署时各项目设不同值即可） =====
-PROJECT_NAME="${PROJECT_NAME:-gift_app_docker}"   # 项目标识：决定 Nginx 配置文件名($PROJECT_NAME.conf)与 upstream 名(${PROJECT_NAME}_backend)，默认与传统原生版 gift_app 区分
-SNI_DOMAIN="${SNI_DOMAIN:-localhost}"            # SNI 域名：写入 server_name 与自签证书 CN/SAN，支持空格分隔多域名（如 SNI_DOMAIN="a.com b.com"），第一个域名为证书 CN，全部写入 SAN 与 server_name
-SSL_CERT="${SSL_CERT:-$APP_DIR/ssl/server.crt}" # SSL 证书路径（可指向正式证书）
-SSL_KEY="${SSL_KEY:-$APP_DIR/ssl/server.key}"   # SSL 私钥路径
-SNI_DEFAULT_SERVER="${SNI_DEFAULT_SERVER:-0}"   # 是否作为该监听端口的兑底 default_server（1=是 0=否，多项目共端口时只应有一个项目为 1；同一台服务器若原生版 gift_app 已作兑底，Docker 版保持 0）
-
-# Nginx 配置文件目录变量（用户可自定义覆盖，如 export NGINX_CONF_DIR=/etc/nginx/conf.d）
-# 默认指向 /opt/service/nginx/conf.d；其他部署环境如使用 /etc/nginx/conf.d，可通过环境变量覆盖
+# ===== SNI 多项目共用端口配置 =====
+PROJECT_NAME="${PROJECT_NAME:-gift_app_docker}"
+SNI_DOMAIN="${SNI_DOMAIN:-localhost}"
+SSL_CERT="${SSL_CERT:-$APP_DIR/ssl/server.crt}"
+SSL_KEY="${SSL_KEY:-$APP_DIR/ssl/server.key}"
+SNI_DEFAULT_SERVER="${SNI_DEFAULT_SERVER:-0}"
 NGINX_CONF_DIR="${NGINX_CONF_DIR:-/opt/service/nginx/conf.d}"
 
-# ===== 文件覆盖策略（V10.10.3 新增：保护已存在的证书与 Nginx 配置，防止重启时被自签证书/模板渲染静默覆盖） =====
-# SSL_FORCE_UPDATE / NGINX_CONF_FORCE_UPDATE: 文件已存在时是否强制覆盖更新
-#   1 = 强制更新（不询问，直接覆盖）；未设置 = 交互式终端弹出 y/n 询问，非交互场景（cron/CI/管道）默认跳过保留旧文件
+# ===== 文件覆盖策略 =====
 SSL_FORCE_UPDATE="${SSL_FORCE_UPDATE:-}"
 NGINX_CONF_FORCE_UPDATE="${NGINX_CONF_FORCE_UPDATE:-}"
 
 # ===== 环境变量定义（导出给 Docker Compose） =====
-export PORT="${PORT:-11443}"            # Web 容器内部服务端口，默认 11443
-export HOST_PORT="${HOST_PORT:-15000}"   # 宿主机映射端口，默认 15000
-export NGINX_PORT="${NGINX_PORT:-443}"  # 宿主机 Nginx 监听端口，默认 443（多项目共用，依靠 SNI 域名区分流量）
+export PORT="${PORT:-11443}"
+export HOST_PORT="${HOST_PORT:-15000}"
+export NGINX_PORT="${NGINX_PORT:-443}"
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
+export APP_IMAGE="${APP_IMAGE:-}"
+export GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"
 
-# V10.10.16: 镜像免构建部署模式与 Gunicorn worker 数量
-export APP_IMAGE="${APP_IMAGE:-}"              # 预构建镜像地址（非空时拉取镜像不本地构建，为空时本地 build）
-export GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"  # Gunicorn worker 数量（默认 1，可调 2/4）
+# ===== 加载 bin/ 模块（按依赖顺序） =====
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/bin/common.sh"
+. "$SCRIPT_DIR/bin/cleanup.sh"
+. "$SCRIPT_DIR/bin/ssl_certs.sh"
+. "$SCRIPT_DIR/bin/nginx_config.sh"
+. "$SCRIPT_DIR/bin/port_conflict.sh"
+. "$SCRIPT_DIR/bin/db_setup.sh"
+. "$SCRIPT_DIR/bin/db_select.sh"
 
-# ===== 颜色输出 =====
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# POSIX 兼容的彩色输出函数（替代 echo -e，兼容 dash/sh）
-echo_e() {
-    printf '%b\n' "$*"
-}
-
-# ===== 依赖检查 =====
-check_docker() {
-    if ! command -v docker > /dev/null 2>&1; then
-        echo_e "${RED}错误: 未找到 docker 命令，请先安装 Docker。${NC}"
-        exit 1
-    fi
-
-    if docker compose version > /dev/null 2>&1; then
-        DOCKER_COMPOSE="docker compose"
-    elif command -v docker-compose > /dev/null 2>&1; then
-        DOCKER_COMPOSE="docker-compose"
-    else
-        echo_e "${RED}错误: 未找到 docker compose 或 docker-compose，请先安装 Docker Compose。${NC}"
-        exit 1
-    fi
-}
-
-# ===== 判断是否覆盖已存在文件：交互环境弹 y/n 询问；非交互环境（cron/CI）不能卡死在 read，默认保留旧文件 =====
-# 入参 $1: 已存在文件路径（提示语用）；$2: 对应策略环境变量当前值（1=强制覆盖 0=强制保留 空=询问）；$3: 策略变量名（非交互提示文案用）
-# 返回值: 0=允许覆盖更新 1=保留旧文件不覆盖
-should_overwrite() {
-    local target_file="$1"
-    local force_value="$2"
-    local hint_var="$3"
-    # 环境变量已显式指定策略时，直接按策略执行，不再询问（兼容 cron 定时重启等非交互场景）
-    if [ "$force_value" = "1" ]; then
-        return 0
-    fi
-    if [ "$force_value" = "0" ]; then
-        return 1
-    fi
-    # [ -t 0 ] 检测 stdin 是否为终端：非交互场景（cron、管道、CI）无人应答，默认保留旧文件，避免脚本卡死
-    if [ ! -t 0 ]; then
-        echo_e "${YELLOW}检测到已存在 $target_file，非交互环境自动保留旧文件（如需强制更新请设置 $hint_var=1）${NC}"
-        return 1
-    fi
-    # 交互式终端：弹出确认，输入 y/Y 确认覆盖，其余任意输入（含直接回车）均视为保留旧文件（默认安全）
-    printf '检测到已存在 %s，是否覆盖更新? (y/n) [默认 n]: ' "$target_file" >&2
-    read -r answer
-    case "$answer" in
-        y|Y|yes|YES) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# ===== 自动生成 SSL 证书：文件不存在则直接创建；已存在时先询问是否更新，防止自定义/正式证书被自签证书覆盖 =====
-ensure_ssl_certs() {
-    # 两份证书文件均不存在时，无需询问，直接创建（首次部署场景）
-    if [ ! -f "$SSL_CERT" ] && [ ! -f "$SSL_KEY" ]; then
-        echo_e "${GREEN}未检测到 SSL 证书文件，正在生成自签名证书 (域名: $SNI_DOMAIN)...${NC}"
-        # SNI_DOMAIN 支持空格分隔多域名，第一个写入 CN，全部写入 SAN
-        mkdir -p "$APP_DIR/ssl"
-        local cert_script="$APP_DIR/generate_ssl_certs.py"
-        # 固定在 APP_DIR 下执行，确保证书始终输出到 $APP_DIR/ssl（不依赖调用时所在目录）
-        if command -v python3 > /dev/null 2>&1; then
-            (cd "$APP_DIR" && python3 "$cert_script" --domain "$SNI_DOMAIN")
-        else
-            echo_e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 $SSL_CERT 和 $SSL_KEY${NC}"
-        fi
-    # 文件已存在：必须先取得用户/环境变量许可，才允许覆盖更新（保护自定义证书、正式证书）
-    elif should_overwrite "$SSL_CERT" "$SSL_FORCE_UPDATE" "SSL_FORCE_UPDATE"; then
-        echo_e "${GREEN}确认更新，正在重新生成 SSL 自签名证书 (域名: $SNI_DOMAIN)...${NC}"
-        # SNI_DOMAIN 支持空格分隔多域名，第一个写入 CN，全部写入 SAN
-        mkdir -p "$APP_DIR/ssl"
-        local cert_script="$APP_DIR/generate_ssl_certs.py"
-        # 固定在 APP_DIR 下执行，确保证书始终输出到 $APP_DIR/ssl（不依赖调用时所在目录）
-        if command -v python3 > /dev/null 2>&1; then
-            (cd "$APP_DIR" && python3 "$cert_script" --domain "$SNI_DOMAIN")
-        else
-            echo_e "${RED}警告: 未找到 python3，无法自动生成证书，请手动生成或准备 $SSL_CERT 和 $SSL_KEY${NC}"
-        fi
-    else
-        echo_e "${GREEN}✅ 检测到已存在 SSL 证书文件，保留现有证书不更新: $SSL_CERT / $SSL_KEY${NC}"
-    fi
-    if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
-        echo_e "${YELLOW}⚠️ 证书文件缺失: $SSL_CERT / $SSL_KEY，Nginx 配置校验将无法通过${NC}"
-    fi
-}
-
-# ===== 自动配置 Nginx 反向代理（SNI 多项目分流） =====
-setup_nginx_config() {
-    # SNI 域名必填：server_name 为空会导致 Nginx 配置无效，且多项目无法区分流量
-    if [ -z "$SNI_DOMAIN" ]; then
-        echo_e "${RED}错误: SNI_DOMAIN 为空，无法配置 Nginx SNI 分流，已中止。请通过环境变量指定，例如: SNI_DOMAIN=gift.example.com PROJECT_NAME=gift_app_docker ./$0 start${NC}"
-        return 1
-    fi
-
-    # Nginx 配置目录不存在时：提示用户手动创建，不自动创建、不跳过
-    if [ ! -d "$NGINX_CONF_DIR" ]; then
-        echo_e "${RED}错误: Nginx 配置目录不存在: $NGINX_CONF_DIR${NC}"
-        echo_e "${YELLOW}请手动创建该目录后重试: sudo mkdir -p $NGINX_CONF_DIR${NC}"
-        echo_e "${YELLOW}（其他部署环境如使用 /etc/nginx/conf.d，可通过环境变量覆盖: export NGINX_CONF_DIR=/etc/nginx/conf.d）${NC}"
-        return 1
-    fi
-
-    if [ -d "$NGINX_CONF_DIR" ]; then
-        echo_e "${GREEN}正在处理 Nginx 配置文件 ($NGINX_CONF_DIR)...${NC}"
-        local target_conf="$NGINX_CONF_DIR/$PROJECT_NAME.conf"
-        # SNI default_server 冲突自动降级：同端口只能有一个 default_server，检测到已有其他项目设为 default_server 时自动改为非兜底
-        if [ "$SNI_DEFAULT_SERVER" = "1" ]; then
-            for f in "$NGINX_CONF_DIR"/*.conf; do
-                [ -f "$f" ] || continue
-                [ "$f" = "$target_conf" ] && continue  # 跳过自己
-                if grep -q "default_server" "$f" 2>/dev/null; then
-                    echo_e "${YELLOW}⚠️ 检测到 $(basename "$f") 已设为 default_server，本项目将自动改为非兜底模式${NC}"
-                    SNI_DEFAULT_SERVER=0
-                    break
-                fi
-            done
-        fi
-        # 已存在的项目配置文件先取得许可再覆盖渲染，防止用户手改过的 conf 被模板静默重置
-        # （首次部署文件不存在时无需询问，直接渲染创建）
-        if [ -f "$target_conf" ] && ! should_overwrite "$target_conf" "$NGINX_CONF_FORCE_UPDATE" "NGINX_CONF_FORCE_UPDATE"; then
-            echo_e "${YELLOW}保留现有 Nginx 配置文件，未重新渲染: $target_conf${NC}"
-        elif [ -f "$APP_DIR/nginx_ssl.conf" ]; then
-            # 按 SNI_DEFAULT_SERVER 决定 listen 行是否追加 default_server（兜底 server）
-            local listen_value="$NGINX_PORT"
-            local default_flag="否"
-            if [ "$SNI_DEFAULT_SERVER" = "1" ]; then
-                listen_value="${NGINX_PORT} default_server"
-                default_flag="是"
-            fi
-            # 渲染占位符模板，输出为当前项目专属配置文件（每个项目一份，互不覆盖）
-            # 模板顶部的占位符说明注释不带入生成文件（其占位符已被替换，保留会误导阅读者）
-            # 注意：__BACKEND_PORT__ 填的是宿主机 Docker 映射端口 HOST_PORT（默认 15000），不是容器内 PORT
-            {
-                echo "# 本文件由 run.sh 依据 nginx_ssl.conf 模板自动生成，请勿手工修改（改模板请编辑源文件后重跑 start）"
-                echo "# 项目: $PROJECT_NAME | SNI域名: $SNI_DOMAIN | 监听端口: $NGINX_PORT | default_server: $default_flag | 生成时间: $(date '+%Y-%m-%d %H:%M:%S')"
-                sed -e '1,/^#   __SSL_KEY__/d' \
-                    -e "s|__UPSTREAM_NAME__|${PROJECT_NAME}_backend|g" \
-                    -e "s|__BACKEND_PORT__|$HOST_PORT|g" \
-                    -e "s|__NGINX_PORT__|$listen_value|g" \
-                    -e "s|__SNI_DOMAIN__|$SNI_DOMAIN|g" \
-                    -e "s|__SSL_CERT__|$SSL_CERT|g" \
-                    -e "s|__SSL_KEY__|$SSL_KEY|g" \
-                    "$APP_DIR/nginx_ssl.conf"
-            } > "$target_conf" 2>/dev/null && \
-            echo_e "${GREEN}✅ 已动态更新并同步 Nginx 配置到 $target_conf (项目: $PROJECT_NAME, 宿主机映射端口: $HOST_PORT, Nginx监听端口: $NGINX_PORT, SNI域名: $SNI_DOMAIN, default_server: $default_flag)${NC}" || true
-        fi
-        if command -v nginx > /dev/null 2>&1; then
-            if nginx -t >/dev/null 2>&1; then
-                (nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1) && \
-                echo_e "${GREEN}✅ Nginx 配置热重载成功!${NC}" || echo_e "${YELLOW}⚠️ Nginx 热重载跳过 (需 root 权限)${NC}"
-            else
-                echo_e "${YELLOW}⚠️ Nginx 配置语法校验未通过，跳过 reload${NC}"
-            fi
-        fi
-    fi
-}
-
-# ===== V10.10.17 交互式数据库部署选择 =====
-DB_ENV_FILE="$APP_DIR/.temp/.db.env"
-DB_OVERRIDE="$APP_DIR/.temp/docker-compose.db-override.yml"
-
-# 检测服务器 PG 环境与可用内存
-detect_pg_environment() {
-    PG_RUNNING_NAME=""
-    PG_RUNNING_IMAGE=""
-    PG_LOCAL_IMAGE=""
-    AVAIL_MEM=0
-    if command -v docker > /dev/null 2>&1; then
-        _pg_info=$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'postgres|pgvector' | head -1)
-        if [ -n "$_pg_info" ]; then
-            PG_RUNNING_NAME=$(echo "$_pg_info" | awk '{print $1}')
-            PG_RUNNING_IMAGE=$(echo "$_pg_info" | awk '{print $2}')
-        fi
-        PG_LOCAL_IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -iE 'postgres|pgvector' | head -1)
-    fi
-    if command -v free > /dev/null 2>&1; then
-        AVAIL_MEM=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')
-        AVAIL_MEM="${AVAIL_MEM:-0}"
-    fi
-}
-
-# 保存数据库配置
-save_db_env() {
-    mkdir -p "$APP_DIR/.temp"
-    cat > "$DB_ENV_FILE" << ENVEOF
-# 人情记账本数据库部署配置（首次交互选择后自动生成，后续重启自动读取）
-# 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
-DB_MODE=$DB_MODE
-DB_PG_CONTAINER=$DB_PG_CONTAINER
-DATABASE_URL=$DATABASE_URL
-ENVEOF
-    chmod 600 "$DB_ENV_FILE" 2>/dev/null || true
-}
-
-load_db_env() {
-    if [ -f "$DB_ENV_FILE" ]; then
-        . "$DB_ENV_FILE"
-    fi
-}
-
-# SQLite 模式：清理 override 文件
-setup_sqlite() {
-    DATABASE_URL=""
-    export DATABASE_URL
-    rm -f "$DB_OVERRIDE"
-    echo_e "${GREEN}数据库模式: SQLite 本地文件${NC}"
-}
-
-# 共享 PG 模式（Docker 版：生成 compose override 加入 PG 容器网络）
-setup_shared_pg() {
-    if [ -z "$DB_PG_CONTAINER" ]; then
-        echo_e "${RED}共享 PG 模式需要指定 DB_PG_CONTAINER 环境变量${NC}"
-        exit 1
-    fi
-    # 获取 PG 超级用户与网络名
-    PG_SUPERUSER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep '^POSTGRES_USER=' | cut -d= -f2)
-    PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
-    PG_NETWORK=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null)
-    # 生成随机密码
-    PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
-    # 创建数据库和用户
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER gift_user WITH PASSWORD '$PG_PASSWORD';" 2>/dev/null || true
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE gift_bookkeeping OWNER gift_user;" 2>/dev/null || true
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE gift_bookkeeping TO gift_user;" 2>/dev/null || true
-    # DATABASE_URL 使用 PG 容器名作为主机名（同一 Docker 网络）
-    DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@${DB_PG_CONTAINER}:5432/gift_bookkeeping"
-    export DATABASE_URL
-    # 生成 compose override：web 容器加入 PG 容器所在网络
-    mkdir -p "$APP_DIR/.temp"
-    cat > "$DB_OVERRIDE" << YAMLEOF
-version: '3.8'
-services:
-  web:
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-    networks:
-      - gift_network
-      - pg_external
-networks:
-  pg_external:
-    external: true
-    name: ${PG_NETWORK}
-YAMLEOF
-    echo_e "${GREEN}数据库模式: 共享 PostgreSQL (${DB_PG_CONTAINER}, 网络 ${PG_NETWORK})${NC}"
-}
-
-# 独立 PG 模式（Docker 版：生成 compose override 添加 pg 服务）
-setup_independent_pg() {
-    if [ -z "$PG_LOCAL_IMAGE" ]; then
-        echo_e "${YELLOW}本地未找到 PostgreSQL 镜像。${NC}"
-        if [ -t 0 ]; then
-            printf '是否允许下载 postgres:16-alpine (约40MB)? (y/n) [默认 n]: ' >&2
-            read -r _dl_answer
-            case "$_dl_answer" in
-                y|Y|yes|YES) PG_LOCAL_IMAGE="postgres:16-alpine" ;;
-                *) echo_e "${YELLOW}用户取消下载，降级为 SQLite 模式${NC}"; DB_MODE=sqlite; setup_sqlite; return ;;
-            esac
-        else
-            echo_e "${YELLOW}非交互环境无法下载，降级为 SQLite 模式${NC}"
-            DB_MODE=sqlite; setup_sqlite; return
-        fi
-    fi
-    PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
-    DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@pg:5432/gift_bookkeeping"
-    export DATABASE_URL
-    # 生成 compose override：新增 pg 服务 + web depends_on
-    mkdir -p "$APP_DIR/.temp"
-    cat > "$DB_OVERRIDE" << YAMLEOF
-version: '3.8'
-services:
-  pg:
-    image: ${PG_LOCAL_IMAGE}
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=gift_bookkeeping
-      - POSTGRES_USER=gift_user
-      - POSTGRES_PASSWORD=${PG_PASSWORD}
-    volumes:
-      - gift_pg_data:/var/lib/postgresql/data
-    networks:
-      - gift_network
-  web:
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-    depends_on:
-      - pg
-volumes:
-  gift_pg_data:
-    driver: local
-YAMLEOF
-    echo_e "${GREEN}数据库模式: 独立 PostgreSQL (${PG_LOCAL_IMAGE})${NC}"
-}
-
-# 交互式数据库选择主逻辑（与传统版逻辑一致，cron 安全）
-select_db_mode() {
-    if [ "$DB_RESET" = "1" ] && [ -f "$DB_ENV_FILE" ]; then
-        rm -f "$DB_ENV_FILE" "$DB_OVERRIDE"
-        echo_e "${YELLOW}已清除旧数据库配置，将重新选择${NC}"
-    fi
-    # ① DB_MODE 环境变量直通
-    if [ -n "$DB_MODE" ]; then
-        case "$DB_MODE" in
-            sqlite) setup_sqlite ;;
-            shared) setup_shared_pg ;;
-            independent) detect_pg_environment; setup_independent_pg ;;
-            *) echo_e "${RED}无效的 DB_MODE: $DB_MODE${NC}"; exit 1 ;;
-        esac
-        if [ -t 0 ] && [ "$DB_MODE" != "independent" ]; then
-            save_db_env
-        fi
-        return
-    fi
-    # ② 配置文件存在
-    if [ -f "$DB_ENV_FILE" ]; then
-        load_db_env
-        export DATABASE_URL
-        echo_e "${GREEN}数据库模式: ${DB_MODE} (从配置文件读取)${NC}"
-        return
-    fi
-    # ③ 交互式终端
-    if [ -t 0 ]; then
-        detect_pg_environment
-        echo_e ""
-        echo_e "${GREEN}🔍 检测服务器环境...${NC}"
-        [ -n "$PG_RUNNING_NAME" ] && echo_e "   运行中的 PG 容器: ${PG_RUNNING_NAME} (${PG_RUNNING_IMAGE})" || echo_e "   运行中的 PG 容器: 无"
-        [ -n "$PG_LOCAL_IMAGE" ] && echo_e "   本地 PG 镜像: ${PG_LOCAL_IMAGE}" || echo_e "   本地 PG 镜像: 无"
-        echo_e "   可用内存: ${AVAIL_MEM}MB"
-        echo_e ""
-        _recommend=1
-        if [ -n "$PG_RUNNING_NAME" ] && [ "$AVAIL_MEM" -ge 400 ]; then
-            _recommend=2
-        elif [ -n "$PG_LOCAL_IMAGE" ] && [ "$AVAIL_MEM" -ge 700 ]; then
-            _recommend=3
-        fi
-        echo_e "  ┌─────────────────────────────────────────────────┐"
-        echo_e "  │  请选择数据库部署方式                              │"
-        echo_e "  ├─────────────────────────────────────────────────┤"
-        echo_e "  │  1) SQLite 本地文件                               │"
-        echo_e "  │     零依赖、内存占用最低、适合单机轻量场景           │"
-        if [ -n "$PG_RUNNING_NAME" ]; then
-            echo_e "  │  2) 共享 PostgreSQL 实例$([ $_recommend -eq 2 ] && echo ' ⭐ 推荐')"
-            echo_e "  │     复用已有 PG 容器 ${PG_RUNNING_NAME}"
-            echo_e "  │     自动创建应用专属库 + 账号，互不干扰              │"
-        else
-            echo_e "  │  2) 共享 PostgreSQL 实例 (未检测到运行中的 PG 容器)"
-        fi
-        if [ -n "$PG_LOCAL_IMAGE" ]; then
-            echo_e "  │  3) 独立 PostgreSQL 容器$([ $_recommend -eq 3 ] && echo ' ⭐ 推荐')"
-            echo_e "  │     新起 pg 服务，应用独占"
-            echo_e "  │     使用本地镜像 ${PG_LOCAL_IMAGE}"
-        else
-            echo_e "  │  3) 独立 PostgreSQL 容器 (本地无 PG 镜像，需下载)"
-        fi
-        echo_e "  └─────────────────────────────────────────────────┘"
-        printf '请选择 [1/2/3，默认 %d]: ' "$_recommend" >&2
-        read -r _db_choice
-        _db_choice="${_db_choice:-$_recommend}"
-        case "$_db_choice" in
-            1) DB_MODE=sqlite ;;
-            2) DB_MODE=shared; DB_PG_CONTAINER="$PG_RUNNING_NAME" ;;
-            3) DB_MODE=independent ;;
-            *) echo_e "${RED}无效选择${NC}"; exit 1 ;;
-        esac
-        case "$DB_MODE" in
-            sqlite) setup_sqlite ;;
-            shared) setup_shared_pg ;;
-            independent) setup_independent_pg ;;
-        esac
-        save_db_env
-    else
-        # ④ 非交互：默认 SQLite
-        echo_e "${YELLOW}非交互环境，默认使用 SQLite。如需配置 PostgreSQL，请设置 DB_MODE 环境变量或交互式运行 ./run.sh start${NC}"
-        DB_MODE=sqlite
-        DATABASE_URL=""
-        export DATABASE_URL
-    fi
-}
-
-# 构造 compose 启动命令（考虑 override 文件）
-_compose_up_cmd() {
-    if [ -f "$DB_OVERRIDE" ]; then
-        echo "$DOCKER_COMPOSE -f docker-compose.yml -f .temp/docker-compose.db-override.yml"
-    else
-        echo "$DOCKER_COMPOSE"
-    fi
-}
-cleanup_cache() {
-    echo_e "${GREEN}正在清理本地缓存与 .git 冗余垃圾...${NC}"
-    cd "$APP_DIR" || return
-    if [ -d ".git" ] && command -v git > /dev/null 2>&1; then
-        git reflog expire --expire=now --all 2>/dev/null || true
-        git gc --prune=now 2>/dev/null || true
-        echo_e "${GREEN}✅ .git 冗余垃圾清理完成! 当前 .git 体积: $(du -sh .git 2>/dev/null | cut -f1)${NC}"
-    fi
-    find "$APP_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    find "$APP_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
-    rm -rf /tmp/gift-backup 2>/dev/null || true
-    # Docker 构建缓存清理：清理悬空镜像与构建缓存（不影响正在运行的容器和其他项目的镜像）
-    if command -v docker > /dev/null 2>&1; then
-        # 清理前记录 Docker 镜像与构建缓存占用（用于清理前后体积对比展示）
-        local _df_before=$(docker system df --format '{{.Type}}:{{.Size}}' 2>/dev/null | grep -E '^(Images|Build Cache):' | tr '\n' '; ')
-        docker image prune -f 2>/dev/null || true
-        docker builder prune -f 2>/dev/null || true
-        echo_e "${GREEN}✅ Docker 构建缓存清理完成（悬空镜像 + 构建缓存）${NC}"
-        # 清理后再次统计，输出占用变化对比（docker system df 不可用时静默跳过）
-        local _df_after=$(docker system df --format '{{.Type}}:{{.Size}}' 2>/dev/null | grep -E '^(Images|Build Cache):' | tr '\n' '; ')
-        if [ -n "$_df_before" ] && [ -n "$_df_after" ]; then
-            echo_e "   Docker 占用变化: [清理前] $_df_before"
-            echo_e "   Docker 占用变化: [清理后] $_df_after"
-        fi
-    fi
-}
-
-# ===== Docker 操作函数 =====
-
-# 检测端口是否被占用，被占用时提示用户选择处理方式（SNI 模式下允许双版本共存，但后端端口不能相同）
-check_port_conflict() {
-    local check_port="$1"
-    local port_pid=$(lsof -ti :"$check_port" 2>/dev/null)
-
-    if [ -z "$port_pid" ]; then
-        return 0  # 端口空闲，可正常启动
-    fi
-
-    # 端口被其他进程占用
-    local proc_info=$(ps -p "$port_pid" -o cmd= 2>/dev/null | head -c 200)
-    echo_e "${RED}❌ 端口 $check_port 已被占用！${NC}"
-    echo_e "   占用进程 PID: $port_pid"
-    echo_e "   进程信息: $proc_info"
-
-    # 非交互环境直接中止
-    if [ ! -t 0 ]; then
-        echo_e "${RED}非交互环境无法选择，服务启动中止。请更换端口后重试。${NC}"
-        echo_e "   传统版: PORT=新端口 ./$0 start"
-        echo_e "   Docker版: HOST_PORT=新端口 ./$0 start"
-        return 1
-    fi
-
-    # 交互式选择
-    while true; do
-        echo_e "${YELLOW}请选择处理方式：${NC}"
-        echo_e "  1) 修改本服务端口后重新启动（推荐）"
-        echo_e "  2) 停用另一个服务的 Nginx 配置后继续"
-        echo_e "  3) 中止启动"
-        printf '请输入选项 [1/2/3]: '
-        read -r choice
-        case "$choice" in
-            1)
-                echo_e "${GREEN}请修改端口后重新启动：${NC}"
-                echo_e "   传统版: PORT=新端口 ./$0 start"
-                echo_e "   Docker版: HOST_PORT=新端口 ./$0 start"
-                return 1
-                ;;
-            2)
-                # 列出当前 Nginx 配置目录中的项目配置文件，让用户选择停用哪个
-                echo_e "${YELLOW}当前 $NGINX_CONF_DIR 中的 Nginx 配置文件：${NC}"
-                local conf_files=$(ls "$NGINX_CONF_DIR"/*.conf 2>/dev/null)
-                if [ -z "$conf_files" ]; then
-                    echo_e "${RED}未找到任何 .conf 配置文件${NC}"
-                    return 1
-                fi
-                local ci=1
-                for f in $conf_files; do
-                    echo_e "  $ci) $(basename "$f")"
-                    ci=$((ci + 1))
-                done
-                printf '请输入要停用的配置编号: '
-                read -r conf_choice
-                local selected=$(echo "$conf_files" | sed -n "${conf_choice}p")
-                if [ -n "$selected" ]; then
-                    mv "$selected" "${selected}.disabled" 2>/dev/null
-                    echo_e "${GREEN}已停用: $(basename "$selected")${NC}"
-                    # reload nginx
-                    if command -v nginx > /dev/null 2>&1; then
-                        if nginx -t >/dev/null 2>&1; then
-                            nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null
-                        fi
-                    fi
-                    # 再次检测端口是否释放
-                    local recheck_pid=$(lsof -ti :"$check_port" 2>/dev/null)
-                    if [ -n "$recheck_pid" ]; then
-                        echo_e "${RED}停用 Nginx 配置后端口 $check_port 仍被占用，可能后端进程仍在运行${NC}"
-                        echo_e "   请手动停止占用端口的进程: kill $recheck_pid"
-                        return 1
-                    fi
-                    return 0
-                else
-                    echo_e "${RED}无效的选择${NC}"
-                    return 1
-                fi
-                ;;
-            3)
-                echo_e "${YELLOW}已中止启动${NC}"
-                return 1
-                ;;
-            *)
-                echo_e "${RED}无效选项，请重新选择${NC}"
-                ;;
-        esac
-    done
-}
+# ===== 启停操作函数 =====
 
 start_service() {
     echo_e "${GREEN}正在启动服务...${NC}"
-    # 启动前自动生成最新 SSL 证书、配置 Nginx SNI 与清理缓存垃圾（SNI 配置失败则中止启动）
     ensure_ssl_certs
-
-    # 端口冲突检测（SNI 模式下允许双版本共存，但宿主机映射端口不能相同）
     check_port_conflict "$HOST_PORT" || return 1
-
     setup_nginx_config || {
         echo_e "${RED}❌ Nginx SNI 配置失败，服务启动中止，请检查 SNI_DOMAIN 环境变量${NC}"
         return 1
@@ -555,11 +55,8 @@ start_service() {
     cleanup_cache
     cd "$APP_DIR" || exit 1
 
-    # V10.10.17: 数据库部署选择
     select_db_mode
 
-    # V10.10.16: 镜像免构建模式——APP_IMAGE 非空时拉取预构建镜像，服务器零构建
-    # V10.10.17: 有 DB override 文件时使用 -f 参数加载
     _compose_files="-f docker-compose.yml"
     if [ -f "$DB_OVERRIDE" ]; then
         _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
@@ -579,7 +76,6 @@ start_service() {
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
         echo_e "   容器内监听端口: $PORT"
         echo_e "   宿主机映射端口: $HOST_PORT"
-        # 输出全部 SNI 域名的访问地址（SNI_DOMAIN 支持空格分隔多域名）
         for _sni_domain in $SNI_DOMAIN; do
             _port_suffix=""
             [ "$NGINX_PORT" != "443" ] && _port_suffix=":$NGINX_PORT"
@@ -594,15 +90,12 @@ start_service() {
 stop_service() {
     echo_e "${YELLOW}正在停止 Docker 容器集群...${NC}"
     cd "$APP_DIR" || exit 1
-    # V10.10.17: 有 DB override 文件时使用 -f 参数加载
     _compose_files="-f docker-compose.yml"
     if [ -f "$DB_OVERRIDE" ]; then
         _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
     fi
     $DOCKER_COMPOSE $_compose_files down
     echo_e "${GREEN}✅ Docker 容器集群已停止${NC}"
-    # 停止后自动清理上一次构建的残留层（悬空镜像 + 构建缓存），避免磁盘膨胀
-    # restart 流程中传 skip_clean 跳过本次清理（由 start_service 统一清理，避免重复执行两次）
     if [ "$1" != "skip_clean" ]; then
         cleanup_cache
     fi
@@ -670,7 +163,7 @@ case "$1" in
         echo ""
         echo_e "  多项目共用 443 端口（SNI 分流）示例: SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./$0 start"
         echo_e "  多域名示例: SNI_DOMAIN=\"gift-docker.example.com gift-docker2.example.com\" ./$0 start"
-        echo_e ""
+        echo ""
         echo_e "  文件覆盖策略（已存在的证书/Nginx 配置，默认先询问):"
         echo_e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
         echo_e "  ${GREEN}NGINX_CONF_FORCE_UPDATE=1${NC}   Nginx 配置已存在时强制覆盖渲染，不询问 (默认: 询问/非交互时保留)"

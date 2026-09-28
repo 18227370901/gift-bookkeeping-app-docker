@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 📦 **V10.10.17b run.sh 模块化拆分**：将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件（common/common_db_select 共享文件两版 MD5 一致 + cleanup/ssl_certs/nginx_config/port_conflict/db_setup 各版独立），run.sh 仅保留配置区 + source + 启停函数 + case 分发；Docker 版 683→157 行，传统版 792→257 行；修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题。
 > - 🗄️ **V10.10.17 交互式数据库部署选择 + PostgreSQL 兼容**：`./run.sh start` 时交互式选择 SQLite / 共享 PG（复用已有容器自动建库建账号）/ 独立 PG（复用本地镜像启动专属容器），根据服务器环境智能推荐；Cron 安全设计（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面兼容 PG（schema_version 表替代 PRAGMA user_version，_get_db_conn() 统一连接，备份/恢复 JSON 导出导入替代文件复制）；共享文件两版 MD5 逐字一致。
 > - ⚡ **V10.10.16 Docker 版性能优化**：Gunicorn 4 sync workers → 1 worker + gthread 4 线程；5 组重型依赖（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper）改为延迟导入；守护线程跨进程 fcntl 单实例锁；init_database() 幂等快速跳过；Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2；GitHub Actions 自动构建 + ghcr.io/阿里云 ACR 双 Registry 免构建部署。内存从 350~535MB 降至 60~95MB（↓约 80%）。
 > - 🔑 **V10.10.15 企微长连接 bot_secret 密文解密修复**：监听线程原通过 raw SQL 读取 AES-256-GCM 密文 bot_secret 直接用于 SDK 认证，导致 WebSocket 连接始终失败；修复后解密明文认证成功，@机器人 可正常自动捕获群聊 ID。
@@ -1064,6 +1065,32 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 - `app.py` / `webhook_utils.py` / `routes_ext.py` / `models.py` / `_daemon_lock.py`（两版同步，MD5 一致）
 - `docker-compose.yml` / `run.sh`（仅 Docker 版）
 - `run.sh`（仅传统版）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.17b：run.sh 模块化拆分（2026-09-28，传统版 + Docker 版同步）
+
+#### 变更内容
+将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件，run.sh 仅保留配置区 + source + 启停函数 + case 分发。
+
+| bin/ 文件 | 职责 | 两版共享 |
+|---|---|---|
+| `common.sh` | 颜色变量 + echo_e() + should_overwrite() | ✅ MD5 一致 |
+| `db_select.sh` | 交互式 DB 选择主逻辑 + .db.env 读写 + detect_pg | ✅ MD5 一致 |
+| `cleanup.sh` | 缓存清理（Docker版含 Docker 构建缓存） | 各版独立 |
+| `ssl_certs.sh` | SSL 证书生成（传统版优 venv python3） | 各版独立 |
+| `nginx_config.sh` | Nginx SNI 渲染（Docker版用 HOST_PORT，传统版用 PORT） | 各版独立 |
+| `port_conflict.sh` | 端口冲突检测（传统版含 PID 自检+check_status） | 各版独立 |
+| `db_setup.sh` | DB 模式配置（Docker版生成 compose override，传统版用环境变量） | 各版独立 |
+
+#### 效果
+- Docker 版 run.sh：683 行 → **157 行**（↓77%）
+- 传统版 run.sh：792 行 → **257 行**（↓68%）
+- 修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题（移至 `start_service` 内）
+
+#### 涉及文件
+- `run.sh`（两版重写）
+- `bin/common.sh` / `bin/db_select.sh`（两版共享，MD5 一致）
+- `bin/cleanup.sh` / `bin/ssl_certs.sh` / `bin/nginx_config.sh` / `bin/port_conflict.sh` / `bin/db_setup.sh`（两版各自独立）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
 
 ## 📂 项目文件结构
