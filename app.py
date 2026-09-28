@@ -650,8 +650,94 @@ def num2cn(num):
 def num2cn_filter(num):
     return num2cn(num)
 
+# V10.10.16: 数据库结构版本标记，用于幂等快速跳过迁移流程
+_SCHEMA_VERSION = 1016
+
+def _is_db_schema_current():
+    """检查数据库 PRAGMA user_version 是否已标记为当前版本"""
+    try:
+        if db_url.startswith('sqlite:'):
+            _p = db_url.replace('sqlite:///', '')
+            if _p and os.path.exists(_p):
+                import sqlite3 as _vc
+                _cn = _vc.connect(_p, timeout=5)
+                _ver = _cn.execute("PRAGMA user_version").fetchone()[0]
+                _cn.close()
+                return _ver == _SCHEMA_VERSION
+    except Exception:
+        pass
+    return False
+
+def _mark_db_schema_current():
+    """迁移完成后将 PRAGMA user_version 标记为当前版本"""
+    try:
+        if db_url.startswith('sqlite:'):
+            _p = db_url.replace('sqlite:///', '')
+            if _p:
+                import sqlite3 as _mc
+                _cn = _mc.connect(_p)
+                _cn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+                _cn.commit()
+                _cn.close()
+    except Exception:
+        pass
+
+def _do_startup_sync():
+    """每次容器/服务重启都需执行的轻量同步：风控重置 + 管理员账号同步"""
+    try:
+        LOGIN_FAIL_COUNTS.clear()
+        LOGIN_LOCK_UNTILS.clear()
+        FORGOT_SECURITY_FAIL_COUNTS.clear()
+        FORGOT_SECURITY_LOCK_UNTILS.clear()
+    except Exception:
+        pass
+
+    try:
+        reg_setting = SystemSetting.query.filter_by(key='registration_mode').first()
+        if not reg_setting:
+            SystemSetting.set_val('registration_mode', 'invite_only')
+    except Exception:
+        pass
+    admin = User.query.filter_by(is_admin=True).first()
+    initial_user = os.environ.get('ADMIN_USER', 'admin').strip()
+    initial_pass = os.environ.get('ADMIN_PASS', 'admin123').strip()
+    if not admin:
+        admin = User.query.filter_by(username=initial_user).first()
+
+    if not admin:
+        admin = User(
+            username=initial_user,
+            security_question='系统默认安全问题：您的默认备用验证码是？',
+            is_admin=True,
+            is_active=True
+        )
+        admin.set_password(initial_pass)
+        admin.set_security_answer('admin')
+        db.session.add(admin)
+        db.session.commit()
+        print(f"[Init] 已创建初始管理员账号: {initial_user}")
+    else:
+        if admin.username != initial_user:
+            existing = User.query.filter_by(username=initial_user).first()
+            if existing and existing.id != admin.id:
+                print(f"[Init] 警告: 用户名 '{initial_user}' 已被其他用户(id={existing.id})占用，"
+                      f"保留当前管理员用户名 '{admin.username}'")
+            else:
+                admin.username = initial_user
+        admin.set_password(initial_pass)
+        admin.is_admin = True
+        admin.is_active = True
+        db.session.commit()
+        print(f"[Init] 已同步更新管理员账号 [{admin.username}] 密码为最新配置并确保处于激活状态")
+
 def init_database():
     with app.app_context():
+        # V10.10.16: 幂等快速跳过——已标记最新版本的库跳过完整迁移流程
+        if _is_db_schema_current():
+            print(f"[Init] 数据库结构已最新 (v{_SCHEMA_VERSION})，跳过迁移流程")
+            _do_startup_sync()
+            return
+
         # V5: 在 db.create_all() 之前，先用原生 sqlite3 修复可能存在的 orphan index 问题
         # 这个问题在恢复旧版备份后尤为常见：malformed database schema (sqlite_autoindex_xxx) - orphan index
         try:
@@ -881,56 +967,11 @@ def init_database():
             except Exception:
                 pass
 
-        # 容器/服务重启时重置登录与密保风控限制记录（清除锁定及失败计数）
-        try:
-            LOGIN_FAIL_COUNTS.clear()
-            LOGIN_LOCK_UNTILS.clear()
-            FORGOT_SECURITY_FAIL_COUNTS.clear()
-            FORGOT_SECURITY_LOCK_UNTILS.clear()
-        except Exception:
-            pass
+        # V10.10.16: 迁移完成，标记数据库结构版本
+        _mark_db_schema_current()
 
-        # 默认系统注册模式为仅邀请注册 (invite_only)
-        try:
-            reg_setting = SystemSetting.query.filter_by(key='registration_mode').first()
-            if not reg_setting:
-                SystemSetting.set_val('registration_mode', 'invite_only')
-        except Exception:
-            pass
-        admin = User.query.filter_by(is_admin=True).first()
-        initial_user = os.environ.get('ADMIN_USER', 'admin').strip()
-        initial_pass = os.environ.get('ADMIN_PASS', 'admin123').strip()
-        if not admin:
-            admin = User.query.filter_by(username=initial_user).first()
-
-        if not admin:
-            admin = User(
-                username=initial_user,
-                security_question='系统默认安全问题：您的默认备用验证码是？',
-                is_admin=True,
-                is_active=True
-            )
-            admin.set_password(initial_pass)
-            admin.set_security_answer('admin')
-            db.session.add(admin)
-            db.session.commit()
-            print(f"[Init] 已创建初始管理员账号: {initial_user}")
-        else:
-            # 每次重启应用时，同步确保管理员用户名、密码与激活状态更新为最新配置
-            # 检查目标用户名是否与当前管理员用户名不同，不同时需检查是否被其他用户占用
-            if admin.username != initial_user:
-                existing = User.query.filter_by(username=initial_user).first()
-                if existing and existing.id != admin.id:
-                    # 目标用户名已被其他用户占用，跳过用户名修改，只更新密码和状态
-                    print(f"[Init] 警告: 用户名 '{initial_user}' 已被其他用户(id={existing.id})占用，"
-                          f"保留当前管理员用户名 '{admin.username}'")
-                else:
-                    admin.username = initial_user
-            admin.set_password(initial_pass)
-            admin.is_admin = True
-            admin.is_active = True
-            db.session.commit()
-            print(f"[Init] 已同步更新管理员账号 [{admin.username}] 密码为最新配置并确保处于激活状态")
+        # V10.10.16: 每次重启都需执行的轻量同步（风控重置 + 管理员账号同步）
+        _do_startup_sync()
 
 # 应用加载时自动执行数据库初始化与版本迁移（支持 Gunicorn / WSGI / App 启动）
 try:

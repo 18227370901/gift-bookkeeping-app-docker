@@ -25,11 +25,26 @@ logger.setLevel(logging.DEBUG)
 # 禁用 self-signed SSL 证书警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-try:
-    from aibot import WSClient, WSClientOptions, generate_req_id
-    HAS_AIBOT_SDK = True
-except ImportError:
-    HAS_AIBOT_SDK = False
+# 延迟导入企业微信 aibot SDK（可选依赖）
+# V10.10.16 性能优化：aibot SDK 间接拉入 aiohttp + websockets ~10-16MB，
+# 移至首次长连接认证/发送/监听时才加载；普通 Webhook URL 模式永不触发
+HAS_AIBOT_SDK = None  # None=未检测, True/False=已检测
+
+def _import_aibot():
+    """首次调用时延迟导入 aibot SDK，返回 (WSClient, WSClientOptions, generate_req_id) 或 None"""
+    global HAS_AIBOT_SDK
+    if HAS_AIBOT_SDK is True:
+        from aibot import WSClient, WSClientOptions, generate_req_id
+        return WSClient, WSClientOptions, generate_req_id
+    if HAS_AIBOT_SDK is False:
+        return None, None, None
+    try:
+        from aibot import WSClient, WSClientOptions, generate_req_id
+        HAS_AIBOT_SDK = True
+        return WSClient, WSClientOptions, generate_req_id
+    except ImportError:
+        HAS_AIBOT_SDK = False
+        return None, None, None
 
 # V10.10.15：监听线程通过 raw sqlite3 读取 bot_secret，需调用 decrypt_credential 解密
 # （models.py 的 bot_secret 是 property，raw SQL 读取的是 AES-256-GCM 密文）
@@ -37,6 +52,8 @@ try:
     from models import decrypt_credential
 except Exception:
     decrypt_credential = None
+
+from _daemon_lock import try_acquire_daemon_lock
 
 
 def _run_async(coro):
@@ -155,6 +172,7 @@ def validate_wecom_credentials(bot_id, bot_secret):
     if b_id.lower() in invalid_patterns or b_sec.lower() in invalid_patterns:
         return False, "检测到测试/无效占位符，请输入真实有效的企业微信机器人 Bot ID 与 Secret"
 
+    WSClient, WSClientOptions, _ = _import_aibot()
     if not HAS_AIBOT_SDK:
         return False, "Python 环境缺少 wecom-aibot-python-sdk 库"
 
@@ -253,6 +271,7 @@ def send_wecom_long_connection_message(bot_id, bot_secret, title, details=None, 
     if not is_valid:
         return False, 400, f"凭证校验失败: {val_msg}"
 
+    WSClient, WSClientOptions, _ = _import_aibot()
     if not HAS_AIBOT_SDK:
         return False, 500, "Python 环境缺少 wecom-aibot-python-sdk 库"
 
@@ -843,6 +862,10 @@ _listener_running = False
 def _wecom_listener_worker():
     global _listener_running
     while _listener_running:
+        # V10.10.16: 跨进程单实例锁，多 Worker 环境下仅一个进程建立 WebSocket 长连接
+        if not try_acquire_daemon_lock('wecom_listener'):
+            time.sleep(10)
+            continue
         try:
             conn = sqlite3.connect(_resolve_db_file(), timeout=10)
             c = conn.cursor()
@@ -854,6 +877,7 @@ def _wecom_listener_worker():
                 continue
 
             for wh_id, bot_id, bot_secret, current_url, conn_type in rows:
+                WSClient, WSClientOptions, _ = _import_aibot()
                 if not bot_id or not bot_secret or not HAS_AIBOT_SDK:
                     continue
 

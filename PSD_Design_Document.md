@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.14 · 生成日期: 2026-09-28 · 审计范围: 48 文件 / ~22,700 行代码
+> **Docker 版** · 版本: V10.10.16 · 生成日期: 2026-09-28 · 审计范围: 52 文件 / ~23,200 行代码
 
 ---
 
@@ -507,6 +507,7 @@ base.html (493行 — 全局布局骨架)
 | 广播敏感内容隔离（V10.10.14） | 发布广播内容含敏感词（管理员账号/初始密码/admin123 等）自动强制 `scope='admin'` 仅管理员可见且不推送 Webhook | `routes_ext.py` 广播发布路由 |
 | 企微长连接 chatid 修正（V10.10.14） | 保存清空 chatid 不再回填旧值；@机器人捕获与测试/发送统一读写运行库（`_resolve_db_file()`），修复 3 处硬编码库路径 | `routes_ext.py`、`webhook_utils.py` |
 | 监听线程 bot_secret 密文解密（V10.10.15） | raw SQL 读取的 `bot_secret` 是 AES-256-GCM 密文，需 `decrypt_credential()` 解密为明文后传给 SDK 认证；修复后 WebSocket 认证成功；真实企微群 @机器人 实测通过，全链路闭环确认 | `webhook_utils.py` `_wecom_listener_worker` |
+| Docker 版性能优化（V10.10.16） | 四层组合拳：① Gunicorn 4 sync workers → 1 worker + gthread 4 线程 ② 5 组重型依赖延迟导入（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper） ③ 守护线程 fcntl 跨进程单实例锁 ④ init_database() 幂等快跳 + Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2 + GitHub Actions 双 Registry 免构建部署。内存 350~535MB → 60~95MB（↓80%） | `gunicorn.conf.py`、`_daemon_lock.py`、`Dockerfile`、`docker-compose.yml`、`run.sh`、`app.py`、`ai_service.py`、`web_search.py`、`models.py`、`webhook_utils.py`、`webdav_utils.py`、`routes_ext.py` |
 
 #### 6.1.4 PWA 架构
 
@@ -993,4 +994,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-23 | 审计范围: 48 文件 / ~22,700 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-28 | 审计范围: 52 文件 / ~23,200 行代码 | 161 个路由 | 22 张数据表

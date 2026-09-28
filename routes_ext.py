@@ -30,6 +30,7 @@ from gift_utils import (
     parse_gift_nlp, parse_gift_nlp_multi, split_gift_nlp_text,
     get_gift_suggestion, calculate_reconciliation, cn2num
 )
+from _daemon_lock import try_acquire_daemon_lock
 
 
 
@@ -382,6 +383,13 @@ def _anniversary_reminder_worker(flask_app):
     global _reminder_scheduler_running
     time.sleep(3)
     while _reminder_scheduler_running:
+        # V10.10.16: 跨进程单实例锁，多 Worker 环境下仅一个进程执行巡检
+        if not try_acquire_daemon_lock('anniversary_reminder'):
+            count = 0
+            while _reminder_scheduler_running and count < 6:
+                time.sleep(10)
+                count += 1
+            continue
         try:
             with flask_app.app_context():
                 check_and_trigger_due_reminders(flask_app)
@@ -501,6 +509,13 @@ def _backup_scheduler_worker(flask_app):
     global _backup_scheduler_running
     time.sleep(5)  # 等待应用完全启动
     while _backup_scheduler_running:
+        # V10.10.16: 跨进程单实例锁，多 Worker 环境下仅一个进程执行备份调度
+        if not try_acquire_daemon_lock('backup_scheduler'):
+            count = 0
+            while _backup_scheduler_running and count < 6:
+                time.sleep(10)
+                count += 1
+            continue
         try:
             with flask_app.app_context():
                 now = datetime.now()

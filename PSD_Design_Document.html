@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.10.14</span>·<span>生成日期: 2026-09-28</span>·<span>审计范围: 48 文件 / ~22,700 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.10.16</span>·<span>生成日期: 2026-09-28</span>·<span>审计范围: 52 文件 / ~23,200 行代码</span>
 </div>
 </header>
 
@@ -558,6 +558,7 @@ for sql in migration_sqls:
 <tr><td>广播敏感内容隔离（V10.10.14）</td><td>发布广播内容含敏感词（管理员账号/初始密码/admin123 等）自动强制 scope=admin 仅管理员可见且不推送 Webhook</td><td>routes_ext.py 广播发布路由</td></tr>
 <tr><td>企微长连接 chatid 修正（V10.10.14）</td><td>保存清空 chatid 真正清空；@机器人 自动捕获与测试/发送统一读写运行库（_resolve_db_file()），修复 3 处硬编码库路径</td><td>routes_ext.py、webhook_utils.py</td></tr>
 <tr><td>监听线程 bot_secret 密文解密（V10.10.15）</td><td>raw SQL 读取的 bot_secret 是 AES-256-GCM 密文，需 decrypt_credential() 解密为明文后传给 SDK 认证；修复后 WebSocket 认证成功；真实企微群 @机器人 实测通过，全链路闭环确认</td><td>webhook_utils.py _wecom_listener_worker</td></tr>
+<tr><td>Docker 版性能优化（V10.10.16）</td><td>四层组合拳：① Gunicorn 4 sync workers → 1 worker + gthread 4 线程 ② 5 组重型依赖延迟导入（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper） ③ 守护线程 fcntl 跨进程单实例锁 ④ init_database() 幂等快跳 + Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2 + GitHub Actions 双 Registry 免构建部署。内存 350~535MB → 60~95MB（↓80%）</td><td>gunicorn.conf.py、_daemon_lock.py、Dockerfile、docker-compose.yml、run.sh、app.py、ai_service.py、web_search.py、models.py、webhook_utils.py、webdav_utils.py、routes_ext.py</td></tr>
 </table>
 
 <h4>6.1.5 PWA 架构</h4>
@@ -1103,7 +1104,7 @@ graph LR
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-09-23 | 审计范围: 48 文件 / ~22,700 行代码 | 161 个路由 | 22 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-09-28 | 审计范围: 52 文件 / ~23,200 行代码 | 161 个路由 | 22 张数据表</p>
 </div>
 
 </div>

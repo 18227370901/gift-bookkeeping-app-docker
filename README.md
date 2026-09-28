@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - ⚡ **V10.10.16 Docker 版性能优化**：Gunicorn 4 sync workers → 1 worker + gthread 4 线程；5 组重型依赖（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper）改为延迟导入；守护线程跨进程 fcntl 单实例锁；init_database() 幂等快速跳过；Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2；GitHub Actions 自动构建 + ghcr.io/阿里云 ACR 双 Registry 免构建部署。内存从 350~535MB 降至 60~95MB（↓约 80%）。
 > - 🔑 **V10.10.15 企微长连接 bot_secret 密文解密修复**：监听线程原通过 raw SQL 读取 AES-256-GCM 密文 bot_secret 直接用于 SDK 认证，导致 WebSocket 连接始终失败；修复后解密明文认证成功，@机器人 可正常自动捕获群聊 ID。
 > - 🛡️ **V10.10.14 敏感公告隔离与企微长连接修复**：含管理员账号/密码的公告自动限定仅管理员可见且不推送外部；广播横幅与提示消息自动消失；企微长连接 chatid 清空生效、@机器人 自动捕获与测试读取均已修正至运行库。
 > - 🌗 **V10.10.13 黑夜/白天主题切换与输入框提示语美化**：新增全局双主题切换（基于 Bootstrap 5.3 `data-bs-theme`，localStorage 持久化，默认白天零回归），全站约 122 处输入框提示语统一美化（浅灰蓝、常规字重、聚焦淡出）。
@@ -992,6 +993,48 @@ V10.10.14 修复了长连接监听线程写库硬编码路径问题后，用户�
 - `webhook_utils.py`（导入 `decrypt_credential` + 监听线程解密 `bot_secret`）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
 
+### V10.10.16：Docker 版性能优化与镜像免构建部署（2026-09-28，仅 Docker 版 `gift-docker-optimize` 分支）
+
+#### 问题背景
+Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务器其他容器（12~165MiB 量级）差距过大。
+
+#### 根因
+1. **Gunicorn 4 sync workers 无共享**：每个 worker 独立加载全套 Python 运行时（~140-175MB×4）
+2. **5 组重型依赖启动即加载**：openai SDK（~40-55MB）、duckduckgo_search（~12-20MB）、cryptography AESGCM（~12-18MB）、aibot SDK 含 aiohttp+websockets（~10-16MB）、pyzipper（~3MB），平时使用频率极低却常驻内存
+3. **3 个守护线程被 4 个 worker 重复启动 = 12 份轮询**：纪念日巡检、备份调度、企微长连接监听均 4 倍重复
+4. **init_database() 被 4 进程各执行一次**：60+ 条迁移 SQL 并发竞争 SQLite 写锁
+
+#### 修复（四层组合拳）
+1. **进程层**：`gunicorn.conf.py` — workers=1 + gthread 4 线程 + timeout=60 + max_requests 周期回收
+2. **依赖层**：`ai_service.py`/`web_search.py`/`models.py`/`webhook_utils.py`/`webdav_utils.py` — 5 组重型依赖移至首次实际调用时才加载（try/except 降级语义不变）
+3. **运行层**：Dockerfile 多阶段构建 + `MALLOC_ARENA_MAX=2` glibc 内存池碎片优化
+4. **保险层**：`_daemon_lock.py` fcntl 跨进程文件锁 — 多 Worker 环境下守护线程仅一份执行（Windows 无 fcntl 直通回退）
+5. **幂等层**：`init_database()` 用 `PRAGMA user_version` 标记检测，结构已最新则跳过完整迁移（首次/升级仍全量执行）
+6. **分发层**：`.github/workflows/docker-publish.yml` — GitHub Actions 自动构建多架构镜像，推送 ghcr.io（默认）+ 阿里云 ACR（配置 secrets 启用）；`run.sh` 新增 `APP_IMAGE` 环境变量，非空时拉取预构建镜像服务器零构建
+
+#### 效果
+- 常态内存：350~535MB → **60~95MB（↓约 80%）**
+- 并发能力：4 sync = 4 并发 → 1×gthread 4 = 4 并发（持平），threads 可调 8
+- 后台轮询：12 份 → **3 份**（单进程 1 份干活）
+- 镜像分发：服务器 `git pull` + `APP_IMAGE=... ./run.sh restart`，零现场构建
+- 所有 161 个路由/13 大功能模块零改动
+
+#### 涉及文件（仅 Docker 版，传统版不同步）
+- `gunicorn.conf.py`（新建：Gunicorn 配置文件）
+- `_daemon_lock.py`（新建：跨进程守护线程锁）
+- `Dockerfile`（多阶段构建 + MALLOC_ARENA_MAX + CMD 改用配置文件）
+- `docker-compose.yml`（image 模式 + GUNICORN_WORKERS 透传）
+- `run.sh`（APP_IMAGE 镜像免构建分支 + GUNICORN_WORKERS 导出）
+- `.github/workflows/docker-publish.yml`（新建：双 Registry CI/CD）
+- `app.py`（init_database 幂等跳过 + _SCHEMA_VERSION/_is_db_schema_current/_mark_db_schema_current/_do_startup_sync）
+- `ai_service.py`（openai 延迟导入）
+- `web_search.py`（DDGS 延迟导入）
+- `models.py`（AESGCM 延迟导入）
+- `webhook_utils.py`（aibot SDK 延迟导入 + fcntl 锁）
+- `webdav_utils.py`（pyzipper 延迟导入）
+- `routes_ext.py`（fcntl 锁）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
 ## 📂 项目文件结构
 
 ```text
@@ -1005,6 +1048,8 @@ gift_bookkeeping_app/
 ├── web_search.py               # [新增] 联网搜索模块 (DuckDuckGo)
 ├── webhook_utils.py            # Webhook 多渠道推送、官方 WeCom aibot SDK 长连接与 @ 机器人捕获
 ├── webdav_utils.py             # WebDAV 客户端、加密 zip 备份与还原管理
+├── gunicorn.conf.py            # [V10.10.16] Gunicorn 配置 (workers/threads/timeout/max_requests)
+├── _daemon_lock.py             # [V10.10.16] 跨进程守护线程 fcntl 单实例锁 (Windows 回退直通)
 ├── requirements.txt            # 项目 Python 依赖库列表
 ├── gift_bookkeeping.db         # SQLite 数据库文件 (支持 WAL 模式与并发读写)
 ├── run.sh                      # Linux 后台服务管理与虚拟环境自动创建/启动脚本 (SNI 多项目 443 端口分流)

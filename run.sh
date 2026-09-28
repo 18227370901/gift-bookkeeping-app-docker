@@ -30,6 +30,10 @@ export NGINX_PORT="${NGINX_PORT:-443}"  # 宿主机 Nginx 监听端口，默认 
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
 
+# V10.10.16: 镜像免构建部署模式与 Gunicorn worker 数量
+export APP_IMAGE="${APP_IMAGE:-}"              # 预构建镜像地址（非空时拉取镜像不本地构建，为空时本地 build）
+export GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"  # Gunicorn worker 数量（默认 1，可调 2/4）
+
 # ===== 颜色输出 =====
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -322,7 +326,19 @@ start_service() {
     }
     cleanup_cache
     cd "$APP_DIR" || exit 1
-    $DOCKER_COMPOSE up -d --build
+
+    # V10.10.16: 镜像免构建模式——APP_IMAGE 非空时拉取预构建镜像，服务器零构建
+    if [ -n "$APP_IMAGE" ]; then
+        echo_e "${GREEN}使用预构建镜像模式: ${APP_IMAGE}${NC}"
+        $DOCKER_COMPOSE pull
+        if [ $? -ne 0 ]; then
+            echo_e "${RED}❌ 镜像拉取失败，请检查镜像名称与仓库访问权限${NC}"
+            exit 1
+        fi
+        $DOCKER_COMPOSE up -d --no-build
+    else
+        $DOCKER_COMPOSE up -d --build
+    fi
     if [ $? -eq 0 ]; then
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
         echo_e "   容器内监听端口: $PORT"
@@ -417,6 +433,8 @@ case "$1" in
         echo_e "  文件覆盖策略（已存在的证书/Nginx 配置，默认先询问):"
         echo_e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
         echo_e "  ${GREEN}NGINX_CONF_FORCE_UPDATE=1${NC}   Nginx 配置已存在时强制覆盖渲染，不询问 (默认: 询问/非交互时保留)"
+        echo_e "  ${GREEN}APP_IMAGE=ghcr.io/...:latest${NC}  预构建镜像地址 (非空时拉取镜像不本地构建，为空时本地 build)"
+        echo_e "  ${GREEN}GUNICORN_WORKERS=1${NC}             Gunicorn worker 数量 (默认 1，可调 2/4)"
         exit 1
         ;;
 esac
