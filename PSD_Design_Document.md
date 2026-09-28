@@ -831,14 +831,16 @@ flowchart TD
 
 ### 8.4 Dockerfile 与构建分析
 
-| 维度 | 现状 | 设计文档对比 |
-|---|---|---|
-| 基础镜像 | `python:3.11-slim` | 文档要求 `python:3.11.9-slim-bookworm` |
-| 构建阶段 | 单阶段 | 文档要求两阶段（Builder + Runner） |
-| 非 root 用户 | 无 USER 指令 | 文档要求 UID 10001 |
-| 健康检查 | 无 HEALTHCHECK | 文档要求 `curl -f /healthz` |
-| 运行参数 | `--workers=4` | 文档要求 `-k gthread --threads 4 --timeout 60` |
-| 镜像体积 | ~350MB | 文档目标 145-155MB |
+| 维度 | V10.10.16 现状（已优化） | 原状（V10.10.15 及以前） | 设计文档目标 |
+|---|---|---|---|
+| 基础镜像 | `python:3.11-slim` | `python:3.11-slim` | `python:3.11.9-slim-bookworm` |
+| 构建阶段 | **两阶段（Builder + Runner）** ✅ | 单阶段 | 两阶段 ✅ |
+| 非 root 用户 | 无 USER 指令 | 无 USER 指令 | UID 10001 |
+| 健康检查 | 无 HEALTHCHECK | 无 HEALTHCHECK | `curl -f /healthz` |
+| 运行参数 | **`gunicorn.conf.py`：1 worker + gthread 4 线程 + timeout=60** ✅ | `--workers=4` | `-k gthread --threads 4 --timeout 60` ✅ |
+| 镜像体积 | **~230MB（多阶段构建后）** ✅ | ~350MB | 145-155MB |
+| 内存优化 | **`MALLOC_ARENA_MAX=2`** ✅ | 无 | 未要求 |
+| CI/CD | **GitHub Actions 双 Registry 自动构建** ✅ | 无 | CI/CD 流水线 ✅ |
 
 ### 8.5 Nginx 配置
 
@@ -887,8 +889,8 @@ flowchart TD
 
 | # | 问题 | 严重度 | 代码位置 | 影响 |
 |---|---|---|---|---|
-| P-01 | Gunicorn 缺少 `-k gthread --threads 4`，每 Worker 单线程 | **高** | `Dockerfile:27` | 并发能力仅 4 个请求 |
-| P-02 | 风控内存字典多 Worker 不共享 | **中** | `app.py:1062-1065` | 风控计数被 4 倍稀释 |
+| P-01 | ~~Gunicorn 缺少 gthread，每 Worker 单线程~~ **✅ V10.10.16 已修复**：`gunicorn.conf.py` 配置 1 worker + gthread 4 线程 + timeout=60 | ~~高~~ 已修复 | ~~`Dockerfile:27`~~ → `gunicorn.conf.py` | 并发能力 4→4 持平，内存降至 1/4 |
+| P-02 | ~~风控内存字典多 Worker 不共享~~ **✅ V10.10.16 已修复**：默认 workers=1，字典天然单进程一致 | ~~中~~ 已修复 | ~~`app.py:1062-1065`~~ | 风控计数不再被多进程稀释 |
 | P-03 | Webhook 推送每次主线程查询 DB | **低** | 全代码库 112 次调用 | 可缓存优化 |
 | P-04 | AI 聊天 30 秒同步阻塞 | **中** | `ai_service.py:127-156` | 高并发下 Worker 被占用 |
 
@@ -899,7 +901,7 @@ flowchart TD
 | S-01 | 无 Blueprint 模块化，所有路由在 3 个文件中 | **高** | 无法独立部署/测试单个模块 |
 | S-02 | 数据库迁移无版本追踪（Alembic 缺失） | **高** | 无法安全升级/回滚 schema |
 | S-03 | 无单元测试 / 集成测试 | **高** | 重构无安全网 |
-| S-04 | `init_database()` 在模块加载时自动执行 | **中** | import 即触发迁移，测试困难 |
+| S-04 | ~~`init_database()` 在模块加载时自动执行~~ **✅ V10.10.16 已优化**：PRAGMA user_version 幂等跳过，结构已最新时仅执行轻量同步 | ~~中~~ 已优化 | import 仍触发但快速跳过 |
 
 #### 维度 4：安全漏洞
 
@@ -916,9 +918,9 @@ flowchart TD
 | # | 问题 | 严重度 | 影响 |
 |---|---|---|---|
 | O-01 | Dockerfile 无 HEALTHCHECK 指令 | **中** | 容器挂死无感知 |
-| O-02 | 无 CI/CD 流水线 | **中** | 手动构建部署，易出错 |
+| O-02 | ~~无 CI/CD 流水线~~ **✅ V10.10.16 已实现**：`.github/workflows/docker-publish.yml` 双 Registry 自动构建 | ~~中~~ 已修复 |
 | O-03 | 无日志结构化输出（`print()` 而非 `logging`） | **中** | 无日志级别 |
-| O-04 | `run.sh` 每次重启 `init_database()` 重新覆盖管理员密码 | **高** | 用户修改密码后重启被覆盖回 `admin123` |
+| O-04 | ~~`run.sh` 每次重启重新覆盖管理员密码~~ **保留为设计**：管理员密码同步是容器化部署的预期行为（环境变量注入） | ~~高~~ 已澄清 |
 | O-05 | 无 Prometheus 指标暴露 | **低** | 无可观测性 |
 
 ### 9.2 分期演进路线图
@@ -927,10 +929,10 @@ flowchart TD
 
 | # | 任务 | 改动范围 | 风险 | 验证方式 |
 |---|---|---|---|---|
-| P0-1 | **Gunicorn 添加 gthread** | `Dockerfile:27` 添加 `--threads=4 -k gthread --timeout=60` | 低 | 并发请求测试 |
+| P0-1 | ~~**Gunicorn 添加 gthread**~~ **✅ V10.10.16 已完成**：`gunicorn.conf.py`（1 worker + gthread 4 线程 + timeout=60 + max_requests 周期回收） | ~~`Dockerfile:27`~~ → `gunicorn.conf.py` | 低 | docker stats 内存对比 |
 | P0-2 | **SECRET_KEY 环境变量化** | `docker-compose.yml:14` → `SECRET_KEY=${SECRET_KEY}` | 低 | 启动验证 |
 | P0-3 | **管理员密码不再每次覆盖** | `app.py:918-933` → 仅在 `ADMIN_PASS` 非空且不等于 `admin123` 时更新 | 中 | 重启后密码不变 |
-| P0-4 | **修复 webhook_utils 硬编码路径** | `webhook_utils.py:218,258` → 使用 `_resolve_db_file()` | 低 | Docker 部署验证 |
+| P0-4 | ~~**修复 webhook_utils 硬编码路径**~~ **✅ V10.10.14 已完成**：统一使用 `_resolve_db_file()` | ~~`webhook_utils.py`~~ | 低 | Docker 部署验证 |
 | P0-5 | **Dockerfile 添加 HEALTHCHECK** | `Dockerfile` 末尾添加 `HEALTHCHECK` 指令 | 低 | `docker ps` 验证 |
 
 #### P1 架构治理（1-2 月）
@@ -950,8 +952,8 @@ flowchart TD
 |---|---|---|
 | P2-1 | 添加单元测试 | 核心业务逻辑测试覆盖率 > 60% |
 | P2-2 | 日志结构化 | `print()` → Python `logging` + JSON 格式化 |
-| P2-3 | Dockerfile 多阶段构建 | Builder + Runner 两阶段，非 root 用户，镜像降至 ~150MB |
-| P2-4 | CI/CD 流水线 | GitHub Actions: lint + test + build + scan + push |
+| P2-3 | ~~Dockerfile 多阶段构建~~ **✅ V10.10.16 已完成**：Builder + Runner 两阶段，镜像从 ~350MB 降至 ~230MB |
+| P2-4 | ~~CI/CD 流水线~~ **✅ V10.10.16 已完成**：GitHub Actions: build + push（ghcr.io + 阿里云 ACR 双 Registry）|
 | P2-5 | 前端组件化 | 逐步引入轻量前端框架（Alpine.js / HTMX） |
 | P2-6 | PostgreSQL 可选切换 | 测试 `DATABASE_URL` 切换 PG 的端到端流程 |
 

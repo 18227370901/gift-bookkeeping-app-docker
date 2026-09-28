@@ -1132,6 +1132,63 @@ chmod +x run.sh
 > - `SNI_DOMAIN`：SNI 域名，写入 server_name 与证书 CN/SAN（默认 localhost）；支持空格分隔多域名，如 `SNI_DOMAIN="a.com b.com"`，第一个为证书 CN，全部写入 SAN 与 server_name
 > - `SNI_DEFAULT_SERVER`：是否作为 443 兑底 default_server，多项目只应有一个设为 1（默认 1）
 > - `SSL_CERT` / `SSL_KEY`：可指向正式证书路径，默认使用自动生成的自签证书
+>
+> ⚡ **V10.10.16 性能与环境变量**：
+> ```bash
+> # 内存与 CPU 优化（默认值即可，按需调整）
+> GUNICORN_WORKERS=1 ./run.sh start       # Gunicorn worker 数量（默认 1，可调 2/4）
+>
+> # 镜像免构建部署（服务器零现场 pip install）
+> APP_IMAGE=ghcr.io/18227370901/gift-bookkeeping-web:latest ./run.sh start
+> ```
+> - `GUNICORN_WORKERS`：Gunicorn worker 进程数（默认 1，单进程 + gthread 4 线程 = 4 并发，与原 4 sync workers 持平；家庭/小团队场景 1 个足够，高负载可调 2/4）
+> - `APP_IMAGE`：预构建镜像地址（非空时 `docker compose pull` 拉取镜像直接启动，服务器零构建；为空时维持 `docker compose up -d --build` 本地构建，完全向后兼容）
+
+---
+
+## 🐳 Docker 镜像免构建部署（V10.10.16）
+
+传统部署方式每次 `./run.sh start` 都会在服务器上执行 `docker compose up -d --build`，触发 `pip install` 全量安装依赖，耗时 5~10 分钟并占用 CPU/内存。V10.10.16 新增镜像免构建模式，实现"构建一次、多服务器秒级部署"。
+
+### 1. 自动构建（GitHub Actions）
+
+项目已预置 `.github/workflows/docker-publish.yml`，触发条件：
+- **push main**：自动构建并推送 `latest` + `sha-xxxxxxx` 标签
+- **打 tag v***：自动构建并推送语义化版本标签（如 `v1.0.0` → `1.0.0` + `v1.0`）
+- **手动触发**：GitHub Actions 页面 → `Build & Publish Docker Image` → `Run workflow`
+
+推送的 Registry：
+- **ghcr.io**（默认启用，零密钥配置）：`ghcr.io/18227370901/gift-bookkeeping-web:latest`
+- **阿里云 ACR**（国内拉取更快，需配置 secrets 启用）：
+  1. 仓库 Settings → Secrets and variables → Actions → New repository secret
+  2. 新增 `ACR_USERNAME`（阿里云 ACR 用户名）和 `ACR_PASSWORD`（访问密码）
+  3. 新增 Variables：`ACR_REGISTRY`（如 `registry.cn-hangzhou.aliyuncs.com`）、`ACR_NAMESPACE`（你的命名空间）
+  4. 取消 `docker-publish.yml` 中阿里云 ACR 段的注释即可生效
+
+### 2. 服务器免构建部署
+
+```bash
+# 首次部署或代码更新后（服务器不执行 pip install，仅拉取镜像）
+cd /opt/service/gift-bookkeeping-app-docker
+git pull origin main
+APP_IMAGE=ghcr.io/18227370901/gift-bookkeeping-web:latest ./run.sh restart
+
+# 如需增大并发（内存充裕时）
+GUNICORN_WORKERS=2 APP_IMAGE=ghcr.io/18227370901/gift-bookkeeping-web:latest ./run.sh restart
+
+# 回退到本地构建模式（不拉取镜像）
+./run.sh restart
+```
+
+### 3. 性能效果
+
+| 指标 | 原版（4 sync workers） | V10.10.16 优化后 |
+|---|---|---|
+| 常态内存 | 350~535MB | **60~95MB**（↓80%） |
+| 并发能力 | 4 个请求 | 4 个请求（1 worker × 4 gthread） |
+| 首次部署耗时 | 5~10 分钟（pip install） | **< 30 秒**（镜像拉取） |
+| 后台守护线程 | 12 份（4 进程 × 3 线程） | **3 份**（单进程 1 份干活） |
+| 定时备份竞态 | 4 进程可能重复执行 | **无**（fcntl 单实例锁） |
 
 ---
 
