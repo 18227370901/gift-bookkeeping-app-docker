@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🗄️ **V10.10.17 交互式数据库部署选择 + PostgreSQL 兼容**：`./run.sh start` 时交互式选择 SQLite / 共享 PG（复用已有容器自动建库建账号）/ 独立 PG（复用本地镜像启动专属容器），根据服务器环境智能推荐；Cron 安全设计（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面兼容 PG（schema_version 表替代 PRAGMA user_version，_get_db_conn() 统一连接，备份/恢复 JSON 导出导入替代文件复制）；共享文件两版 MD5 逐字一致。
 > - ⚡ **V10.10.16 Docker 版性能优化**：Gunicorn 4 sync workers → 1 worker + gthread 4 线程；5 组重型依赖（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper）改为延迟导入；守护线程跨进程 fcntl 单实例锁；init_database() 幂等快速跳过；Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2；GitHub Actions 自动构建 + ghcr.io/阿里云 ACR 双 Registry 免构建部署。内存从 350~535MB 降至 60~95MB（↓约 80%）。
 > - 🔑 **V10.10.15 企微长连接 bot_secret 密文解密修复**：监听线程原通过 raw SQL 读取 AES-256-GCM 密文 bot_secret 直接用于 SDK 认证，导致 WebSocket 连接始终失败；修复后解密明文认证成功，@机器人 可正常自动捕获群聊 ID。
 > - 🛡️ **V10.10.14 敏感公告隔离与企微长连接修复**：含管理员账号/密码的公告自动限定仅管理员可见且不推送外部；广播横幅与提示消息自动消失；企微长连接 chatid 清空生效、@机器人 自动捕获与测试读取均已修正至运行库。
@@ -1034,6 +1035,36 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 - `webdav_utils.py`（pyzipper 延迟导入）
 - `routes_ext.py`（fcntl 锁）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
+### V10.10.17：交互式数据库部署选择 + PostgreSQL 兼容（2026-09-28，传统版 + Docker 版同步）
+
+#### 新增功能
+首次 `./run.sh start` 时交互式选择数据库部署方式，根据服务器环境智能推荐：
+
+| 模式 | 说明 | 推荐场景 |
+|---|---|---|
+| SQLite 本地文件 | 零依赖，内存最低 | 内存 <400MB / 单机轻量 |
+| 共享 PostgreSQL | 复用已有 PG 容器，自动创建应用专属库+账号 | 服务器已有 PG 容器运行中 |
+| 独立 PostgreSQL | 复用本地 PG 镜像启动专属容器 | 无 PG 但内存 ≥700MB |
+
+#### Cron 安全设计
+- **DB_MODE 环境变量直通**：`DB_MODE=sqlite ./run.sh start` 跳过一切交互
+- **.temp/.db.env 配置持久化**：首次选择后自动保存，后续 restart 自动读取不询问
+- **非交互自动降级**：cron/管道环境无 TTY 时默认 SQLite + 打印提示
+- **DB_RESET=1 强制重配**：删除旧配置重新交互选择
+
+#### PG 兼容改造（共享文件两版 MD5 一致）
+- `app.py`：init_database() PG 守卫 + schema_version 表替代 PRAGMA user_version
+- `webhook_utils.py`：_get_db_conn() 统一连接（PG 用 psycopg2 / SQLite 用 sqlite3）+ 占位符适配
+- `routes_ext.py`：备份/恢复 PG 分支（JSON 导出导入替代文件复制 + .sql 格式）
+- `docker-compose.yml`：DATABASE_URL 环境变量透传（仅 Docker 版）
+- `run.sh`：交互式数据库选择 + compose override 生成（两版分别实现）
+
+#### 涉及文件
+- `app.py` / `webhook_utils.py` / `routes_ext.py` / `models.py` / `_daemon_lock.py`（两版同步，MD5 一致）
+- `docker-compose.yml` / `run.sh`（仅 Docker 版）
+- `run.sh`（仅传统版）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
 
 ## 📂 项目文件结构
 

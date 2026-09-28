@@ -651,10 +651,11 @@ def num2cn_filter(num):
     return num2cn(num)
 
 # V10.10.16: 数据库结构版本标记，用于幂等快速跳过迁移流程
-_SCHEMA_VERSION = 1016
+# V10.10.17: 支持 PostgreSQL（用 schema_version 表替代 PRAGMA user_version）
+_SCHEMA_VERSION = 1017
 
 def _is_db_schema_current():
-    """检查数据库 PRAGMA user_version 是否已标记为当前版本"""
+    """检查数据库结构版本是否已标记为当前版本（SQLite 用 PRAGMA user_version，PG 用 schema_version 表）"""
     try:
         if db_url.startswith('sqlite:'):
             _p = db_url.replace('sqlite:///', '')
@@ -664,12 +665,16 @@ def _is_db_schema_current():
                 _ver = _cn.execute("PRAGMA user_version").fetchone()[0]
                 _cn.close()
                 return _ver == _SCHEMA_VERSION
+        elif db_url.startswith('postgresql://'):
+            with db.engine.connect() as _conn:
+                _row = _conn.execute(db.text("SELECT version FROM schema_version WHERE id = 1")).fetchone()
+                return _row is not None and _row[0] == _SCHEMA_VERSION
     except Exception:
         pass
     return False
 
 def _mark_db_schema_current():
-    """迁移完成后将 PRAGMA user_version 标记为当前版本"""
+    """迁移完成后标记数据库结构版本（SQLite 用 PRAGMA user_version，PG 用 schema_version 表）"""
     try:
         if db_url.startswith('sqlite:'):
             _p = db_url.replace('sqlite:///', '')
@@ -679,6 +684,11 @@ def _mark_db_schema_current():
                 _cn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
                 _cn.commit()
                 _cn.close()
+        elif db_url.startswith('postgresql://'):
+            with db.engine.connect() as _conn:
+                _conn.execute(db.text("CREATE TABLE IF NOT EXISTS schema_version (id INT PRIMARY KEY DEFAULT 1, version INT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
+                _conn.execute(db.text("INSERT INTO schema_version (id, version) VALUES (1, :v) ON CONFLICT (id) DO UPDATE SET version = :v, updated_at = CURRENT_TIMESTAMP"), {'v': _SCHEMA_VERSION})
+                _conn.commit()
     except Exception:
         pass
 
@@ -740,27 +750,28 @@ def init_database():
 
         # V5: 在 db.create_all() 之前，先用原生 sqlite3 修复可能存在的 orphan index 问题
         # 这个问题在恢复旧版备份后尤为常见：malformed database schema (sqlite_autoindex_xxx) - orphan index
-        try:
-            import sqlite3 as _sqlite3_raw
-            _raw_db_path = app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
-            if _raw_db_path and os.path.exists(_raw_db_path):
-                _fix_conn = _sqlite3_raw.connect(_raw_db_path)
-                _fix_conn.execute("PRAGMA writable_schema=1")
-                # 查找并删除所有孤儿索引（有 index 记录但对应的表 SQL 为空或不存在）
-                _orphan_indexes = _fix_conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'sqlite_autoindex_%' AND tbl_name NOT IN (SELECT name FROM sqlite_master WHERE type='table')"
-                ).fetchall()
-                for (_idx_name,) in _orphan_indexes:
-                    try:
-                        _fix_conn.execute(f"DROP INDEX IF EXISTS \"{_idx_name}\"")
-                        print(f"[V5-Fix] 已删除孤儿索引: {_idx_name}")
-                    except Exception:
-                        pass
-                _fix_conn.execute("PRAGMA writable_schema=0")
-                _fix_conn.commit()
-                _fix_conn.close()
-        except Exception as _fix_err:
-            print(f"[V5-Fix] orphan index 修复跳过: {_fix_err}")
+        # V10.10.17: PG 模式跳过 SQLite 专有的 orphan index 修复
+        if db_url.startswith('sqlite:'):
+            try:
+                import sqlite3 as _sqlite3_raw
+                _raw_db_path = app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
+                if _raw_db_path and os.path.exists(_raw_db_path):
+                    _fix_conn = _sqlite3_raw.connect(_raw_db_path)
+                    _fix_conn.execute("PRAGMA writable_schema=1")
+                    _orphan_indexes = _fix_conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'sqlite_autoindex_%' AND tbl_name NOT IN (SELECT name FROM sqlite_master WHERE type='table')"
+                    ).fetchall()
+                    for (_idx_name,) in _orphan_indexes:
+                        try:
+                            _fix_conn.execute(f"DROP INDEX IF EXISTS \"{_idx_name}\"")
+                            print(f"[V5-Fix] 已删除孤儿索引: {_idx_name}")
+                        except Exception:
+                            pass
+                    _fix_conn.execute("PRAGMA writable_schema=0")
+                    _fix_conn.commit()
+                    _fix_conn.close()
+            except Exception as _fix_err:
+                print(f"[V5-Fix] orphan index 修复跳过: {_fix_err}")
 
         db.create_all()
         # 自动迁移检查缺失字段

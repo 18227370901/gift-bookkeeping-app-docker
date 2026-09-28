@@ -133,15 +133,27 @@ def _resolve_db_file():
             return c
     return candidates[0] if os.path.isdir(os.path.join(base, 'data')) else candidates[1]
 
+# V10.10.17: 统一数据库连接辅助函数，支持 SQLite 与 PostgreSQL 双模式
+# 返回 (connection, placeholder)：SQLite 用 '?'，PG 用 '%s'
+# 不依赖 Flask app context，与监听线程/推送线程完全兼容
+def _get_db_conn():
+    """获取原生数据库连接与占位符，PG 用 psycopg2，SQLite 用 sqlite3"""
+    _db_url = os.environ.get('DATABASE_URL', '').strip()
+    if _db_url.startswith('postgresql://'):
+        import psycopg2
+        return psycopg2.connect(_db_url), '%s'
+    else:
+        return sqlite3.connect(_resolve_db_file(), timeout=10), '?'
+
 def record_webhook_log(user_id, webhook_id, event_type, payload, status_code, response_body, is_success, operator_id=None):
-    """线程安全写入 Webhook 推送日志表"""
+    """线程安全写入 Webhook 推送日志表（V10.10.17: 支持 PG）"""
     try:
-        conn = sqlite3.connect(_resolve_db_file(), timeout=10)
+        conn, ph = _get_db_conn()
         c = conn.cursor()
         c.execute(
-            """INSERT INTO webhook_logs
+            f"""INSERT INTO webhook_logs
                (user_id, operator_id, webhook_id, event_type, payload, status_code, response_body, is_success, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})""",
             (
                 user_id or 1,
                 operator_id,
@@ -867,7 +879,7 @@ def _wecom_listener_worker():
             time.sleep(10)
             continue
         try:
-            conn = sqlite3.connect(_resolve_db_file(), timeout=10)
+            conn, ph = _get_db_conn()
             c = conn.cursor()
             rows = c.execute("SELECT id, bot_id, bot_secret, webhook_url, connection_type FROM webhook_configs WHERE bot_id IS NOT NULL AND bot_id != '' AND is_enabled = 1").fetchall()
             conn.close()
@@ -902,16 +914,16 @@ def _wecom_listener_worker():
                             cid = body.get("chatid") or (body.get("from", {}) if isinstance(body.get("from"), dict) else {}).get("userid") or headers.get("chatid")
                             if cid:
                                 _cached_chatids[b_id] = cid
-                                conn_u = sqlite3.connect(_resolve_db_file(), timeout=10)
+                                conn_u, ph_u = _get_db_conn()
                                 c_u = conn_u.cursor()
-                                target_rows = c_u.execute("SELECT id, webhook_url, connection_type FROM webhook_configs WHERE (bot_id = ? OR id = ? OR bot_platform = 'wecom' OR webhook_url LIKE '%qyapi.weixin.qq.com%') AND is_enabled = 1", (b_id, w_id)).fetchall()
+                                target_rows = c_u.execute(f"SELECT id, webhook_url, connection_type FROM webhook_configs WHERE (bot_id = {ph_u} OR id = {ph_u} OR bot_platform = 'wecom' OR webhook_url LIKE '%qyapi.weixin.qq.com%') AND is_enabled = 1", (b_id, w_id)).fetchall()
                                 for tr_id, tr_url, tr_conn in target_rows:
                                     if tr_conn == "long_connection" or not tr_url or tr_url.startswith("wecom://"):
                                         new_url = f"wecom://bot/{b_id}?chatid={cid}"
                                     else:
                                         sep = "&" if "?" in tr_url else "?"
                                         new_url = tr_url if "chatid=" in tr_url else f"{tr_url}{sep}chatid={cid}"
-                                    c_u.execute("UPDATE webhook_configs SET webhook_url = ? WHERE id = ?", (new_url, tr_id))
+                                    c_u.execute(f"UPDATE webhook_configs SET webhook_url = {ph_u} WHERE id = {ph_u}", (new_url, tr_id))
                                 conn_u.commit()
                                 conn_u.close()
                                 record_webhook_log(1, w_id, "receive_chatid", {"bot_id": b_id, "chatid": cid}, 200, f"企微群内 @机器人 成功自动捕获群聊会话 chatid [{cid}] 并绑定到通道！", True)

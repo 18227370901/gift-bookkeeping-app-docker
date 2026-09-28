@@ -195,7 +195,235 @@ setup_nginx_config() {
     fi
 }
 
-# ===== 清理缓存与 .git 冗余垃圾 + Docker 构建缓存 =====
+# ===== V10.10.17 交互式数据库部署选择 =====
+DB_ENV_FILE="$APP_DIR/.temp/.db.env"
+DB_OVERRIDE="$APP_DIR/.temp/docker-compose.db-override.yml"
+
+# 检测服务器 PG 环境与可用内存
+detect_pg_environment() {
+    PG_RUNNING_NAME=""
+    PG_RUNNING_IMAGE=""
+    PG_LOCAL_IMAGE=""
+    AVAIL_MEM=0
+    if command -v docker > /dev/null 2>&1; then
+        _pg_info=$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'postgres|pgvector' | head -1)
+        if [ -n "$_pg_info" ]; then
+            PG_RUNNING_NAME=$(echo "$_pg_info" | awk '{print $1}')
+            PG_RUNNING_IMAGE=$(echo "$_pg_info" | awk '{print $2}')
+        fi
+        PG_LOCAL_IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -iE 'postgres|pgvector' | head -1)
+    fi
+    if command -v free > /dev/null 2>&1; then
+        AVAIL_MEM=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')
+        AVAIL_MEM="${AVAIL_MEM:-0}"
+    fi
+}
+
+# 保存数据库配置
+save_db_env() {
+    mkdir -p "$APP_DIR/.temp"
+    cat > "$DB_ENV_FILE" << ENVEOF
+# 人情记账本数据库部署配置（首次交互选择后自动生成，后续重启自动读取）
+# 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
+DB_MODE=$DB_MODE
+DB_PG_CONTAINER=$DB_PG_CONTAINER
+DATABASE_URL=$DATABASE_URL
+ENVEOF
+    chmod 600 "$DB_ENV_FILE" 2>/dev/null || true
+}
+
+load_db_env() {
+    if [ -f "$DB_ENV_FILE" ]; then
+        . "$DB_ENV_FILE"
+    fi
+}
+
+# SQLite 模式：清理 override 文件
+setup_sqlite() {
+    DATABASE_URL=""
+    export DATABASE_URL
+    rm -f "$DB_OVERRIDE"
+    echo_e "${GREEN}数据库模式: SQLite 本地文件${NC}"
+}
+
+# 共享 PG 模式（Docker 版：生成 compose override 加入 PG 容器网络）
+setup_shared_pg() {
+    if [ -z "$DB_PG_CONTAINER" ]; then
+        echo_e "${RED}共享 PG 模式需要指定 DB_PG_CONTAINER 环境变量${NC}"
+        exit 1
+    fi
+    # 获取 PG 超级用户与网络名
+    PG_SUPERUSER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep '^POSTGRES_USER=' | cut -d= -f2)
+    PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
+    PG_NETWORK=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null)
+    # 生成随机密码
+    PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
+    # 创建数据库和用户
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER gift_user WITH PASSWORD '$PG_PASSWORD';" 2>/dev/null || true
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE gift_bookkeeping OWNER gift_user;" 2>/dev/null || true
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE gift_bookkeeping TO gift_user;" 2>/dev/null || true
+    # DATABASE_URL 使用 PG 容器名作为主机名（同一 Docker 网络）
+    DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@${DB_PG_CONTAINER}:5432/gift_bookkeeping"
+    export DATABASE_URL
+    # 生成 compose override：web 容器加入 PG 容器所在网络
+    mkdir -p "$APP_DIR/.temp"
+    cat > "$DB_OVERRIDE" << YAMLEOF
+version: '3.8'
+services:
+  web:
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    networks:
+      - gift_network
+      - pg_external
+networks:
+  pg_external:
+    external: true
+    name: ${PG_NETWORK}
+YAMLEOF
+    echo_e "${GREEN}数据库模式: 共享 PostgreSQL (${DB_PG_CONTAINER}, 网络 ${PG_NETWORK})${NC}"
+}
+
+# 独立 PG 模式（Docker 版：生成 compose override 添加 pg 服务）
+setup_independent_pg() {
+    if [ -z "$PG_LOCAL_IMAGE" ]; then
+        echo_e "${YELLOW}本地未找到 PostgreSQL 镜像。${NC}"
+        if [ -t 0 ]; then
+            printf '是否允许下载 postgres:16-alpine (约40MB)? (y/n) [默认 n]: ' >&2
+            read -r _dl_answer
+            case "$_dl_answer" in
+                y|Y|yes|YES) PG_LOCAL_IMAGE="postgres:16-alpine" ;;
+                *) echo_e "${YELLOW}用户取消下载，降级为 SQLite 模式${NC}"; DB_MODE=sqlite; setup_sqlite; return ;;
+            esac
+        else
+            echo_e "${YELLOW}非交互环境无法下载，降级为 SQLite 模式${NC}"
+            DB_MODE=sqlite; setup_sqlite; return
+        fi
+    fi
+    PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
+    DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@pg:5432/gift_bookkeeping"
+    export DATABASE_URL
+    # 生成 compose override：新增 pg 服务 + web depends_on
+    mkdir -p "$APP_DIR/.temp"
+    cat > "$DB_OVERRIDE" << YAMLEOF
+version: '3.8'
+services:
+  pg:
+    image: ${PG_LOCAL_IMAGE}
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=gift_bookkeeping
+      - POSTGRES_USER=gift_user
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+    volumes:
+      - gift_pg_data:/var/lib/postgresql/data
+    networks:
+      - gift_network
+  web:
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    depends_on:
+      - pg
+volumes:
+  gift_pg_data:
+    driver: local
+YAMLEOF
+    echo_e "${GREEN}数据库模式: 独立 PostgreSQL (${PG_LOCAL_IMAGE})${NC}"
+}
+
+# 交互式数据库选择主逻辑（与传统版逻辑一致，cron 安全）
+select_db_mode() {
+    if [ "$DB_RESET" = "1" ] && [ -f "$DB_ENV_FILE" ]; then
+        rm -f "$DB_ENV_FILE" "$DB_OVERRIDE"
+        echo_e "${YELLOW}已清除旧数据库配置，将重新选择${NC}"
+    fi
+    # ① DB_MODE 环境变量直通
+    if [ -n "$DB_MODE" ]; then
+        case "$DB_MODE" in
+            sqlite) setup_sqlite ;;
+            shared) setup_shared_pg ;;
+            independent) detect_pg_environment; setup_independent_pg ;;
+            *) echo_e "${RED}无效的 DB_MODE: $DB_MODE${NC}"; exit 1 ;;
+        esac
+        if [ -t 0 ] && [ "$DB_MODE" != "independent" ]; then
+            save_db_env
+        fi
+        return
+    fi
+    # ② 配置文件存在
+    if [ -f "$DB_ENV_FILE" ]; then
+        load_db_env
+        export DATABASE_URL
+        echo_e "${GREEN}数据库模式: ${DB_MODE} (从配置文件读取)${NC}"
+        return
+    fi
+    # ③ 交互式终端
+    if [ -t 0 ]; then
+        detect_pg_environment
+        echo_e ""
+        echo_e "${GREEN}🔍 检测服务器环境...${NC}"
+        [ -n "$PG_RUNNING_NAME" ] && echo_e "   运行中的 PG 容器: ${PG_RUNNING_NAME} (${PG_RUNNING_IMAGE})" || echo_e "   运行中的 PG 容器: 无"
+        [ -n "$PG_LOCAL_IMAGE" ] && echo_e "   本地 PG 镜像: ${PG_LOCAL_IMAGE}" || echo_e "   本地 PG 镜像: 无"
+        echo_e "   可用内存: ${AVAIL_MEM}MB"
+        echo_e ""
+        _recommend=1
+        if [ -n "$PG_RUNNING_NAME" ] && [ "$AVAIL_MEM" -ge 400 ]; then
+            _recommend=2
+        elif [ -n "$PG_LOCAL_IMAGE" ] && [ "$AVAIL_MEM" -ge 700 ]; then
+            _recommend=3
+        fi
+        echo_e "  ┌─────────────────────────────────────────────────┐"
+        echo_e "  │  请选择数据库部署方式                              │"
+        echo_e "  ├─────────────────────────────────────────────────┤"
+        echo_e "  │  1) SQLite 本地文件                               │"
+        echo_e "  │     零依赖、内存占用最低、适合单机轻量场景           │"
+        if [ -n "$PG_RUNNING_NAME" ]; then
+            echo_e "  │  2) 共享 PostgreSQL 实例$([ $_recommend -eq 2 ] && echo ' ⭐ 推荐')"
+            echo_e "  │     复用已有 PG 容器 ${PG_RUNNING_NAME}"
+            echo_e "  │     自动创建应用专属库 + 账号，互不干扰              │"
+        else
+            echo_e "  │  2) 共享 PostgreSQL 实例 (未检测到运行中的 PG 容器)"
+        fi
+        if [ -n "$PG_LOCAL_IMAGE" ]; then
+            echo_e "  │  3) 独立 PostgreSQL 容器$([ $_recommend -eq 3 ] && echo ' ⭐ 推荐')"
+            echo_e "  │     新起 pg 服务，应用独占"
+            echo_e "  │     使用本地镜像 ${PG_LOCAL_IMAGE}"
+        else
+            echo_e "  │  3) 独立 PostgreSQL 容器 (本地无 PG 镜像，需下载)"
+        fi
+        echo_e "  └─────────────────────────────────────────────────┘"
+        printf '请选择 [1/2/3，默认 %d]: ' "$_recommend" >&2
+        read -r _db_choice
+        _db_choice="${_db_choice:-$_recommend}"
+        case "$_db_choice" in
+            1) DB_MODE=sqlite ;;
+            2) DB_MODE=shared; DB_PG_CONTAINER="$PG_RUNNING_NAME" ;;
+            3) DB_MODE=independent ;;
+            *) echo_e "${RED}无效选择${NC}"; exit 1 ;;
+        esac
+        case "$DB_MODE" in
+            sqlite) setup_sqlite ;;
+            shared) setup_shared_pg ;;
+            independent) setup_independent_pg ;;
+        esac
+        save_db_env
+    else
+        # ④ 非交互：默认 SQLite
+        echo_e "${YELLOW}非交互环境，默认使用 SQLite。如需配置 PostgreSQL，请设置 DB_MODE 环境变量或交互式运行 ./run.sh start${NC}"
+        DB_MODE=sqlite
+        DATABASE_URL=""
+        export DATABASE_URL
+    fi
+}
+
+# 构造 compose 启动命令（考虑 override 文件）
+_compose_up_cmd() {
+    if [ -f "$DB_OVERRIDE" ]; then
+        echo "$DOCKER_COMPOSE -f docker-compose.yml -f .temp/docker-compose.db-override.yml"
+    else
+        echo "$DOCKER_COMPOSE"
+    fi
+}
 cleanup_cache() {
     echo_e "${GREEN}正在清理本地缓存与 .git 冗余垃圾...${NC}"
     cd "$APP_DIR" || return
@@ -327,17 +555,25 @@ start_service() {
     cleanup_cache
     cd "$APP_DIR" || exit 1
 
+    # V10.10.17: 数据库部署选择
+    select_db_mode
+
     # V10.10.16: 镜像免构建模式——APP_IMAGE 非空时拉取预构建镜像，服务器零构建
+    # V10.10.17: 有 DB override 文件时使用 -f 参数加载
+    _compose_files="-f docker-compose.yml"
+    if [ -f "$DB_OVERRIDE" ]; then
+        _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
+    fi
     if [ -n "$APP_IMAGE" ]; then
         echo_e "${GREEN}使用预构建镜像模式: ${APP_IMAGE}${NC}"
-        $DOCKER_COMPOSE pull
+        $DOCKER_COMPOSE $_compose_files pull
         if [ $? -ne 0 ]; then
             echo_e "${RED}❌ 镜像拉取失败，请检查镜像名称与仓库访问权限${NC}"
             exit 1
         fi
-        $DOCKER_COMPOSE up -d --no-build
+        $DOCKER_COMPOSE $_compose_files up -d --no-build
     else
-        $DOCKER_COMPOSE up -d --build
+        $DOCKER_COMPOSE $_compose_files up -d --build
     fi
     if [ $? -eq 0 ]; then
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
@@ -358,7 +594,12 @@ start_service() {
 stop_service() {
     echo_e "${YELLOW}正在停止 Docker 容器集群...${NC}"
     cd "$APP_DIR" || exit 1
-    $DOCKER_COMPOSE down
+    # V10.10.17: 有 DB override 文件时使用 -f 参数加载
+    _compose_files="-f docker-compose.yml"
+    if [ -f "$DB_OVERRIDE" ]; then
+        _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
+    fi
+    $DOCKER_COMPOSE $_compose_files down
     echo_e "${GREEN}✅ Docker 容器集群已停止${NC}"
     # 停止后自动清理上一次构建的残留层（悬空镜像 + 构建缓存），避免磁盘膨胀
     # restart 流程中传 skip_clean 跳过本次清理（由 start_service 统一清理，避免重复执行两次）
