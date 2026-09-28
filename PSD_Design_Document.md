@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.13 · 生成日期: 2026-09-24 · 审计范围: 48 文件 / ~22,700 行代码
+> **Docker 版** · 版本: V10.10.14 · 生成日期: 2026-09-28 · 审计范围: 48 文件 / ~22,700 行代码
 
 ---
 
@@ -503,6 +503,9 @@ base.html (493行 — 全局布局骨架)
 | 浅色工具类覆盖 | 暗色下统一覆盖 `bg-white`/`bg-light`/`text-dark`/`text-muted`/`table-light` 表头 | `base.html` `[data-theme=dark]` 作用域 |
 | 特殊页面 | AI 助手聊天页（24 处硬编码色变量化）、AI 助手配置页（卡片变量化）、免登录分享外链页（独立变量+悬浮按钮） | `ai_assistant.html` / `admin_ai_config.html` / `shared_ledger.html` |
 | placeholder 美化 | 全局 `::placeholder` 统一：浅灰蓝 `--ph-color`、字重 400、0.875em、半透明、聚焦淡出；覆盖约 122 处占位提示，仅改视觉不改文案 | `base.html` 全局 `<style>` |
+| 消息自动消失（V10.10.14） | Flash 提示 3.5s、广播横幅 8s 自动淡出；自动消失脚本从带 `src` 的 `<script>` 中拆出独立执行（原脚本被浏览器忽略从未生效） | `base.html` 独立 `<script>` 块 |
+| 广播敏感内容隔离（V10.10.14） | 发布广播内容含敏感词（管理员账号/初始密码/admin123 等）自动强制 `scope='admin'` 仅管理员可见且不推送 Webhook | `routes_ext.py` 广播发布路由 |
+| 企微长连接 chatid 修正（V10.10.14） | 保存清空 chatid 不再回填旧值；@机器人捕获与测试/发送统一读写运行库（`_resolve_db_file()`），修复 3 处硬编码库路径 | `routes_ext.py`、`webhook_utils.py` |
 
 #### 6.1.4 PWA 架构
 
