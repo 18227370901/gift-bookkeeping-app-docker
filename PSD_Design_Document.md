@@ -506,7 +506,7 @@ base.html (493行 — 全局布局骨架)
 | 消息自动消失（V10.10.14） | Flash 提示 3.5s、广播横幅 8s 自动淡出；自动消失脚本从带 `src` 的 `<script>` 中拆出独立执行（原脚本被浏览器忽略从未生效） | `base.html` 独立 `<script>` 块 |
 | 广播敏感内容隔离（V10.10.14） | 发布广播内容含敏感词（管理员账号/初始密码/admin123 等）自动强制 `scope='admin'` 仅管理员可见且不推送 Webhook | `routes_ext.py` 广播发布路由 |
 | 企微长连接 chatid 修正（V10.10.14） | 保存清空 chatid 不再回填旧值；@机器人捕获与测试/发送统一读写运行库（`_resolve_db_file()`），修复 3 处硬编码库路径 | `routes_ext.py`、`webhook_utils.py` |
-| 监听线程 bot_secret 密文解密（V10.10.15） | raw SQL 读取的 `bot_secret` 是 AES-256-GCM 密文，需 `decrypt_credential()` 解密为明文后传给 SDK 认证；修复后 WebSocket 认证成功，@机器人 可正常捕获群聊 ID | `webhook_utils.py` `_wecom_listener_worker` |
+| 监听线程 bot_secret 密文解密（V10.10.15） | raw SQL 读取的 `bot_secret` 是 AES-256-GCM 密文，需 `decrypt_credential()` 解密为明文后传给 SDK 认证；修复后 WebSocket 认证成功；真实企微群 @机器人 实测通过，全链路闭环确认 | `webhook_utils.py` `_wecom_listener_worker` |
 
 #### 6.1.4 PWA 架构
 
