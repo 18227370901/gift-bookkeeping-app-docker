@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🖥️ **V10.10.19 run.sh status 访问信息展示**：status 命令与启动成功提示一致输出访问地址（多域名列表）、后端本地直连、日志文件与当前数据库模式（含 DB_RESET=1 重选提示）；Docker 版 status 补带 PG override 文件；两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 数据库配置说明。
 > - 🌐 **V10.10.18 前端资源本地化 + 部署链路加固**：新增 `static/vendor/`（Bootstrap 5.3.0 / Font Awesome 6.4.0 / Bootstrap Icons 1.11.3，14 个文件与原 CDN 版本完全一致），base.html 4 处 + shared_ledger.html 2 处国外 CDN 引用改为本地 `url_for` 加载，国内服务器不再依赖 jsdelivr/cdnjs；传统版同步首次部署自动复制样例库为 `data/` 运行库 + python3 环境预检 + pip 镜像源兜底（清华→阿里云→官方）。
 > - 📦 **V10.10.17b run.sh 模块化拆分**：将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件（common/common_db_select 共享文件两版 MD5 一致 + cleanup/ssl_certs/nginx_config/port_conflict/db_setup 各版独立），run.sh 仅保留配置区 + source + 启停函数 + case 分发；Docker 版 683→157 行，传统版 792→257 行；修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题。
 > - 🗄️ **V10.10.17 交互式数据库部署选择 + PostgreSQL 兼容**：`./run.sh start` 时交互式选择 SQLite / 共享 PG（复用已有容器自动建库建账号）/ 独立 PG（复用本地镜像启动专属容器），根据服务器环境智能推荐；Cron 安全设计（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面兼容 PG（schema_version 表替代 PRAGMA user_version，_get_db_conn() 统一连接，备份/恢复 JSON 导出导入替代文件复制）；共享文件两版 MD5 逐字一致。
@@ -1128,6 +1129,33 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 - `run.sh` / `bin/db_setup.sh`（仅传统版）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
 
+### V10.10.19：run.sh status 访问信息展示 + 数据库配置帮助（2026-09-29，传统版 + Docker 版同步）
+
+#### 变更内容（Docker 版）
+`./run.sh status` 在 `docker compose ps` 基础上，有容器运行时附带访问信息与数据库模式：
+
+```
+Docker 容器集群运行状态:
+NAME  ...  STATUS
+   容器内监听端口: 11443
+   宿主机映射端口: 15000
+   HTTPS 访问地址: https://gift-docker.example.com (由 Nginx 反向代理至 127.0.0.1:15000)
+   数据库模式: sqlite (配置于 .temp/.db.env，DB_RESET=1 ./run.sh start 可重新选择)
+```
+
+- 抽取 `print_access_info()` 共用函数：start 成功提示与 status 巡检共用，start 输出零变化
+- status 补带 PG override 文件：共享/独立 PG 模式下 PG 容器状态一并显示（此前 status 漏看 PG 容器）
+- 新增 `print_db_mode_info()`：展示持久化数据库模式；空/损坏配置提示重选；**不展示 DATABASE_URL，避免泄露数据库密码**
+- 两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 数据库配置说明
+
+#### 验证结论
+- 沙盒验证 20 项全部通过（含 Docker override 纳入 compose ps、多域名显示、密码不泄露）
+- `bash -n` 两版语法检查通过
+
+#### 涉及文件
+- `run.sh`（两版各自独立改造）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
 ## 📂 项目文件结构
 
 ```text
@@ -1204,7 +1232,7 @@ chmod +x run.sh
 # 2. 启动服务（自动创建 venv + 自动 install 依赖 + 自动生成 SSL 证书 + 后台启动）
 ./run.sh start
 
-# 3. 查看服务运行状态
+# 3. 查看服务运行状态（含访问地址、本地直连、日志与数据库模式）
 ./run.sh status
 
 # 4. 重启服务

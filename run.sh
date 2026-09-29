@@ -44,6 +44,31 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ===== 启停操作函数 =====
 
+# V10.10.19: 统一访问信息展示（start 成功提示与 status 巡检共用）
+print_access_info() {
+    echo_e "   容器内监听端口: $PORT"
+    echo_e "   宿主机映射端口: $HOST_PORT"
+    for _sni_domain in $SNI_DOMAIN; do
+        _port_suffix=""
+        [ "$NGINX_PORT" != "443" ] && _port_suffix=":$NGINX_PORT"
+        echo_e "   HTTPS 访问地址: https://$_sni_domain$_port_suffix (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
+    done
+}
+
+# V10.10.19: 展示当前持久化的数据库部署模式（status 巡检用；不展示 DATABASE_URL 以免泄露数据库密码）
+print_db_mode_info() {
+    if [ -f "$DB_ENV_FILE" ]; then
+        load_db_env
+        if [ -n "${DB_MODE:-}" ]; then
+            echo_e "   数据库模式: ${DB_MODE} (配置于 .temp/.db.env，DB_RESET=1 ./$0 start 可重新选择)"
+        else
+            echo_e "   数据库模式: 配置文件为空或已损坏 (.temp/.db.env)，建议 DB_RESET=1 ./$0 start 重新选择"
+        fi
+    else
+        echo_e "   数据库模式: 未持久化配置（可能由 DB_MODE 环境变量指定或非交互默认 SQLite）"
+    fi
+}
+
 start_service() {
     echo_e "${GREEN}正在启动服务...${NC}"
     ensure_ssl_certs
@@ -74,13 +99,8 @@ start_service() {
     fi
     if [ $? -eq 0 ]; then
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
-        echo_e "   容器内监听端口: $PORT"
-        echo_e "   宿主机映射端口: $HOST_PORT"
-        for _sni_domain in $SNI_DOMAIN; do
-            _port_suffix=""
-            [ "$NGINX_PORT" != "443" ] && _port_suffix=":$NGINX_PORT"
-            echo_e "   HTTPS 访问地址: https://$_sni_domain$_port_suffix (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
-        done
+        # V10.10.19: 访问信息展示统一由 print_access_info 输出（与 status 命令一致）
+        print_access_info
     else
         echo_e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
         exit 1
@@ -111,7 +131,18 @@ restart_service() {
 status_service() {
     echo_e "${GREEN}Docker 容器集群运行状态:${NC}"
     cd "$APP_DIR" || exit 1
-    $DOCKER_COMPOSE ps
+    # V10.10.19: 补带 PG override 文件（共享/独立 PG 模式下 PG 容器状态一并显示）
+    _compose_files="-f docker-compose.yml"
+    if [ -f "$DB_OVERRIDE" ]; then
+        _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
+    fi
+    $DOCKER_COMPOSE $_compose_files ps
+    # V10.10.19: 有容器在运行时，附带访问地址与数据库模式，便于日常巡检
+    if [ -n "$($DOCKER_COMPOSE $_compose_files ps -q 2>/dev/null)" ]; then
+        echo_e ""
+        print_access_info
+        print_db_mode_info
+    fi
 }
 
 logs_service() {
@@ -156,7 +187,7 @@ case "$1" in
         echo_e "  ${GREEN}start${NC}   : 启动并部署 Docker 容器集群 (自动生成证书/配置 Nginx SNI 与清理缓存)"
         echo_e "  ${GREEN}stop${NC}    : 停止并移除 Docker 容器集群"
         echo_e "  ${GREEN}restart${NC} : 重启 Docker 容器集群"
-        echo_e "  ${GREEN}status${NC}  : 查看 Docker 容器运行状态"
+        echo_e "  ${GREEN}status${NC}  : 查看 Docker 容器运行状态 (运行中附带访问地址与数据库模式)"
         echo_e "  ${GREEN}logs${NC}    : 实时查看 Docker 容器日志"
         echo_e "  ${GREEN}build${NC}   : 重新构建 Docker 镜像"
         echo_e "  ${GREEN}clean${NC}   : 仅手动清理垃圾缓存与压缩 .git"
@@ -169,6 +200,12 @@ case "$1" in
         echo_e "  ${GREEN}NGINX_CONF_FORCE_UPDATE=1${NC}   Nginx 配置已存在时强制覆盖渲染，不询问 (默认: 询问/非交互时保留)"
         echo_e "  ${GREEN}APP_IMAGE=ghcr.io/...:latest${NC}  预构建镜像地址 (非空时拉取镜像不本地构建，为空时本地 build)"
         echo_e "  ${GREEN}GUNICORN_WORKERS=1${NC}             Gunicorn worker 数量 (默认 1，可调 2/4)"
+        echo_e ""
+        echo_e "  数据库部署选择 (首次 start 交互式三选一，选择结果持久化于 .temp/.db.env + compose override，后续 start/restart 自动读取):"
+        echo_e "  ${GREEN}DB_MODE=sqlite|shared|independent${NC}   直接指定数据库模式跳过交互 (shared 需搭配 DB_PG_CONTAINER)"
+        echo_e "  ${GREEN}DB_PG_CONTAINER=<容器名>${NC}            共享 PG 模式复用的已运行容器名 (与 DB_MODE=shared 搭配)"
+        echo_e "  ${GREEN}DB_RESET=1${NC}                          清除已保存的数据库配置并重新进入交互选择 (自动清理 .db.env 与 override，无需手动删除)"
+        echo_e "  示例: DB_RESET=1 ./$0 start   # 重新选择数据库模式"
         exit 1
         ;;
 esac
