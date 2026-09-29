@@ -1,4 +1,6 @@
-version: '3.8'
+# 人情记账本 Docker Compose 核心编排（对齐 mengya-docker 多数据库模式自适应架构）
+# - 数据库服务由 run.sh 按 DB_MODE 通过 -f 参数按需合成（独立 PG: docker-compose.db.yml）
+# - 默认网络重命名为固定名 gift-docker_net，所有服务自动入网，永不声明 external 网络
 
 services:
   # Flask 后端 Web 服务容器 (默认使用 SQLite 数据库，数据持久化于 gift_data 卷)
@@ -24,8 +26,6 @@ services:
       # - DATABASE_URL=postgresql://gift_user:gift_password@host:5432/gift_db
     volumes:
       - gift_data:/app/data
-    networks:
-      - gift_network
 
   # Nginx SSL 反向代理容器 (若宿主机无 Nginx，可解开注释使用此容器)
   # nginx:
@@ -39,15 +39,12 @@ services:
   #     - ./ssl:/etc/nginx/ssl:ro
   #   depends_on:
   #     - web
-  #   networks:
-  #     - gift_network
 
 volumes:
   gift_data:
     driver: local
 
 networks:
-  gift_network:
-    driver: bridge
-    # V10.10.20: gift 使用自有固定网络名（不依赖、不复用其他项目的网络）
+  default:
+    # V10.10.20(对齐萌芽): 默认网络重命名为自有固定名，服务自动入网，不复用其他项目网络
     name: gift-docker_net

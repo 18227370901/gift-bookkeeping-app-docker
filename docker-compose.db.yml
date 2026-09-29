@@ -1,0 +1,27 @@
+# 人情记账本 独立 PostgreSQL 模式 compose 扩展文件（V10.10.20，对齐 mengya-docker 静态文件模式）
+# 由 run.sh 在 DB_MODE=independent 时按需加载：docker compose -f docker-compose.yml -f docker-compose.db.yml
+# 取代旧版运行时生成的 .temp/docker-compose.db-override.yml 动态 override 机制
+# 说明：
+#   - pg 容器不映射宿主机端口，仅在 gift-docker_net 内部互联（安全模型与萌芽一致）
+#   - PG_LOCAL_IMAGE / PG_PASSWORD / PG_DATA_DIR 由 run.sh 检测/生成后经 shell 环境变量插值注入
+
+services:
+  pg:
+    image: ${PG_LOCAL_IMAGE:-postgres:16-alpine}
+    container_name: gift_bookkeeping_pg
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=gift_bookkeeping
+      - POSTGRES_USER=gift_user
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+    volumes:
+      # V10.10.20: 挂载路径按镜像智能匹配（PG18+/pgvector:pg18 → /var/lib/postgresql；15/16/alpine → /var/lib/postgresql/data）
+      - gift_pg_data:${PG_DATA_DIR:-/var/lib/postgresql/data}
+
+  web:
+    depends_on:
+      - pg
+
+volumes:
+  gift_pg_data:
+    driver: local

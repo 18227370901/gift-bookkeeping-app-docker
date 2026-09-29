@@ -69,6 +69,16 @@ print_db_mode_info() {
     fi
 }
 
+# V10.10.20(对齐萌芽): 按 DB_MODE 构造 compose 文件组合（独立 PG 模式追加静态 docker-compose.db.yml）
+# 彻底移除 .temp override 动态文件机制；DATABASE_URL 由 shell 环境变量插值注入
+compose_files_for_mode() {
+    _cf="-f docker-compose.yml"
+    if [ "${DB_MODE:-}" = "independent" ]; then
+        _cf="$_cf -f docker-compose.db.yml"
+    fi
+    echo "$_cf"
+}
+
 start_service() {
     echo_e "${GREEN}正在启动服务...${NC}"
     ensure_ssl_certs
@@ -82,10 +92,7 @@ start_service() {
 
     select_db_mode
 
-    _compose_files="-f docker-compose.yml"
-    if [ -f "$DB_OVERRIDE" ]; then
-        _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
-    fi
+    _compose_files=$(compose_files_for_mode)
     if [ -n "$APP_IMAGE" ]; then
         echo_e "${GREEN}使用预构建镜像模式: ${APP_IMAGE}${NC}"
         $DOCKER_COMPOSE $_compose_files pull
@@ -99,15 +106,17 @@ start_service() {
     fi
     if [ $? -eq 0 ]; then
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
-        # V10.10.20: 共享 PG 模式将 PG 容器接入 gift 自有网络 gift-docker_net（不复用其他项目网络）
+        # V10.10.20(对齐萌芽): 共享 PG 兑底接入——首启时网络在 setup 阶段尚不存在，此处补充接入并重启 web
+        # 已接入（setup 阶段完成）则不重复操作，日常 start 零额外重启
         if [ "${DB_MODE:-}" = "shared" ] && [ -n "${DB_PG_CONTAINER:-}" ]; then
-            if docker network connect gift-docker_net "$DB_PG_CONTAINER" 2>/dev/null; then
+            if ! docker network inspect gift-docker_net >/dev/null 2>&1; then
+                echo_e "${YELLOW}⚠️ 未找到网络 gift-docker_net，共享 PG 容器未能接入，请重新执行 start${NC}"
+            elif ! docker inspect --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep -qw "gift-docker_net"; then
+                docker network connect gift-docker_net "$DB_PG_CONTAINER" 2>/dev/null || true
                 echo_e "${GREEN}✅ 已接入共享 PG 容器 ${DB_PG_CONTAINER} 至自有网络 gift-docker_net${NC}"
-            else
-                echo_e "${YELLOW}⚠️ 共享 PG 容器 ${DB_PG_CONTAINER} 可能已接入 gift-docker_net，继续重启 web 容器${NC}"
+                $DOCKER_COMPOSE $_compose_files restart web >/dev/null 2>&1
+                echo_e "${GREEN}✅ web 容器已重启并连接共享 PG (${DB_PG_CONTAINER})${NC}"
             fi
-            $DOCKER_COMPOSE $_compose_files restart web >/dev/null 2>&1
-            echo_e "${GREEN}✅ web 容器已重启并连接共享 PG (${DB_PG_CONTAINER})${NC}"
         fi
         # V10.10.19: 访问信息展示统一由 print_access_info 输出（与 status 命令一致）
         print_access_info
@@ -128,10 +137,7 @@ stop_service() {
             docker network disconnect gift-docker_net "$DB_PG_CONTAINER" 2>/dev/null || true
         fi
     fi
-    _compose_files="-f docker-compose.yml"
-    if [ -f "$DB_OVERRIDE" ]; then
-        _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
-    fi
+    _compose_files=$(compose_files_for_mode)
     $DOCKER_COMPOSE $_compose_files down
     echo_e "${GREEN}✅ Docker 容器集群已停止${NC}"
     if [ "$1" != "skip_clean" ]; then
@@ -149,11 +155,9 @@ restart_service() {
 status_service() {
     echo_e "${GREEN}Docker 容器集群运行状态:${NC}"
     cd "$APP_DIR" || exit 1
-    # V10.10.19: 补带 PG override 文件（共享/独立 PG 模式下 PG 容器状态一并显示）
-    _compose_files="-f docker-compose.yml"
-    if [ -f "$DB_OVERRIDE" ]; then
-        _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"
-    fi
+    # V10.10.20(对齐萌芽): 按 DB_MODE 构造 compose 文件（独立 PG 模式 pg 容器状态一并显示）
+    [ -f "$DB_ENV_FILE" ] && load_db_env
+    _compose_files=$(compose_files_for_mode)
     $DOCKER_COMPOSE $_compose_files ps
     # V10.10.19: 有容器在运行时，附带访问地址与数据库模式，便于日常巡检
     if [ -n "$($DOCKER_COMPOSE $_compose_files ps -q 2>/dev/null)" ]; then
@@ -165,7 +169,10 @@ status_service() {
 
 logs_service() {
     cd "$APP_DIR" || exit 1
-    $DOCKER_COMPOSE logs -f
+    # V10.10.20(对齐萌芽): 按 DB_MODE 构造 compose 文件（独立 PG 模式可同时查看 pg 日志）
+    [ -f "$DB_ENV_FILE" ] && load_db_env
+    _compose_files=$(compose_files_for_mode)
+    $DOCKER_COMPOSE $_compose_files logs -f
 }
 
 build_service() {
@@ -219,10 +226,10 @@ case "$1" in
         echo_e "  ${GREEN}APP_IMAGE=ghcr.io/...:latest${NC}  预构建镜像地址 (非空时拉取镜像不本地构建，为空时本地 build)"
         echo_e "  ${GREEN}GUNICORN_WORKERS=1${NC}             Gunicorn worker 数量 (默认 1，可调 2/4)"
         echo_e ""
-        echo_e "  数据库部署选择 (首次 start 交互式三选一，选择结果持久化于 .temp/.db.env + compose override，后续 start/restart 自动读取):"
+        echo_e "  数据库部署选择 (首次 start 交互式三选一，选择结果持久化于 .temp/.db.env，后续 start/restart 自动读取):"
         echo_e "  ${GREEN}DB_MODE=sqlite|shared|independent${NC}   直接指定数据库模式跳过交互 (shared 需搭配 DB_PG_CONTAINER)"
-        echo_e "  ${GREEN}DB_PG_CONTAINER=<容器名>${NC}            共享 PG 模式复用的已运行容器名 (与 DB_MODE=shared 搭配)"
-        echo_e "  ${GREEN}DB_RESET=1${NC}                          清除已保存的数据库配置并重新进入交互选择 (自动清理 .db.env 与 override，无需手动删除)"
+        echo_e "  ${GREEN}DB_PG_CONTAINER=<容器名>${NC}            共享 PG 模式复用的已运行容器名，启动时自动接入自有网络 gift-docker_net"
+        echo_e "  ${GREEN}DB_RESET=1${NC}                          清除已保存的数据库配置并重新进入交互选择 (自动清理 .db.env 与旧 override 残留)"
         echo_e "  示例: DB_RESET=1 ./$(basename "$0") start   # 重新选择数据库模式"
         exit 1
         ;;

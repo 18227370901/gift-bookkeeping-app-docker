@@ -13,7 +13,7 @@ AIGC:
 
 > 💡 **版本与架构升级公告（最新）**：
 > - 🗄️ **V10.10.20 传统版初次部署纯净化（对齐 Docker 版）**：传统版首次 `./run.sh start` 不再复制样例库，仅就绪 `data/` 目录，由应用自动创建**纯净空库 + 单一管理员**（`admin`/`admin123`），与 Docker 版行为完全一致；根目录样例库仅作开发/演示参考；存量部署零影响（幂等）。
-> - 🌐 **V10.10.20 Docker 版共享 PG 网络独立化**：gift 使用自有网络 `gift-docker_net`（compose 显式命名），共享 PG 模式不再把 web 容器挂到其他项目的外部网络（如萌芽 mengya 的 `mengya-docker_netpgv-network`），改为 `docker network connect` 将共享 PG 容器**接入 gift 自有网络**（幂等、不影响 PG 容器原有网络与其他项目）；start 自动接入 + 重启 web 容器，stop 自动摘除；根治"外部网络被清理后启动失败"问题，并新增 PG 容器运行校验与失败提示（`DB_RESET=1 ./run.sh start` 重选）。
+> - 🌐 **V10.10.20 Docker 版部署架构对齐 mengya-docker**：① 彻底移除 `.temp/docker-compose.db-override.yml` 动态 override 机制（根治"external 网络被清理后启动失败"——如萌芽旧网络 `mengya-docker_netpgv-network`），compose 文件无 `version` 字段（消除 obsolete 警告）；② 网络改为默认网络重命名固定名 `gift-docker_net`（服务自动入网，**永不声明 external**）；③ 独立 PG 模式新增静态 `docker-compose.db.yml` 按 `-f` 按需合成（萌芽 COMPOSE_FILE 同款机制），并按镜像智能匹配挂载路径（`pgvector:pg18` 等 18+ → `/var/lib/postgresql`，15/16/alpine → `/var/lib/postgresql/data`，防数据不落卷）；④ 共享 PG 模式由 `docker network connect` 把 PG 容器接入自有网络（幂等、不影响其原有网络），start 后兑底接入+重启 web、stop 先摘除再 down；DATABASE_URL 经 shell 环境变量插值注入 compose；共享文件（`db_select.sh`/`common.sh`/`app.py` 等）零改动。
 > - 🖥️ **V10.10.19 run.sh status 访问信息展示**：status 命令与启动成功提示一致输出访问地址（多域名列表）、后端本地直连、日志文件与当前数据库模式（含 DB_RESET=1 重选提示）；Docker 版 status 补带 PG override 文件；两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 数据库配置说明（V10.10.19b：帮助与提示中的示例命令统一规范显示为 ./run.sh）。
 > - 🌐 **V10.10.18 前端资源本地化 + 部署链路加固**：新增 `static/vendor/`（Bootstrap 5.3.0 / Font Awesome 6.4.0 / Bootstrap Icons 1.11.3，14 个文件与原 CDN 版本完全一致），base.html 4 处 + shared_ledger.html 2 处国外 CDN 引用改为本地 `url_for` 加载，国内服务器不再依赖 jsdelivr/cdnjs；传统版同步首次部署就绪 `data/` 运行库目录（V10.10.20 起不再复制样例库，初次部署为纯净空库 + 单一管理员）+ python3 环境预检 + pip 镜像源兑底（清华→阿里云→官方）。
 > - 📦 **V10.10.17b run.sh 模块化拆分**：将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件（common/common_db_select 共享文件两版 MD5 一致 + cleanup/ssl_certs/nginx_config/port_conflict/db_setup 各版独立），run.sh 仅保留配置区 + source + 启停函数 + case 分发；Docker 版 683→157 行，传统版 792→257 行；修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题。
@@ -1063,7 +1063,7 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 - `webhook_utils.py`：_get_db_conn() 统一连接（PG 用 psycopg2 / SQLite 用 sqlite3）+ 占位符适配
 - `routes_ext.py`：备份/恢复 PG 分支（JSON 导出导入替代文件复制 + .sql 格式）
 - `docker-compose.yml`：DATABASE_URL 环境变量透传（仅 Docker 版）
-- `run.sh`：交互式数据库选择 + compose override 生成（两版分别实现）
+- `run.sh`：交互式数据库选择（两版分别实现；Docker 版按 DB_MODE 构造 `-f` compose 文件组合 + DATABASE_URL 环境变量插值，传统版直接环境变量透传）
 
 #### 涉及文件
 - `app.py` / `webhook_utils.py` / `routes_ext.py` / `models.py` / `_daemon_lock.py`（两版同步，MD5 一致）
@@ -1084,7 +1084,7 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 | `ssl_certs.sh` | SSL 证书生成（传统版优 venv python3） | 各版独立 |
 | `nginx_config.sh` | Nginx SNI 渲染（Docker版用 HOST_PORT，传统版用 PORT） | 各版独立 |
 | `port_conflict.sh` | 端口冲突检测（传统版含 PID 自检+check_status） | 各版独立 |
-| `db_setup.sh` | DB 模式配置（Docker版生成 compose override，传统版用环境变量） | 各版独立 |
+| `db_setup.sh` | DB 模式配置（Docker版：静态 docker-compose.db.yml 合成 + docker network connect 接网，传统版：环境变量） | 各版独立 |
 
 #### 效果
 - Docker 版 run.sh：683 行 → **157 行**（↓77%）
@@ -1146,7 +1146,7 @@ NAME  ...  STATUS
 ```
 
 - 抽取 `print_access_info()` 共用函数：start 成功提示与 status 巡检共用，start 输出零变化
-- status 补带 PG override 文件：共享/独立 PG 模式下 PG 容器状态一并显示（此前 status 漏看 PG 容器）
+- status 补带 PG override 文件：共享/独立 PG 模式下 PG 容器状态一并显示（V10.10.20 起 override 机制演进为静态 docker-compose.db.yml 按 -f 合成，独立 PG 容器状态同样可见）
 - 新增 `print_db_mode_info()`：展示持久化数据库模式；空/损坏配置提示重选；**不展示 DATABASE_URL，避免泄露数据库密码**
 - 两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 数据库配置说明
 
