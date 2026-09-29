@@ -60,9 +60,9 @@ print_db_mode_info() {
     if [ -f "$DB_ENV_FILE" ]; then
         load_db_env
         if [ -n "${DB_MODE:-}" ]; then
-            echo_e "   数据库模式: ${DB_MODE} (配置于 .temp/.db.env，DB_RESET=1 ./$0 start 可重新选择)"
+            echo_e "   数据库模式: ${DB_MODE} (配置于 .temp/.db.env，DB_RESET=1 ./$(basename "$0") start 可重新选择)"
         else
-            echo_e "   数据库模式: 配置文件为空或已损坏 (.temp/.db.env)，建议 DB_RESET=1 ./$0 start 重新选择"
+            echo_e "   数据库模式: 配置文件为空或已损坏 (.temp/.db.env)，建议 DB_RESET=1 ./$(basename "$0") start 重新选择"
         fi
     else
         echo_e "   数据库模式: 未持久化配置（可能由 DB_MODE 环境变量指定或非交互默认 SQLite）"
@@ -192,8 +192,8 @@ case "$1" in
         echo_e "  ${GREEN}build${NC}   : 重新构建 Docker 镜像"
         echo_e "  ${GREEN}clean${NC}   : 仅手动清理垃圾缓存与压缩 .git"
         echo ""
-        echo_e "  多项目共用 443 端口（SNI 分流）示例: SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./$0 start"
-        echo_e "  多域名示例: SNI_DOMAIN=\"gift-docker.example.com gift-docker2.example.com\" ./$0 start"
+        echo_e "  多项目共用 443 端口（SNI 分流）示例: SNI_DOMAIN=gift-docker.example.com PROJECT_NAME=gift_app_docker SNI_DEFAULT_SERVER=0 ./$(basename "$0") start"
+        echo_e "  多域名示例: SNI_DOMAIN=\"gift-docker.example.com gift-docker2.example.com\" ./$(basename "$0") start"
         echo ""
         echo_e "  文件覆盖策略（已存在的证书/Nginx 配置，默认先询问):"
         echo_e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
@@ -205,7 +205,7 @@ case "$1" in
         echo_e "  ${GREEN}DB_MODE=sqlite|shared|independent${NC}   直接指定数据库模式跳过交互 (shared 需搭配 DB_PG_CONTAINER)"
         echo_e "  ${GREEN}DB_PG_CONTAINER=<容器名>${NC}            共享 PG 模式复用的已运行容器名 (与 DB_MODE=shared 搭配)"
         echo_e "  ${GREEN}DB_RESET=1${NC}                          清除已保存的数据库配置并重新进入交互选择 (自动清理 .db.env 与 override，无需手动删除)"
-        echo_e "  示例: DB_RESET=1 ./$0 start   # 重新选择数据库模式"
+        echo_e "  示例: DB_RESET=1 ./$(basename "$0") start   # 重新选择数据库模式"
         exit 1
         ;;
 esac

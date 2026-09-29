@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.19 · 生成日期: 2026-09-29 · 审计范围: 53 文件 / ~23,800 行代码
+> **Docker 版** · 版本: V10.10.19b · 生成日期: 2026-09-29 · 审计范围: 53 文件 / ~23,800 行代码
 
 ---
 
@@ -511,6 +511,7 @@ base.html (493行 — 全局布局骨架)
 | 交互式数据库部署选择 + PG 兼容（V10.10.17） | run.sh 交互式三选一（SQLite/共享 PG/独立 PG）+ 服务器环境智能推荐 + Cron 安全（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面 PG 兼容（schema_version 表、_get_db_conn() 统一连接、备份/恢复 JSON 导出导入）；共享文件两版 MD5 逐字一致 | `run.sh`、`docker-compose.yml`、`app.py`、`webhook_utils.py`、`routes_ext.py` |
 | 前端资源本地化 + 部署链路加固（V10.10.18） | 方案A：新增 `static/vendor/` 14 个文件（Bootstrap 5.3.0 CSS+bundle.js / Font Awesome 6.4.0 all.min.css+webfonts×8 / Bootstrap Icons 1.11.3 min.css+woff2/woff，经 npmmirror 官方 npm 镜像获取、版本与原 CDN 一致零视觉变化），`base.html` 4 处 + `shared_ledger.html` 2 处 jsdelivr/cdnjs 引用改为 `url_for` 本地加载，镜像 `COPY . /app/` 自动包含 vendor（.dockerignore 未排除 static/）；方案B/C 仅传统版（首次部署自动复制样例库为 `data/` 运行库 + python3 预检 + pip 三源兑底；Docker 版容器命名卷 + .dockerignore 排除样例库天然隔离，不适用）；浏览器实测 vendor 全部 200 本地加载无 CDN 请求 | `static/vendor/**`、`templates/base.html`、`templates/shared_ledger.html`（两版 MD5 一致）；`run.sh`、`bin/db_setup.sh`（仅传统版） |
 | run.sh status 访问信息展示 + 数据库配置帮助（V10.10.19） | status 命令在 docker compose ps 基础上，有容器运行时附带访问信息与数据库模式：抽取 print_access_info() 与 start 共用（start 输出零变化）；status 补带 PG override 文件（此前共享/独立 PG 模式漏看 PG 容器）；print_db_mode_info() 展示 .temp/.db.env 持久化模式且不展示 DATABASE_URL 防密码泄露；两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 说明；沙盒验证 20 项通过 | `run.sh`（两版各自独立改造） |
+| 帮助示例命令名规范化（V10.10.19b） | 帮助文本与 status 提示中的示例命令由 ./$0 规范为 ./$(basename "$0")，任何调用方式（./run.sh / sh run.sh / 绝对路径）下均稳定显示 ./run.sh start；修正传统版 status 端口占用提示 ./service.sh → ./run.sh 历史笔误；用法首行 $0 保留原样如实反映调用方式 | `run.sh`（两版） |
 
 #### 6.1.4 PWA 架构
 
@@ -999,4 +1000,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-29（V10.10.19 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-29（V10.10.19b 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
