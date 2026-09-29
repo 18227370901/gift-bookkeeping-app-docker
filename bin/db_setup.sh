@@ -23,9 +23,14 @@ setup_shared_pg() {
     PG_SUPERUSER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep '^POSTGRES_USER=' | cut -d= -f2)
     PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
     PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER gift_user WITH PASSWORD '$PG_PASSWORD';" 2>/dev/null || true
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE gift_bookkeeping OWNER gift_user;" 2>/dev/null || true
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE gift_bookkeeping TO gift_user;" 2>/dev/null || true
+    # V10.10.20: 幂等创建/更新 gift 账号与库（已有部署时同步密码、保留数据，避免 CREATE USER 已存在导致密码与 DATABASE_URL 不匹配）
+    if docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_roles WHERE rolname='gift_user'" 2>/dev/null | grep -q 1; then
+        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "ALTER USER gift_user WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
+    else
+        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER gift_user WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
+    fi
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE gift_bookkeeping OWNER gift_user;" >/dev/null 2>&1 || true
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE gift_bookkeeping TO gift_user;" >/dev/null 2>&1 || true
     DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@${DB_PG_CONTAINER}:5432/gift_bookkeeping"
     export DATABASE_URL
     mkdir -p "$APP_DIR/.temp"
