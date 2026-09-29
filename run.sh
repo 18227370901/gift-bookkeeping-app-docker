@@ -99,10 +99,21 @@ start_service() {
     fi
     if [ $? -eq 0 ]; then
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
+        # V10.10.20: 共享 PG 模式将 PG 容器接入 gift 自有网络 gift-docker_net（不复用其他项目网络）
+        if [ "${DB_MODE:-}" = "shared" ] && [ -n "${DB_PG_CONTAINER:-}" ]; then
+            if docker network connect gift-docker_net "$DB_PG_CONTAINER" 2>/dev/null; then
+                echo_e "${GREEN}✅ 已接入共享 PG 容器 ${DB_PG_CONTAINER} 至自有网络 gift-docker_net${NC}"
+            else
+                echo_e "${YELLOW}⚠️ 共享 PG 容器 ${DB_PG_CONTAINER} 可能已接入 gift-docker_net，继续重启 web 容器${NC}"
+            fi
+            $DOCKER_COMPOSE $_compose_files restart web >/dev/null 2>&1
+            echo_e "${GREEN}✅ web 容器已重启并连接共享 PG (${DB_PG_CONTAINER})${NC}"
+        fi
         # V10.10.19: 访问信息展示统一由 print_access_info 输出（与 status 命令一致）
         print_access_info
     else
         echo_e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
+        echo_e "${YELLOW}  若提示 external network 不存在，请执行: DB_RESET=1 ./$(basename "$0") start 重新选择数据库模式（或 DB_MODE=sqlite ./$(basename "$0") start 切换 SQLite）${NC}"
         exit 1
     fi
 }
@@ -110,6 +121,13 @@ start_service() {
 stop_service() {
     echo_e "${YELLOW}正在停止 Docker 容器集群...${NC}"
     cd "$APP_DIR" || exit 1
+    # V10.10.20: 共享 PG 模式先摘除 PG 容器与 gift 网络的连接，避免网络被占用导致 down 失败
+    if [ -f "$DB_ENV_FILE" ]; then
+        load_db_env
+        if [ "${DB_MODE:-}" = "shared" ] && [ -n "${DB_PG_CONTAINER:-}" ]; then
+            docker network disconnect gift-docker_net "$DB_PG_CONTAINER" 2>/dev/null || true
+        fi
+    fi
     _compose_files="-f docker-compose.yml"
     if [ -f "$DB_OVERRIDE" ]; then
         _compose_files="$_compose_files -f .temp/docker-compose.db-override.yml"

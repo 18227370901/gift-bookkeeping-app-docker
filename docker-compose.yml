@@ -49,3 +49,5 @@ volumes:
 networks:
   gift_network:
     driver: bridge
+    # V10.10.20: gift 使用自有固定网络名（不依赖、不复用其他项目的网络）
+    name: gift-docker_net

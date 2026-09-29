@@ -9,15 +9,19 @@ setup_sqlite() {
     echo_e "${GREEN}数据库模式: SQLite 本地文件${NC}"
 }
 
-# 共享 PG 模式（Docker 版：生成 compose override 加入 PG 容器网络）
+# 共享 PG 模式（Docker 版：override 仅注入 DATABASE_URL；共享 PG 容器由 run.sh 接入 gift 自有网络 gift-docker_net）
 setup_shared_pg() {
     if [ -z "$DB_PG_CONTAINER" ]; then
         echo_e "${RED}共享 PG 模式需要指定 DB_PG_CONTAINER 环境变量${NC}"
         exit 1
     fi
+    # V10.10.20: 校验共享 PG 容器确实在运行，避免生成指向失效容器的配置
+    if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$DB_PG_CONTAINER"; then
+        echo_e "${RED}❌ 共享 PG 容器 ${DB_PG_CONTAINER} 未在运行，请先启动该容器，或执行 DB_RESET=1 ./$(basename "$0") start 重新选择数据库模式${NC}"
+        exit 1
+    fi
     PG_SUPERUSER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep '^POSTGRES_USER=' | cut -d= -f2)
     PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
-    PG_NETWORK=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null)
     PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
     docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER gift_user WITH PASSWORD '$PG_PASSWORD';" 2>/dev/null || true
     docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE gift_bookkeeping OWNER gift_user;" 2>/dev/null || true
@@ -31,15 +35,9 @@ services:
   web:
     environment:
       - DATABASE_URL=${DATABASE_URL}
-    networks:
-      - gift_network
-      - pg_external
-networks:
-  pg_external:
-    external: true
-    name: ${PG_NETWORK}
 YAMLEOF
-    echo_e "${GREEN}数据库模式: 共享 PostgreSQL (${DB_PG_CONTAINER}, 网络 ${PG_NETWORK})${NC}"
+    echo_e "${GREEN} 数据库模式: 共享 PostgreSQL (${DB_PG_CONTAINER})${NC}"
+    echo_e "${YELLOW}  启动时将把 ${DB_PG_CONTAINER} 接入 gift 自有网络 gift-docker_net（不影响其原有网络与其他项目）${NC}"
 }
 
 # 独立 PG 模式（Docker 版：生成 compose override 添加 pg 服务）
