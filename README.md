@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🌐 **V10.10.18 前端资源本地化 + 部署链路加固**：新增 `static/vendor/`（Bootstrap 5.3.0 / Font Awesome 6.4.0 / Bootstrap Icons 1.11.3，14 个文件与原 CDN 版本完全一致），base.html 4 处 + shared_ledger.html 2 处国外 CDN 引用改为本地 `url_for` 加载，国内服务器不再依赖 jsdelivr/cdnjs；传统版同步首次部署自动复制样例库为 `data/` 运行库 + python3 环境预检 + pip 镜像源兜底（清华→阿里云→官方）。
 > - 📦 **V10.10.17b run.sh 模块化拆分**：将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件（common/common_db_select 共享文件两版 MD5 一致 + cleanup/ssl_certs/nginx_config/port_conflict/db_setup 各版独立），run.sh 仅保留配置区 + source + 启停函数 + case 分发；Docker 版 683→157 行，传统版 792→257 行；修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题。
 > - 🗄️ **V10.10.17 交互式数据库部署选择 + PostgreSQL 兼容**：`./run.sh start` 时交互式选择 SQLite / 共享 PG（复用已有容器自动建库建账号）/ 独立 PG（复用本地镜像启动专属容器），根据服务器环境智能推荐；Cron 安全设计（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面兼容 PG（schema_version 表替代 PRAGMA user_version，_get_db_conn() 统一连接，备份/恢复 JSON 导出导入替代文件复制）；共享文件两版 MD5 逐字一致。
 > - ⚡ **V10.10.16 Docker 版性能优化**：Gunicorn 4 sync workers → 1 worker + gthread 4 线程；5 组重型依赖（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper）改为延迟导入；守护线程跨进程 fcntl 单实例锁；init_database() 幂等快速跳过；Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2；GitHub Actions 自动构建 + ghcr.io/阿里云 ACR 双 Registry 免构建部署。内存从 350~535MB 降至 60~95MB（↓约 80%）。
@@ -995,7 +996,7 @@ V10.10.14 修复了长连接监听线程写库硬编码路径问题后，用户�
 - `webhook_utils.py`（导入 `decrypt_credential` + 监听线程解密 `bot_secret`）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
 
-### V10.10.16：Docker 版性能优化与镜像免构建部署（2026-09-28，仅 Docker 版 `gift-docker-optimize` 分支）
+### V10.10.16：Docker 版性能优化与镜像免构建部署（2026-09-28，仅 Docker 版；`gift-docker-optimize` 分支已于 2026-09-29 合并回 main）
 
 #### 问题背景
 Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务器其他容器（12~165MiB 量级）差距过大。
@@ -1093,6 +1094,40 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 - `bin/cleanup.sh` / `bin/ssl_certs.sh` / `bin/nginx_config.sh` / `bin/port_conflict.sh` / `bin/db_setup.sh`（两版各自独立）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
 
+### V10.10.18：前端资源本地化 + 部署链路加固（2026-09-29，传统版 + Docker 版同步）
+
+#### 背景
+1. 前端三件套（Bootstrap 5.3.0 / Font Awesome 6.4.0 / Bootstrap Icons 1.11.3）原先全部经 jsdelivr/cdnjs 国外 CDN 加载（base.html 4 处 + shared_ledger.html 2 处），国内服务器环境页面样式/图标/交互直接失效
+2. 传统版全新 clone 后无 data/ 目录时，运行库直接落在 git 跟踪的样例库上（运行数据污染工作区、git pull 覆盖丢数据，与 V10.10.12 事故同源）
+3. 传统版 pip 仅有清华源单一来源无回退（源同步滞后时新 SDK 安装失败），部署前无系统环境预检
+
+#### 方案 A：前端资源本地化（两版同步，共享文件 MD5 一致）
+- 新增 `static/vendor/`（14 个文件，共 1.67MB），版本与原 CDN 引用完全一致（经 npmmirror 官方 npm 镜像获取，零视觉变化）：
+  - `vendor/bootstrap/5.3.0/`：bootstrap.min.css + bootstrap.bundle.min.js
+  - `vendor/font-awesome/6.4.0/`：all.min.css + webfonts 字体 8 个（woff2/ttf）
+  - `vendor/bootstrap-icons/1.11.3/font/`：bootstrap-icons.min.css + woff2/woff
+- `templates/base.html`（4 处）与 `templates/shared_ledger.html`（2 处）改为 `url_for('static', ...)` 本地引用，两版逐字一致
+- Docker 镜像 `COPY . /app/` 自动包含 vendor 目录（.dockerignore 未排除 static/），容器内同样零外网依赖
+
+#### 方案 B：首次部署自动初始化运行库（仅传统版）
+- `bin/db_setup.sh` 新增 `ensure_sqlite_runtime_db()`：首次启动自动复制样例库为 `data/gift_bookkeeping.db`，运行数据与样例库彻底分离
+- `run.sh` start_service 在 SQLite 模式下调用（`DATABASE_URL` 为空判定；PG 模式自动跳过）；幂等设计，存量部署零影响
+- Docker 版不适用原因：容器内 `/app/data/` 由命名卷挂载、样例库被 .dockerignore 排除，首次启动 init_database() 自动建库，天然隔离
+
+#### 方案 C：环境预检 + pip 镜像源兜底（仅传统版）
+- `run.sh` 新增 `preflight_check()`：python3 缺失 / 存在但无法执行（如系统占位存根）/ 版本低于 3.8 三级拦截，另对 python3-venv、lsof 缺失给出安装提示
+- `run.sh` 新增 `pip_install_fb()`：清华源 → 阿里云 → 官方源逐一切换，任一成功即返回；末源失败输出汇总提示
+
+#### 验证结论
+- 浏览器实测（传统版 11443）：vendor CSS/JS/字体全部 200 本地加载，无任何 CDN 请求，Bootstrap 样式与字体图标渲染正常
+- 沙盒验证 14 项全部通过：全新部署复制（运行库与样例库 MD5 一致）/幂等不改/无样例库降级提示/模式守卫三分支/预检失败与成功双路径/镜像源成功与三源全失败兑底
+- `run.sh` 与 `bin/db_setup.sh` bash -n 语法检查通过
+
+#### 涉及文件
+- `static/vendor/**`（14 个文件）/ `templates/base.html` / `templates/shared_ledger.html`（两版同步，MD5 逐字一致）
+- `run.sh` / `bin/db_setup.sh`（仅传统版）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
 ## 📂 项目文件结构
 
 ```text
@@ -1111,12 +1146,13 @@ gift_bookkeeping_app/
 ├── requirements.txt            # 项目 Python 依赖库列表
 ├── gift_bookkeeping.db         # SQLite 数据库文件 (支持 WAL 模式与并发读写)
 ├── run.sh                      # Linux 后台服务管理与虚拟环境自动创建/启动脚本 (SNI 多项目 443 端口分流)
+├── bin/                        # [V10.10.17b] run.sh 模块化拆分函数目录 (common.sh/db_select.sh 两版共享)
 ├── nginx_ssl.conf              # Nginx HTTPS SNI 反向代理占位符模板 (由 run.sh 自动渲染为项目专属配置)
 ├── generate_ssl_certs.py       # 自签名 SSL 证书快速生成脚本 (支持 --domain 写入 SNI 域名)
 ├── AI_ASSISTANT_DESIGN.md      # [新增] AI 助手与综合增强功能技术设计文档
 ├── Project_Survey_Docker.md   # 系统架构设计规范与 38 项架构决策记录 (ADR-01 ~ ADR-38)
 ├── README.md                   # 系统使用说明与运维开发手册
-├── static/                     # 静态资源目录 (Bootstrap, FontAwesome, Chart.js, 自定义脚本)
+├── static/                     # 静态资源目录 (PWA manifest/sw + vendor 本地化前端资源 Bootstrap/Font Awesome/Bootstrap Icons)
 └── templates/                  # Jinja2 HTML 模板目录
     ├── base.html               # 基础模板 (导航栏、菜单权限控制、AI/备份/工单入口)
     ├── index.html              # 礼金账本首页 (复合智能录入、数据列表、无权限提示卡片)

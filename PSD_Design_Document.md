@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.17 · 生成日期: 2026-09-28 · 审计范围: 53 文件 / ~23,800 行代码
+> **Docker 版** · 版本: V10.10.18 · 生成日期: 2026-09-29 · 审计范围: 53 文件 / ~23,800 行代码
 
 ---
 
@@ -57,10 +57,10 @@ AIGC:
 | AI | OpenAI SDK + DuckDuckGo Search | openai>=1.0, duckduckgo_search>=4.0 |
 | 企微机器人 | wecom-aibot-python-sdk + websockets + pyee | >=1.0.2 / >=12.0 / >=11.0 |
 | 备份加密 | pyzipper (AES-256 zip) | >=0.3.1 |
-| 前端 | Jinja2 + Bootstrap 5 + Font-Awesome + Chart.js（Bootstrap/Font-Awesome 通过 CDN 引入） | — |
+| 前端 | Jinja2 + Bootstrap 5 + Font-Awesome（V10.10.18 起 `static/vendor/` 本地加载；历史记载的 Chart.js 实际无引用） | — |
 | PWA | manifest.json + sw.js (Service Worker) | — |
 | 反向代理 | Nginx（宿主机安装，非容器化） | nginx_ssl.conf 占位符模板 |
-| 部署脚本 | run.sh (POSIX sh 兼容) | 424 行 |
+| 部署脚本 | run.sh (POSIX sh 兼容，V10.10.17b 模块化拆分后) | 158 行 |
 
 ### 三、代码规模统计
 
@@ -100,10 +100,10 @@ AIGC:
 | 企微机器人 | wecom-aibot-python-sdk + websockets + pyee | >=1.0.2 | `requirements.txt:11-13`；`aibot/` 目录 |
 | HTTP 客户端 | requests + aiohttp | >=2.31 / >=3.9 | `requirements.txt:9-10` |
 | 备份加密 | pyzipper (AES-256 zip) | >=0.3.1 | `requirements.txt:16`；`webdav_utils.py:26` |
-| 前端框架 | Jinja2 + Bootstrap 5 + Chart.js（Bootstrap/Font-Awesome 通过 CDN 引入） | — | `templates/base.html` |
+| 前端框架 | Jinja2 + Bootstrap 5（Bootstrap/Font-Awesome/Bootstrap Icons 本地 `static/vendor/` 引用，V10.10.18 起替代 CDN） | — | `templates/base.html:23-25、256` |
 | PWA | manifest.json + sw.js | — | `static/` 目录 |
 | 反向代理 | Nginx（宿主机安装） | — | `nginx_ssl.conf`；`run.sh` |
-| 部署脚本 | run.sh (POSIX sh 兼容) | — | `run.sh`（424 行） |
+| 部署脚本 | run.sh (POSIX sh 兼容) | — | `run.sh`（158 行，V10.10.17b 模块化拆分后） |
 | 容器编排 | docker-compose.yml | 3.8 | `docker-compose.yml` |
 
 ### 1.3 最新端到端架构拓扑图
@@ -509,6 +509,7 @@ base.html (493行 — 全局布局骨架)
 | 监听线程 bot_secret 密文解密（V10.10.15） | raw SQL 读取的 `bot_secret` 是 AES-256-GCM 密文，需 `decrypt_credential()` 解密为明文后传给 SDK 认证；修复后 WebSocket 认证成功；真实企微群 @机器人 实测通过，全链路闭环确认 | `webhook_utils.py` `_wecom_listener_worker` |
 | Docker 版性能优化（V10.10.16） | 四层组合拳：① Gunicorn 4 sync workers → 1 worker + gthread 4 线程 ② 5 组重型依赖延迟导入（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper） ③ 守护线程 fcntl 跨进程单实例锁 ④ init_database() 幂等快跳 + Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2 + GitHub Actions 双 Registry 免构建部署。内存 350~535MB → 60~95MB（↓80%） | `gunicorn.conf.py`、`_daemon_lock.py`、`Dockerfile`、`docker-compose.yml`、`run.sh`、`app.py`、`ai_service.py`、`web_search.py`、`models.py`、`webhook_utils.py`、`webdav_utils.py`、`routes_ext.py` |
 | 交互式数据库部署选择 + PG 兼容（V10.10.17） | run.sh 交互式三选一（SQLite/共享 PG/独立 PG）+ 服务器环境智能推荐 + Cron 安全（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面 PG 兼容（schema_version 表、_get_db_conn() 统一连接、备份/恢复 JSON 导出导入）；共享文件两版 MD5 逐字一致 | `run.sh`、`docker-compose.yml`、`app.py`、`webhook_utils.py`、`routes_ext.py` |
+| 前端资源本地化 + 部署链路加固（V10.10.18） | 方案A：新增 `static/vendor/` 14 个文件（Bootstrap 5.3.0 CSS+bundle.js / Font Awesome 6.4.0 all.min.css+webfonts×8 / Bootstrap Icons 1.11.3 min.css+woff2/woff，经 npmmirror 官方 npm 镜像获取、版本与原 CDN 一致零视觉变化），`base.html` 4 处 + `shared_ledger.html` 2 处 jsdelivr/cdnjs 引用改为 `url_for` 本地加载，镜像 `COPY . /app/` 自动包含 vendor（.dockerignore 未排除 static/）；方案B/C 仅传统版（首次部署自动复制样例库为 `data/` 运行库 + python3 预检 + pip 三源兑底；Docker 版容器命名卷 + .dockerignore 排除样例库天然隔离，不适用）；浏览器实测 vendor 全部 200 本地加载无 CDN 请求 | `static/vendor/**`、`templates/base.html`、`templates/shared_ledger.html`（两版 MD5 一致）；`run.sh`、`bin/db_setup.sh`（仅传统版） |
 
 #### 6.1.4 PWA 架构
 
@@ -997,4 +998,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-28 | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-29（V10.10.18 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
