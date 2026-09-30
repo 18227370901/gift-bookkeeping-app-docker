@@ -76,7 +76,7 @@ setup_shared_pg() {
     fi
     # 校验共享 PG 容器确实在运行，避免生成指向失效容器的配置
     if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$DB_PG_CONTAINER"; then
-        echo_e "${RED}❌ 共享 PG 容器 ${DB_PG_CONTAINER} 未在运行，请先启动该容器，或执行 DB_RESET=1 ./$(basename "$0") start 重新选择数据库模式${NC}"
+        echo_e "${RED}❌ 共享 PG 容器 ${DB_PG_CONTAINER} 未在运行，请先启动该容器，或执行 ./$(basename "$0") --reconfig 重新选择数据库模式${NC}"
         exit 1
     fi
     PG_SUPERUSER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep '^POSTGRES_USER=' | cut -d= -f2)

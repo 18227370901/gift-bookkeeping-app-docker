@@ -19,9 +19,9 @@ print_db_mode_info() {
     if [ -f "$DB_ENV_FILE" ]; then
         load_db_env
         if [ -n "${DB_MODE:-}" ]; then
-            echo_e "   数据库模式: ${DB_MODE} (配置于 .temp/.db.env，DB_RESET=1 ./$(basename "$0") start 可重新选择)"
+            echo_e "   数据库模式: ${DB_MODE} (配置于 .temp/.db.env，./$(basename "$0") --reconfig 可重新选择)"
         else
-            echo_e "   数据库模式: 配置文件为空或已损坏 (.temp/.db.env)，建议 DB_RESET=1 ./$(basename "$0") start 重新选择"
+            echo_e "   数据库模式: 配置文件为空或已损坏 (.temp/.db.env)，建议 ./$(basename "$0") --reconfig 重新选择"
         fi
     else
         echo_e "   数据库模式: 未持久化配置（可能由 DB_MODE 环境变量指定或非交互默认 SQLite）"
@@ -126,7 +126,7 @@ start_service() {
         print_access_info
     else
         echo_e "${RED}❌ Docker 容器集群启动失败，请检查 Docker 日志${NC}"
-        echo_e "${YELLOW}  若提示 external network 不存在，请执行: DB_RESET=1 ./$(basename "$0") start 重新选择数据库模式（或 DB_MODE=sqlite ./$(basename "$0") start 切换 SQLite）${NC}"
+        echo_e "${YELLOW}  若提示 external network 不存在，请执行: ./$(basename "$0") --reconfig 重新选择数据库模式（或 DB_MODE=sqlite ./$(basename "$0") start 切换 SQLite）${NC}"
         exit 1
     fi
 }
