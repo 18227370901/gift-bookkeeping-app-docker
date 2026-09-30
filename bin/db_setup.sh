@@ -15,12 +15,12 @@ setup_sqlite() {
     echo_e "${GREEN}数据库模式: SQLite 本地文件${NC}"
 }
 
-# V10.10.20: PG 连接参数解析（用户自定义 > 默认值）
-# PG_USER/PG_PASSWORD/PG_DB 环境变量可自定义；未指定时使用默认值（gift_user / 随机 16 位 / gift_bookkeeping）
+# V10.10.20: PG 连接参数解析（用户自定义 > 默认值；默认值集中定义于 bin/config.sh，V10.10.21 起）
+# PG_USER/PG_PASSWORD/PG_DB 环境变量可自定义；未指定时使用默认值（PG_USER_DEFAULT / 随机 16 位 / PG_DB_DEFAULT）
 # 密码校验：单引号/空格直接拒绝（无法安全拼入 SQL 与 URL）；URL 特殊字符警告
 resolve_pg_conn_params() {
-    PG_USER="${PG_USER:-gift_user}"
-    PG_DB="${PG_DB:-gift_bookkeeping}"
+    PG_USER="${PG_USER:-$PG_USER_DEFAULT}"
+    PG_DB="${PG_DB:-$PG_DB_DEFAULT}"
     if [ -z "$PG_PASSWORD" ]; then
         PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
     else
@@ -73,8 +73,8 @@ setup_shared_pg() {
     docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DB'" 2>/dev/null | grep -q 1 || \
         docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE $PG_DB OWNER $PG_USER;" >/dev/null 2>&1 || true
     docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE $PG_DB TO $PG_USER;" >/dev/null 2>&1 || true
-    # V10.10.20: PG_PORT 可自定义共享容器的连接端口（默认 5432）
-    PG_PORT="${PG_PORT:-5432}"
+    # V10.10.20: PG_PORT 可自定义共享容器的连接端口（默认 PG_PORT_DEFAULT，定义于 bin/config.sh）
+    PG_PORT="${PG_PORT:-$PG_PORT_DEFAULT}"
     DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${DB_PG_CONTAINER}:${PG_PORT}/${PG_DB}"
     export DATABASE_URL PG_PORT
     rm -f "$DB_OVERRIDE"
@@ -99,7 +99,7 @@ setup_independent_pg() {
     # ② 本地已存在 PG 镜像（由 detect_pg_environment 预检测填充 PG_LOCAL_IMAGE）
     if [ -z "$PG_LOCAL_IMAGE" ]; then
         # ③ 本地无任何 PG 镜像：自动下载内置默认镜像（不再询问，非交互同样适用）
-        echo_e "${YELLOW}  本地未检测到任何 PostgreSQL 镜像，自动下载内置默认镜像 postgres:16-alpine ...${NC}"
+        echo_e "${YELLOW}  本地未检测到任何 PostgreSQL 镜像，自动下载内置默认镜像 ${PG_IMAGE_DEFAULT:-postgres:16-alpine} ...${NC}"
         PG_LOCAL_IMAGE="${PG_IMAGE_DEFAULT:-postgres:16-alpine}"
         if ! docker pull "$PG_LOCAL_IMAGE"; then
             echo_e "${RED}❌ 默认 PG 镜像下载失败，请检查网络，或改用 PG_IMAGE 指定自定义镜像后重试；降级为 SQLite 模式${NC}"

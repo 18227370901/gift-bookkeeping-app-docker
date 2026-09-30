@@ -517,6 +517,7 @@ base.html (493行 — 全局布局骨架)
 | PG 驱动与镜像策略修复（V10.10.20，两版同步） | 新增 `psycopg[binary]>=3.1` 依赖：SQLAlchemy 2.0 对 `postgresql://` 默认 psycopg3 驱动，修复 PG 模式下 gunicorn worker 启动报 `No module named 'psycopg'` 崩溃（psycopg2-binary 保留给 webhook_utils 原生连接）；PG 镜像优先级链 `PG_IMAGE`（自定义）> 本地已有镜像 > 自动下载默认 `postgres:16-alpine`（失败降级 SQLite）；独立 PG 模式持久化镜像与挂载路径至 `.temp/.db.env`（restart 不漂移）；传统版独立 PG 同步策略 + detect_pg_data_dir 智能匹配 | `requirements.txt`（两版共享）、`run.sh`、`bin/db_setup.sh`（两版各自独立） |
 | DB_RESET 重选菜单修复 + PG_IMAGE 示例细化（V10.10.20，两版同步） | 修复 `DB_RESET=1 ./run.sh restart` 时交互菜单被跳过的问题：restart 场景下 stop_service 的 load_db_env 会把旧配置中的 DB_MODE 注入当前 shell，被 ① 直通分支误判为"环境变量直通"而静默沿用旧模式；db_select.sh 顶部捕获 `_DB_MODE_AT_LOAD`（模块加载时用户显式指定值），① 分支只认该值——DB_RESET=1 重选正常弹出交互菜单、用户显式 DB_MODE 直通不变、日常 restart 读配置不变（三场景模拟验证通过）；帮助文本与交互菜单细化 PG_IMAGE 使用示例（优先级链 + 4 组场景示例 + 仅独立 PG 模式生效说明） | `bin/db_select.sh`（两版共享）、`run.sh`（两版） |
 | PG 连接参数全面自定义（V10.10.20，两版同步） | `PG_USER`/`PG_PASSWORD`/`PG_DB`/`PG_PORT` 环境变量自定义数据库账号、密码、库名、端口（默认 gift_user / 随机 16 位 / gift_bookkeeping / 5432）；setup_shared_pg 与 setup_independent_pg 的建号、建库、授权、DATABASE_URL 拼接全部参数化（幂等建号 ALTER 同步密码）；密码含单引号/空格拒绝、URL 特殊字符警告；Docker 版 docker-compose.db.yml 的 POSTGRES_DB/USER/PASSWORD 改为插值 + 连接参数持久化至 .temp/.db.env（restart 不漂移）；PG_PORT 语义：Docker 版仅共享模式生效（独立模式容器内固定 5432），传统版共享=宿主机连接端口（优先于映射检测）、独立=宿主机映射端口（默认 15432 起扫描）；四场景模拟验证通过（默认/全自定义/非法密码拒绝/特殊字符警告） | `bin/db_setup.sh`（两版各自独立）、`docker-compose.db.yml`、`run.sh`（两版） |
+| run.sh 深度模块化拆分 + 配置单点化（V10.10.21，两版同步） | run.sh 瘦身为「模块加载 + 命令分发」编排层（Docker 版 263→34 行、传统版 399→31 行）；新增 `bin/config.sh`（账密/端口/SNI/PG 默认值单点定义，支持 `bin/config.local.sh` 服务器专属覆盖——.gitignore 忽略、三层优先级：命令行环境变量 > config.local.sh > 内置默认值）、`bin/service.sh`（启停操作 + print_access_info/print_db_mode_info/compose_files_for_mode）、`bin/help.sh`（show_help 帮助文本），传统版另增 `bin/python_env.sh`（preflight_check/pip_install_fb/ensure_python_env，自 start_service 抽取）；db_setup.sh 中 PG 默认值改为引用 config 变量（PG_USER_DEFAULT/PG_DB_DEFAULT/PG_PORT_DEFAULT/PG_IMAGE_DEFAULT）；docker-compose.yml 网络名 gift-docker_net 保持硬编码不动（与 compose 一致）；共享文件 common.sh/db_select.sh 零改动 MD5 一致；帮助文本与全部行为经「零 diff」验证逐字不变 | `run.sh`（两版重写）、`bin/config.sh`（新增）、`bin/service.sh`（新增）、`bin/help.sh`（新增）、`bin/python_env.sh`（新增仅传统版）、`bin/db_setup.sh`（两版各自独立）、`.gitignore`（两版） |
 
 #### 6.1.4 PWA 架构
 
@@ -1005,4 +1006,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-29（V10.10.19b 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-30（V10.10.21 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表

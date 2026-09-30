@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🧩 **V10.10.21 run.sh 深度模块化拆分 + 配置单点化（两版同步）**：run.sh 瘦身为「模块加载 + 命令分发」编排层（Docker 版 263→34 行，传统版 399→31 行）；新增 `bin/config.sh`（全部可自定义变量单点定义：账密/端口/SNI/PG 默认值）、`bin/service.sh`（启停操作与访问信息展示）、`bin/help.sh`（帮助文本），传统版另增 `bin/python_env.sh`（Python 预检 + pip 镜像源兑底 + venv 依赖安装）；`db_setup.sh` 中 PG 默认值改为引用 config 变量；帮助文本与全部行为经「零 diff」验证逐字不变。**服务器专属持久配置新机制**：每台服务器的差异化配置（账密/SNI 域名/端口等）写入 `bin/config.local.sh`（已被 .gitignore 忽略，git pull 永不冲突），三层优先级：命令行环境变量 > `config.local.sh` > 内置默认值；曾直接改 run.sh 配置区的服务器，升级后请将定制值迁移至该文件（详见「Linux 服务器代码更新与冲突处理指南」）。
 > - 🗄️ **V10.10.20 传统版初次部署纯净化（对齐 Docker 版）**：传统版首次 `./run.sh start` 不再复制样例库，仅就绪 `data/` 目录，由应用自动创建**纯净空库 + 单一管理员**（`admin`/`admin123`），与 Docker 版行为完全一致；根目录样例库仅作开发/演示参考；存量部署零影响（幂等）。
 > - 🌐 **V10.10.20 Docker 版部署架构对齐 mengya-docker**：① 彻底移除 `.temp/docker-compose.db-override.yml` 动态 override 机制（根治"external 网络被清理后启动失败"——如萌芽旧网络 `mengya-docker_netpgv-network`），compose 文件无 `version` 字段（消除 obsolete 警告）；② 网络改为默认网络重命名固定名 `gift-docker_net`（服务自动入网，**永不声明 external**）；③ 独立 PG 模式新增静态 `docker-compose.db.yml` 按 `-f` 按需合成（萌芽 COMPOSE_FILE 同款机制），并按镜像智能匹配挂载路径（`pgvector:pg18` 等 18+ → `/var/lib/postgresql`，15/16/alpine → `/var/lib/postgresql/data`，防数据不落卷）；④ 共享 PG 模式由 `docker network connect` 把 PG 容器接入自有网络（幂等、不影响其原有网络），start 后兑底接入+重启 web、stop 先摘除再 down；DATABASE_URL 经 shell 环境变量插值注入 compose；共享文件（`db_select.sh`/`common.sh`/`app.py` 等）零改动。
 > - 🐘 **V10.10.20 PG 驱动与镜像策略修复（两版同步）**：① 新增 `psycopg[binary]>=3.1` 依赖——SQLAlchemy 2.0 对 `postgresql://` 默认使用 psycopg3 驱动，修复 PG 模式下 gunicorn worker 启动报 `No module named 'psycopg'` 崩溃（psycopg2-binary 保留，webhook_utils 原生连接继续使用）；② PG 镜像优先级链：`PG_IMAGE` 环境变量（用户自定义）→ 服务器本地已有 PG 镜像 → 无则**自动下载默认 `postgres:16-alpine`**（不再询问，失败降级 SQLite）；③ 独立 PG 模式把镜像选择与挂载路径持久化至 `.temp/.db.env`（restart 不漂移）；④ 传统版独立 PG 同步同策略 + 挂载路径按镜像智能匹配。
@@ -1093,6 +1094,7 @@ Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务�
 - Docker 版 run.sh：683 行 → **157 行**（↓77%）
 - 传统版 run.sh：792 行 → **257 行**（↓68%）
 - 修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题（移至 `start_service` 内）
+- 📌 V10.10.21 深化拆分：配置区 → `bin/config.sh`、启停函数 → `bin/service.sh`、帮助文本 → `bin/help.sh`（传统版另增 `bin/python_env.sh`），run.sh 仅剩「模块加载 + 命令分发」约 31~34 行，详见顶部 V10.10.21 公告
 
 #### 涉及文件
 - `run.sh`（两版重写）
@@ -1193,7 +1195,7 @@ gift_bookkeeping_app/
 ├── requirements.txt            # 项目 Python 依赖库列表
 ├── gift_bookkeeping.db         # SQLite 数据库文件 (支持 WAL 模式与并发读写)
 ├── run.sh                      # Linux 后台服务管理与虚拟环境自动创建/启动脚本 (SNI 多项目 443 端口分流)
-├── bin/                        # [V10.10.17b] run.sh 模块化拆分函数目录 (common.sh/db_select.sh 两版共享)
+├── bin/                        # [V10.10.17b+V10.10.21] run.sh 模块目录：config/service/help 等（common.sh/db_select.sh 两版共享；config.local.sh 服务器专属配置不入库）
 ├── nginx_ssl.conf              # Nginx HTTPS SNI 反向代理占位符模板 (由 run.sh 自动渲染为项目专属配置)
 ├── generate_ssl_certs.py       # 自签名 SSL 证书快速生成脚本 (支持 --domain 写入 SNI 域名)
 ├── AI_ASSISTANT_DESIGN.md      # [新增] AI 助手与综合增强功能技术设计文档
@@ -1263,6 +1265,7 @@ chmod +x run.sh
 
 > 💡 **端口与账号自定义**：
 > 环境变量可在执行命令时临时指定，也可写入 shell 配置后长期生效：`PORT`（后端端口，默认 11443）、`NGINX_PORT`（Nginx 对外监听端口，默认 443）、`ADMIN_USER` 与 `ADMIN_PASS`。执行 `start` 或 `restart` 时，系统会自动渲染 Nginx 配置并热重载生效。
+> V10.10.21 起全部默认值集中定义于 `bin/config.sh`；每台服务器的持久差异化配置（账密/SNI 域名/端口/PG 默认值等）推荐写入 `bin/config.local.sh`（已被 .gitignore 忽略，git pull 永不冲突），三层优先级：命令行环境变量 > `config.local.sh` > 内置默认值。
 >
 > 💡 **多项目共用 443 端口 SNI 分流**（V10.10）：
 > 同一台服务器多个项目可共用 443 端口，依靠域名区分流量，各项目启动时指定专属变量即可：
@@ -1370,6 +1373,22 @@ git pull origin main
 ```
 
 ### ⚠️ 当本地配置文件有改动时的推荐方案
+
+**V10.10.21 推荐做法（一劳永逸）**：把服务器专属配置（账密/SNI 域名/端口等）迁移到 `bin/config.local.sh`（已被 .gitignore 忽略，git pull 永不冲突），之后每次更新只需 `git pull && ./run.sh restart`：
+```bash
+# 一次性迁移（示例：自定义管理员账密与 SNI 域名；沿用 ${变量:-值} 写法可使命令行环境变量临时覆盖）
+cat > bin/config.local.sh <<'EOF'
+ADMIN_USER="${ADMIN_USER:-myadmin}"
+ADMIN_PASS="${ADMIN_PASS:-MyStrongPass2026}"
+SNI_DOMAIN="${SNI_DOMAIN:-gift.example.com}"
+EOF
+
+# 日常更新（不再需要 stash）
+git pull origin main
+./run.sh restart
+```
+
+**历史遗留方案（曾直接修改 run.sh 配置区的存量服务器首次升级时使用）**：原 run.sh 顶部配置区在 V10.10.21 已拆分至 `bin/config.sh`，请先把原定制值按上例迁移到 `bin/config.local.sh`，再执行标准更新流程；迁移前可临时使用 git stash：
 ```bash
 # 1. 暂存本地修改
 git stash push -m "暂存本地配置"
