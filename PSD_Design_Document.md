@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.22 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
+> **Docker 版** · 版本: V10.10.26 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
 
 ---
 
@@ -519,6 +519,10 @@ base.html (493行 — 全局布局骨架)
 | PG 连接参数全面自定义（V10.10.20，两版同步） | `PG_USER`/`PG_PASSWORD`/`PG_DB`/`PG_PORT` 环境变量自定义数据库账号、密码、库名、端口（默认 gift_user / 随机 16 位 / gift_bookkeeping / 5432）；setup_shared_pg 与 setup_independent_pg 的建号、建库、授权、DATABASE_URL 拼接全部参数化（幂等建号 ALTER 同步密码）；密码含单引号/空格拒绝、URL 特殊字符警告；Docker 版 docker-compose.db.yml 的 POSTGRES_DB/USER/PASSWORD 改为插值 + 连接参数持久化至 .temp/.db.env（restart 不漂移）；PG_PORT 语义：Docker 版仅共享模式生效（独立模式容器内固定 5432），传统版共享=宿主机连接端口（优先于映射检测）、独立=宿主机映射端口（默认 15432 起扫描）；四场景模拟验证通过（默认/全自定义/非法密码拒绝/特殊字符警告） | `bin/db_setup.sh`（两版各自独立）、`docker-compose.db.yml`、`run.sh`（两版） |
 | run.sh 深度模块化拆分 + 配置单点化（V10.10.21，两版同步） | run.sh 瘦身为「模块加载 + 命令分发」编排层（Docker 版 263→34 行、传统版 399→31 行）；新增 `bin/config.sh`（账密/端口/SNI/PG 默认值单点定义，支持 `bin/config.local.sh` 服务器专属覆盖——.gitignore 忽略、三层优先级：命令行环境变量 > config.local.sh > 内置默认值）、`bin/service.sh`（启停操作 + print_access_info/print_db_mode_info/compose_files_for_mode）、`bin/help.sh`（show_help 帮助文本），传统版另增 `bin/python_env.sh`（preflight_check/pip_install_fb/ensure_python_env，自 start_service 抽取）；db_setup.sh 中 PG 默认值改为引用 config 变量（PG_USER_DEFAULT/PG_DB_DEFAULT/PG_PORT_DEFAULT/PG_IMAGE_DEFAULT）；docker-compose.yml 网络名 gift-docker_net 保持硬编码不动（与 compose 一致）；共享文件 common.sh/db_select.sh 零改动 MD5 一致；帮助文本与全部行为经「零 diff」验证逐字不变 | `run.sh`（两版重写）、`bin/config.sh`（新增）、`bin/service.sh`（新增）、`bin/help.sh`（新增）、`bin/python_env.sh`（新增仅传统版）、`bin/db_setup.sh`（两版各自独立）、`.gitignore`（两版） |
 | PG 密码认证修复 + pyzipper 缺失修复 + 密码固定默认值（V10.10.22，两版同步） | ① PG 密码不再每次随机生成——resolve_pg_conn_params() 此前 PG_PASSWORD 未指定时每次 cat /dev/urandom 生成新随机密码，导致重启/重选时密码变化、已有 PG 实例密码不匹配认证失败；现改为固定默认值 gift_pass（config.sh 新增 PG_PASSWORD_DEFAULT，与 ADMIN_PASS 同模式）；② ALTER USER 不再静默吞错——新增 pg_sync_password() 函数（超级用户 socket → OS 级 peer 认证两路兜底），失败报错终止；③ 独立 PG 容器就绪后强制 ALTER USER 同步密码（Docker 卷已存在时 POSTGRES_PASSWORD 被 PG 忽略）；④ 密码自动同步——db_select.sh 新增 _PG_PASSWORD_AT_LOAD，已有 .db.env 的重启场景检测到新密码时自动重执行 setup；⑤ python_env.sh 核心依赖检查新增 pyzipper（此前仅查 flask 四件套，老部署已装时 pip install 整体跳过）；⑥ routes_ext.py 中 HAS_PYZIPPER 模块级变量（import 时快照为 None 永不更新）改为 _ensure_pyzipper() 实时检测函数，修复 pyzipper 已安装也误报"未安装"；⑦ Docker 版独立 PG 密码同步容器名修正——bin/service.sh 误用 ${PROJECT_NAME}-pg（与 docker-compose.db.yml 硬编码 gift_bookkeeping_pg 不一致）致 docker exec 找不到容器、同步从未生效；现修正容器名 + pg_isready 就绪轮询（30 秒）+ 同步后 restart web | `bin/config.sh`（两版）、`bin/db_setup.sh`（两版各自独立）、`bin/db_select.sh`（两版共享）、`bin/service.sh`（Docker 版）、`bin/python_env.sh`（传统版）、`bin/help.sh`（两版）、`routes_ext.py`（两版共享） |
+| --reconfig 参数替代 DB_RESET=1（V10.10.23，两版同步） | run.sh 新增后缀参数解析：$1 子命令 + $2 可选 --reconfig/--reconfig-db，识别后内部设 DB_RESET=1 供 select_db_mode() 使用；用法 `./run.sh restart --reconfig`；DB_RESET=1 环境变量保留兼容 cron/CI；帮助文本与提示消息全部同步更新 | `run.sh`、`bin/help.sh`、`bin/service.sh`（两版）、`bin/db_setup.sh`（Docker 版）、`bin/db_select.sh`（两版共享） |
+| Docker 版与传统版数据隔离（V10.10.24） | Docker 版 PG 默认值差异化：gift_docker_user / gift_docker_pass / gift_docker_db（传统版保持 gift_user / gift_pass / gift_bookkeeping），同服务器双版本部署不再冲突；同步 6 个文件（config.sh、docker-compose.db.yml 插值默认值、service.sh、help.sh、db_setup.sh/docker-compose.yml 注释）；确认全部容器重启策略 unless-stopped 无 always | `bin/config.sh`、`docker-compose.db.yml`、`bin/service.sh`、`bin/help.sh`（仅 Docker 版） |
+| 共享 PG 状态误判 + 独立 PG 卷布局崩溃 + peer 认证 + 未知参数校验（V10.10.25，两版同步） | ① detect_pg_data_dir 改查镜像真实 PGDATA（docker image inspect Config.Env，100% 可靠）——此前按镜像名通配符猜路径，非标准命名镜像猜错致 PG18+ 容器启动即崩溃（"in 18+ ... data in /var/lib/postgresql/data"）；② 独立 PG 容器启动后 3 秒健康校验，崩溃直接展示 docker logs 15 行 + 卷/镜像不匹配解决方案（不再静默超时 30 秒）；③ 共享 PG 用 docker inspect State.Status 严格判定（docker ps 会把 Restarting 崩溃循环容器误判为在运行）；④ pg_sync_password peer 认证优先（docker exec -u postgres OS 级免密）→ socket 超级用户 → env 检测 POSTGRES_USER 三路兜底（psql -U 默认走 scram-sha-256 密码认证非 trust）；⑤ detect_pg_superuser 检测容器真实超级用户，共享 PG 全部 psql 统一 -u postgres + 检测名；⑥ 未知参数报错 exit 1（此前 --reconfiga 静默忽略照常重启） | `run.sh`（两版）、`bin/db_setup.sh`（两版各自独立） |
+| 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（V10.10.26，两版同步） | ① 传统版独立 PG docker run 补 --restart unless-stopped（此前默认 no，服务器重启后容器不自动恢复）；② detect_pg_environment（共享文件）排除 gift_app-pg 与 gift_bookkeeping_pg 两版单租户容器——同服务器双版本部署时防交互菜单误推荐对侧独立 PG 为共享 PG（对侧 reconfig docker rm -f 会摧毁本版共享实例），显式 DB_PG_CONTAINER 跨版本共享仍支持；③ 双版本 9 组合（3×3）数据隔离矩阵确认：账号/库名/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离零冲突；六场景检测排除模拟验证通过 | `bin/db_setup.sh`（传统版）、`bin/db_select.sh`（两版共享） |
 
 #### 6.1.4 PWA 架构
 
@@ -1007,4 +1011,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-30（V10.10.22 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-30（V10.10.26 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
