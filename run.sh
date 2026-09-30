@@ -241,8 +241,13 @@ case "$1" in
         echo_e "  ${GREEN}DB_MODE=sqlite|shared|independent${NC}   直接指定数据库模式跳过交互 (shared 需搭配 DB_PG_CONTAINER)"
         echo_e "  ${GREEN}DB_PG_CONTAINER=<容器名>${NC}            共享 PG 模式复用的已运行容器名，启动时自动接入自有网络 gift-docker_net"
         echo_e "  ${GREEN}DB_RESET=1${NC}                          清除已保存的数据库配置并重新进入交互选择 (自动清理 .db.env 与旧 override 残留)"
-        echo_e "  ${GREEN}PG_IMAGE=postgres:15${NC}                 独立 PG 模式自定义镜像版本（默认: 优先复用本地已有 PG 镜像，无则自动下载 postgres:16-alpine）"
-        echo_e "  示例: DB_RESET=1 ./$(basename "$0") start   # 重新选择数据库模式"
+        echo_e "  ${GREEN}PG_IMAGE=<镜像名:版本>${NC}               独立 PG 模式自定义镜像版本"
+        echo_e "                                           优先级: PG_IMAGE 指定 > 本地已有 PG 镜像 > 自动下载默认 postgres:16-alpine"
+        echo_e "                                           仅独立 PG 模式生效；共享 PG 模式复用已运行容器，不涉及镜像选择"
+        echo_e "  示例: DB_RESET=1 ./$(basename "$0") start                                        # 重新交互选择数据库模式"
+        echo_e "  示例: DB_MODE=independent PG_IMAGE=postgres:16-alpine ./$(basename "$0") start    # 直通独立 PG，指定 16-alpine 镜像"
+        echo_e "  示例: DB_MODE=independent PG_IMAGE=pgvector/pgvector:pg18 ./$(basename "$0") start # 指定 PG18 镜像(挂载路径自动匹配 /var/lib/postgresql)"
+        echo_e "  示例: DB_RESET=1 DB_MODE=independent PG_IMAGE=postgres:15 ./$(basename "$0") start # 清除旧配置重选 + 直通独立 PG + 指定 15 版镜像"
         exit 1
         ;;
 esac
