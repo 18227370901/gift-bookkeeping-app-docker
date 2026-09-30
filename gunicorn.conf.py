@@ -35,7 +35,10 @@ max_requests_jitter = 200
 # 日志
 accesslog = '-'
 errorlog = '-'
-loglevel = os.environ.get('GUNICORN_LOG_LEVEL', 'warning')
+# V10.10.20: warning → info——保留 gunicorn 启动信息（[INFO] Listening at 等），
+# 作为"应用启动成功"的日志判据；此前 warning 级把启动信息全部过滤，
+# 导致应用卡在加载阶段时容器零日志、无从诊断
+loglevel = os.environ.get('GUNICORN_LOG_LEVEL', 'info')
 
 # 优雅关闭超时（收到 SIGTERM 后等待 worker 处理完当前请求的最长时间）
 graceful_timeout = 15
