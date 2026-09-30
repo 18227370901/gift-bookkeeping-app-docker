@@ -1,11 +1,31 @@
 #!/bin/sh
 # db_setup.sh (Docker版) — 数据库模式配置函数（V10.10.20 对齐 mengya-docker 部署模式）
+# V10.10.22: ALTER USER 密码同步改为可靠模式（不再静默吞错）
 # 架构变化：
 #   - 彻底移除 .temp/docker-compose.db-override.yml 动态 override 文件机制（根治 external 网络失效启动失败）
 #   - DATABASE_URL 由 run.sh 经 shell 环境变量插值注入 compose（docker-compose.yml 的 ${DATABASE_URL:-}）
 #   - 独立 PG：由静态 docker-compose.db.yml 按 -f 参数按需合成（萌芽同款 COMPOSE_FILE 机制）
 #   - 共享 PG：通过 docker network connect 把共享 PG 容器接入 gift 自有网络 gift-docker_net（萌芽同款）
 #   - 网络永不声明 external；旧 override 残留文件在各模式中顺手清理
+
+# V10.10.22: 可靠的 PG 密码同步（ALTER USER），两种连接方式兑底
+# 入参 $1: 容器名, $2: 超级用户名（可选，默认 postgres）, $3: 目标用户, $4: 新密码
+pg_sync_password() {
+    _psc="$1"
+    _pss="${2:-postgres}"
+    _psu="$3"
+    _psp="$4"
+    if docker exec "$_psc" psql -U "$_pss" -tAc "SELECT 1" >/dev/null 2>&1; then
+        docker exec "$_psc" psql -U "$_pss" -c "ALTER USER $_psu WITH PASSWORD '$_psp';" >/dev/null 2>&1
+        return $?
+    fi
+    if docker exec -u postgres "$_psc" psql -tAc "SELECT 1" >/dev/null 2>&1; then
+        docker exec -u postgres "$_psc" psql -c "ALTER USER $_psu WITH PASSWORD '$_psp';" >/dev/null 2>&1
+        return $?
+    fi
+    echo_e "${RED}❌ ALTER USER 密码同步失败：无法连接容器 $_psc 的 PostgreSQL（尝试了超级用户 $_pss 与 peer 认证）${NC}"
+    return 1
+}
 
 # SQLite 模式：清空 DATABASE_URL 并清理旧机制残留 override 文件
 setup_sqlite() {
@@ -64,11 +84,19 @@ setup_shared_pg() {
     PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
     # V10.10.20: 连接参数解析（PG_USER/PG_PASSWORD/PG_DB 可自定义，未指定用默认值）
     resolve_pg_conn_params
-    # 幂等创建/更新账号与库（已有部署时 ALTER 同步密码、保留数据，避免 CREATE USER 已存在导致密码与 DATABASE_URL 不匹配）
+    # 幂等创建/更新账号与库（已有部署时 ALTER 同步密码、保留数据）
+    # V10.10.22: ALTER USER 不再静默吞错——失败则报错终止，避免 DATABASE_URL 密码与 PG 实际密码不匹配
     if docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_roles WHERE rolname='$PG_USER'" 2>/dev/null | grep -q 1; then
-        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "ALTER USER $PG_USER WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
+        if ! pg_sync_password "$DB_PG_CONTAINER" "$PG_SUPERUSER" "$PG_USER" "$PG_PASSWORD"; then
+            echo_e "${RED}❌ 共享 PG 密码同步失败，请检查容器 $DB_PG_CONTAINER 的超级用户权限${NC}"
+            return 1
+        fi
     else
-        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER $PG_USER WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
+        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER $PG_USER WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo_e "${RED}❌ CREATE USER $PG_USER 失败，请检查容器 $DB_PG_CONTAINER 的超级用户权限${NC}"
+            return 1
+        fi
     fi
     docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DB'" 2>/dev/null | grep -q 1 || \
         docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE $PG_DB OWNER $PG_USER;" >/dev/null 2>&1 || true

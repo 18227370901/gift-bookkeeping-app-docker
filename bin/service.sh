@@ -79,6 +79,20 @@ start_service() {
     fi
     if [ $? -eq 0 ]; then
         echo_e "${GREEN}✅ Docker 容器集群启动成功!${NC}"
+        # V10.10.22: 独立 PG 容器就绪后强制 ALTER USER 同步密码——
+        # Docker 卷已存在时 POSTGRES_PASSWORD 环境变量被忽略（PG 只在首次初始化时读取），
+        # 需 ALTER USER 兑底确保密码与 DATABASE_URL 一致
+        if [ "${DB_MODE:-}" = "independent" ] && [ -n "${PG_PASSWORD:-}" ]; then
+            _pg_svc="${PROJECT_NAME}-pg"
+            sleep 3  # 等待 PG 容器完全就绪
+            if pg_sync_password "$_pg_svc" "$PG_USER" "$PG_USER" "$PG_PASSWORD"; then
+                echo_e "${GREEN}✅ 独立 PG 密码已同步${NC}"
+            elif pg_sync_password "$_pg_svc" "postgres" "$PG_USER" "$PG_PASSWORD"; then
+                echo_e "${GREEN}✅ 独立 PG 密码已同步（via postgres）${NC}"
+            else
+                echo_e "${YELLOW}⚠️ 独立 PG 密码同步未成功，如遇连接失败请手动检查容器 $_pg_svc${NC}"
+            fi
+        fi
         # V10.10.20(对齐萌芽): 共享 PG 兑底接入——首启时网络在 setup 阶段尚不存在，此处补充接入并重启 web
         # 已接入（setup 阶段完成）则不重复操作，日常 start 零额外重启
         if [ "${DB_MODE:-}" = "shared" ] && [ -n "${DB_PG_CONTAINER:-}" ]; then
