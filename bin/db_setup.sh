@@ -15,6 +15,28 @@ setup_sqlite() {
     echo_e "${GREEN}数据库模式: SQLite 本地文件${NC}"
 }
 
+# V10.10.20: PG 连接参数解析（用户自定义 > 默认值）
+# PG_USER/PG_PASSWORD/PG_DB 环境变量可自定义；未指定时使用默认值（gift_user / 随机 16 位 / gift_bookkeeping）
+# 密码校验：单引号/空格直接拒绝（无法安全拼入 SQL 与 URL）；URL 特殊字符警告
+resolve_pg_conn_params() {
+    PG_USER="${PG_USER:-gift_user}"
+    PG_DB="${PG_DB:-gift_bookkeeping}"
+    if [ -z "$PG_PASSWORD" ]; then
+        PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
+    else
+        case "$PG_PASSWORD" in
+            *\'*|*' '*)
+                echo_e "${RED}❌ 自定义 PG_PASSWORD 含单引号或空格，无法安全用于数据库与连接 URL，请更换${NC}"
+                exit 1
+                ;;
+            *@*|*:*|*/*|*#*|*\?*)
+                echo_e "${YELLOW}⚠️ 自定义 PG_PASSWORD 含 URL 特殊字符（@ : / # ?），如遇连接失败请改用字母数字组合${NC}"
+                ;;
+        esac
+    fi
+    export PG_USER PG_PASSWORD PG_DB
+}
+
 # V10.10.20: 智能匹配 PG 镜像数据目录挂载路径（对齐萌芽 DB_DATA_DIR 机制）
 # PostgreSQL 18+（含 pgvector/pgvector:pg18）PGDATA 为 /var/lib/postgresql；
 # 15/16/14 及 alpine 变体为 /var/lib/postgresql/data
@@ -40,18 +62,21 @@ setup_shared_pg() {
     fi
     PG_SUPERUSER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_PG_CONTAINER" 2>/dev/null | grep '^POSTGRES_USER=' | cut -d= -f2)
     PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
-    PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
-    # 幂等创建/更新 gift 账号与库（已有部署时 ALTER 同步密码、保留数据，避免 CREATE USER 已存在导致密码与 DATABASE_URL 不匹配）
-    if docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_roles WHERE rolname='gift_user'" 2>/dev/null | grep -q 1; then
-        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "ALTER USER gift_user WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
+    # V10.10.20: 连接参数解析（PG_USER/PG_PASSWORD/PG_DB 可自定义，未指定用默认值）
+    resolve_pg_conn_params
+    # 幂等创建/更新账号与库（已有部署时 ALTER 同步密码、保留数据，避免 CREATE USER 已存在导致密码与 DATABASE_URL 不匹配）
+    if docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_roles WHERE rolname='$PG_USER'" 2>/dev/null | grep -q 1; then
+        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "ALTER USER $PG_USER WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
     else
-        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER gift_user WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
+        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE USER $PG_USER WITH PASSWORD '$PG_PASSWORD';" >/dev/null 2>&1 || true
     fi
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_database WHERE datname='gift_bookkeeping'" 2>/dev/null | grep -q 1 || \
-        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE gift_bookkeeping OWNER gift_user;" >/dev/null 2>&1 || true
-    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE gift_bookkeeping TO gift_user;" >/dev/null 2>&1 || true
-    DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@${DB_PG_CONTAINER}:5432/gift_bookkeeping"
-    export DATABASE_URL
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DB'" 2>/dev/null | grep -q 1 || \
+        docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "CREATE DATABASE $PG_DB OWNER $PG_USER;" >/dev/null 2>&1 || true
+    docker exec "$DB_PG_CONTAINER" psql -U "$PG_SUPERUSER" -c "GRANT ALL ON DATABASE $PG_DB TO $PG_USER;" >/dev/null 2>&1 || true
+    # V10.10.20: PG_PORT 可自定义共享容器的连接端口（默认 5432）
+    PG_PORT="${PG_PORT:-5432}"
+    DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${DB_PG_CONTAINER}:${PG_PORT}/${PG_DB}"
+    export DATABASE_URL PG_PORT
     rm -f "$DB_OVERRIDE"
     # 对齐萌芽：网络已存在时立即把共享 PG 容器接入 gift 自有网络（幂等，不影响其原有网络与其他项目）
     if docker network ls --format '{{.Name}}' 2>/dev/null | grep -qx "gift-docker_net"; then
@@ -82,12 +107,14 @@ setup_independent_pg() {
         fi
         echo_e "${GREEN}✅ 默认镜像已下载: ${PG_LOCAL_IMAGE}${NC}"
     fi
-    PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
+    # V10.10.20: 连接参数解析（PG_USER/PG_PASSWORD/PG_DB 可自定义，未指定用默认值）
+    resolve_pg_conn_params
     # V10.10.20: 按镜像智能匹配数据目录挂载路径，供 docker-compose.db.yml 的 ${PG_DATA_DIR} 插值
     PG_DATA_DIR=$(detect_pg_data_dir "$PG_LOCAL_IMAGE")
-    export PG_PASSWORD PG_LOCAL_IMAGE PG_DATA_DIR
-    DATABASE_URL="postgresql://gift_user:${PG_PASSWORD}@pg:5432/gift_bookkeeping"
+    export PG_PASSWORD PG_LOCAL_IMAGE PG_DATA_DIR PG_USER PG_DB
+    # 独立模式容器内端口固定 5432（PG_PORT 仅共享模式生效）
+    DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@pg:5432/${PG_DB}"
     export DATABASE_URL
     rm -f "$DB_OVERRIDE"
-    echo_e "${GREEN}数据库模式: 独立 PostgreSQL (${PG_LOCAL_IMAGE}，挂载 ${PG_DATA_DIR})${NC}"
+    echo_e "${GREEN}数据库模式: 独立 PostgreSQL (${PG_LOCAL_IMAGE}，挂载 ${PG_DATA_DIR}，库 ${PG_DB}/账号 ${PG_USER})${NC}"
 }

@@ -92,13 +92,16 @@ start_service() {
 
     select_db_mode
 
-    # V10.10.20: 独立 PG 模式持久化镜像与挂载路径（共享 save_db_env 不写这两个字段，避免 restart 时镜像/挂载漂移）
+    # V10.10.20: 独立 PG 模式持久化镜像/挂载路径/连接参数（共享 save_db_env 不写这些字段，避免 restart 时漂移）
     if [ "${DB_MODE:-}" = "independent" ] && [ -n "${PG_LOCAL_IMAGE:-}" ]; then
         mkdir -p "$APP_DIR/.temp"
         [ -f "$DB_ENV_FILE" ] || touch "$DB_ENV_FILE"
-        grep -v '^PG_LOCAL_IMAGE=' "$DB_ENV_FILE" 2>/dev/null | grep -v '^PG_DATA_DIR=' > "$DB_ENV_FILE.tmp" || true
+        grep -v -E '^(PG_LOCAL_IMAGE|PG_DATA_DIR|PG_USER|PG_PASSWORD|PG_DB)=' "$DB_ENV_FILE" 2>/dev/null > "$DB_ENV_FILE.tmp" || true
         echo "PG_LOCAL_IMAGE=$PG_LOCAL_IMAGE" >> "$DB_ENV_FILE.tmp"
         echo "PG_DATA_DIR=$PG_DATA_DIR" >> "$DB_ENV_FILE.tmp"
+        echo "PG_USER=$PG_USER" >> "$DB_ENV_FILE.tmp"
+        echo "PG_PASSWORD=$PG_PASSWORD" >> "$DB_ENV_FILE.tmp"
+        echo "PG_DB=$PG_DB" >> "$DB_ENV_FILE.tmp"
         mv "$DB_ENV_FILE.tmp" "$DB_ENV_FILE"
         chmod 600 "$DB_ENV_FILE" 2>/dev/null || true
     fi
@@ -244,10 +247,15 @@ case "$1" in
         echo_e "  ${GREEN}PG_IMAGE=<镜像名:版本>${NC}               独立 PG 模式自定义镜像版本"
         echo_e "                                           优先级: PG_IMAGE 指定 > 本地已有 PG 镜像 > 自动下载默认 postgres:16-alpine"
         echo_e "                                           仅独立 PG 模式生效；共享 PG 模式复用已运行容器，不涉及镜像选择"
+        echo_e "  ${GREEN}PG_USER / PG_PASSWORD / PG_DB${NC}         PG 连接参数自定义 (默认: gift_user / 随机生成 16 位 / gift_bookkeeping)"
+        echo_e "                                           密码请使用字母数字组合 (含单引号/空格会被拒绝，URL 特殊字符 @ : / # ? 会警告)"
+        echo_e "  ${GREEN}PG_PORT${NC}                                PG 连接端口自定义 (默认 5432；仅共享模式生效，独立模式容器内固定 5432)"
         echo_e "  示例: DB_RESET=1 ./$(basename "$0") start                                        # 重新交互选择数据库模式"
         echo_e "  示例: DB_MODE=independent PG_IMAGE=postgres:16-alpine ./$(basename "$0") start    # 直通独立 PG，指定 16-alpine 镜像"
         echo_e "  示例: DB_MODE=independent PG_IMAGE=pgvector/pgvector:pg18 ./$(basename "$0") start # 指定 PG18 镜像(挂载路径自动匹配 /var/lib/postgresql)"
         echo_e "  示例: DB_RESET=1 DB_MODE=independent PG_IMAGE=postgres:15 ./$(basename "$0") start # 清除旧配置重选 + 直通独立 PG + 指定 15 版镜像"
+        echo_e "  示例: DB_MODE=shared DB_PG_CONTAINER=pgvector-18 PG_USER=myuser PG_PASSWORD=mypass123 PG_DB=mygift PG_PORT=5433 ./$(basename "$0") start"
+        echo_e "                                             # 共享 PG + 自定义账号/密码/库名/端口"
         exit 1
         ;;
 esac
