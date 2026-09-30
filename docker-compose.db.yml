@@ -12,8 +12,9 @@ services:
     restart: unless-stopped
     environment:
       # V10.10.20: 库名/账号/密码支持自定义（PG_DB/PG_USER/PG_PASSWORD，由 run.sh 经环境变量插值，未指定用默认值）
-      - POSTGRES_DB=${PG_DB:-gift_bookkeeping}
-      - POSTGRES_USER=${PG_USER:-gift_user}
+      # V10.10.24: 默认值与传统版差异化（gift_docker_db / gift_docker_user），实现同服务器数据隔离
+      - POSTGRES_DB=${PG_DB:-gift_docker_db}
+      - POSTGRES_USER=${PG_USER:-gift_docker_user}
       - POSTGRES_PASSWORD=${PG_PASSWORD}
     volumes:
       # V10.10.20: 挂载路径按镜像智能匹配（PG18+/pgvector:pg18 → /var/lib/postgresql；15/16/alpine → /var/lib/postgresql/data）

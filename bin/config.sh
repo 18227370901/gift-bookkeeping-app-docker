@@ -45,9 +45,9 @@ export ADMIN_PASS="${ADMIN_PASS:-admin123}"
 export APP_IMAGE="${APP_IMAGE:-}"
 export GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"
 
-# ===== PostgreSQL 默认值（bin/db_setup.sh 与交互菜单引用；运行时仍可被 PG_USER/PG_PASSWORD/PG_DB/PG_PORT/PG_IMAGE 环境变量覆盖） =====
-PG_USER_DEFAULT="${PG_USER_DEFAULT:-gift_user}"            # 默认数据库账号
-PG_PASSWORD_DEFAULT="${PG_PASSWORD_DEFAULT:-gift_pass}"    # 默认数据库密码（V10.10.22：固定默认值，不再每次随机生成；建议在 config.local.sh 中覆盖）
-PG_DB_DEFAULT="${PG_DB_DEFAULT:-gift_bookkeeping}"         # 默认数据库名
-PG_PORT_DEFAULT="${PG_PORT_DEFAULT:-5432}"                 # 共享 PG 默认连接端口（独立模式容器内固定 5432 不适用）
-PG_IMAGE_DEFAULT="${PG_IMAGE_DEFAULT:-postgres:16-alpine}" # 独立 PG 默认镜像（本地无任何 PG 镜像时自动下载）
+# ===== PostgreSQL 默认值（V10.10.24: Docker 版与传统版数据隔离，默认值差异化；运行时仍可被 PG_USER/PG_PASSWORD/PG_DB/PG_PORT/PG_IMAGE 环境变量覆盖） =====
+PG_USER_DEFAULT="${PG_USER_DEFAULT:-gift_docker_user}"        # 默认数据库账号（传统版为 gift_user，此处差异化避免同服务器冲突）
+PG_PASSWORD_DEFAULT="${PG_PASSWORD_DEFAULT:-gift_docker_pass}" # 默认数据库密码（传统版为 gift_pass，此处差异化；建议在 config.local.sh 中覆盖为强密码）
+PG_DB_DEFAULT="${PG_DB_DEFAULT:-gift_docker_db}"               # 默认数据库名（传统版为 gift_bookkeeping，此处差异化）
+PG_PORT_DEFAULT="${PG_PORT_DEFAULT:-5432}"                     # 共享 PG 默认连接端口（独立模式容器内固定 5432 不适用）
+PG_IMAGE_DEFAULT="${PG_IMAGE_DEFAULT:-postgres:16-alpine}"    # 独立 PG 默认镜像（本地无任何 PG 镜像时自动下载）

@@ -91,7 +91,7 @@ start_service() {
             _pg_svc="gift_bookkeeping_pg"
             _pg_wait=0
             while [ $_pg_wait -lt 30 ]; do
-                docker exec "$_pg_svc" pg_isready -U "${PG_USER:-gift_user}" > /dev/null 2>&1 && break
+                docker exec "$_pg_svc" pg_isready -U "${PG_USER:-gift_docker_user}" > /dev/null 2>&1 && break
                 sleep 1
                 _pg_wait=$((_pg_wait + 1))
             done

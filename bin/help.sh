@@ -33,7 +33,7 @@ show_help() {
     echo_e "  ${GREEN}PG_IMAGE=<镜像名:版本>${NC}               独立 PG 模式自定义镜像版本"
     echo_e "                                           优先级: PG_IMAGE 指定 > 本地已有 PG 镜像 > 自动下载默认 postgres:16-alpine"
     echo_e "                                           仅独立 PG 模式生效；共享 PG 模式复用已运行容器，不涉及镜像选择"
-    echo_e "  ${GREEN}PG_USER / PG_PASSWORD / PG_DB${NC}         PG 连接参数自定义 (默认: gift_user / gift_pass 固定值 / gift_bookkeeping；密码建议在 bin/config.local.sh 覆盖)"
+    echo_e "  ${GREEN}PG_USER / PG_PASSWORD / PG_DB${NC}         PG 连接参数自定义 (默认: gift_docker_user / gift_docker_pass / gift_docker_db；与传统版差异化隔离；密码建议在 bin/config.local.sh 覆盖)"
     echo_e "                                           密码请使用字母数字组合 (含单引号/空格会被拒绝，URL 特殊字符 @ : / # ? 会警告)"
     echo_e "  ${GREEN}PG_PORT${NC}                                PG 连接端口自定义 (默认 5432；仅共享模式生效，独立模式容器内固定 5432)"
     echo_e "  示例: ./$(basename "$0") restart --reconfig                                   # 重新交互选择数据库模式后 restart"

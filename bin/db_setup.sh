@@ -38,7 +38,7 @@ setup_sqlite() {
 # V10.10.22: PG 连接参数解析（用户自定义 > config.local.sh > 内置默认值；默认值集中定义于 bin/config.sh）
 # PG_USER/PG_PASSWORD/PG_DB 环境变量可自定义；未指定时使用默认值（PG_USER_DEFAULT / PG_PASSWORD_DEFAULT / PG_DB_DEFAULT）
 # V10.10.22 变更：PG_PASSWORD 不再每次随机生成——此前随机密码导致重启/重选时密码变化，已有 PG 实例密码不匹配；
-#                 现改为固定默认值 gift_pass（可在 config.local.sh 中覆盖），已有实例用户自动 ALTER USER 同步
+#                 现改为固定默认值 gift_docker_pass（可在 config.local.sh 中覆盖），已有实例用户自动 ALTER USER 同步
 # 密码校验：单引号/空格直接拒绝（无法安全拼入 SQL 与 URL）；URL 特殊字符警告
 resolve_pg_conn_params() {
     PG_USER="${PG_USER:-$PG_USER_DEFAULT}"
