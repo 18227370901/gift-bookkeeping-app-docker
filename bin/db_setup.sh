@@ -63,21 +63,24 @@ setup_shared_pg() {
     fi
 }
 
-# 独立 PG 模式（对齐萌芽 dedicated 分支：静态 docker-compose.db.yml 按 -f 合成，不生成 override）
+# 独立 PG 模式（对齐萌芽 dedicated：静态 docker-compose.db.yml 按 -f 合成，不生成 override）
+# V10.10.20: 镜像优先级链 —— PG_IMAGE（用户自定义）> 本地已存在镜像（detect_pg_environment）> 默认镜像自动下载（postgres:16-alpine，可 PG_IMAGE_DEFAULT 覆盖）
 setup_independent_pg() {
+    # ① 用户自定义镜像（最高优先）
+    if [ -n "$PG_IMAGE" ]; then
+        PG_LOCAL_IMAGE="$PG_IMAGE"
+        echo_e "${GREEN} 使用用户自定义 PG 镜像: ${PG_LOCAL_IMAGE}${NC}"
+    fi
+    # ② 本地已存在 PG 镜像（由 detect_pg_environment 预检测填充 PG_LOCAL_IMAGE）
     if [ -z "$PG_LOCAL_IMAGE" ]; then
-        echo_e "${YELLOW}本地未找到 PostgreSQL 镜像。${NC}"
-        if [ -t 0 ]; then
-            printf '是否允许下载 postgres:16-alpine (约40MB)? (y/n) [默认 n]: ' >&2
-            read -r _dl_answer
-            case "$_dl_answer" in
-                y|Y|yes|YES) PG_LOCAL_IMAGE="postgres:16-alpine" ;;
-                *) echo_e "${YELLOW}用户取消下载，降级为 SQLite 模式${NC}"; DB_MODE=sqlite; setup_sqlite; return ;;
-            esac
-        else
-            echo_e "${YELLOW}非交互环境无法下载，降级为 SQLite 模式${NC}"
+        # ③ 本地无任何 PG 镜像：自动下载内置默认镜像（不再询问，非交互同样适用）
+        echo_e "${YELLOW}  本地未检测到任何 PostgreSQL 镜像，自动下载内置默认镜像 postgres:16-alpine ...${NC}"
+        PG_LOCAL_IMAGE="${PG_IMAGE_DEFAULT:-postgres:16-alpine}"
+        if ! docker pull "$PG_LOCAL_IMAGE"; then
+            echo_e "${RED}❌ 默认 PG 镜像下载失败，请检查网络，或改用 PG_IMAGE 指定自定义镜像后重试；降级为 SQLite 模式${NC}"
             DB_MODE=sqlite; setup_sqlite; return
         fi
+        echo_e "${GREEN}✅ 默认镜像已下载: ${PG_LOCAL_IMAGE}${NC}"
     fi
     PG_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
     # V10.10.20: 按镜像智能匹配数据目录挂载路径，供 docker-compose.db.yml 的 ${PG_DATA_DIR} 插值

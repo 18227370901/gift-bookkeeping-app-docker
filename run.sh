@@ -92,6 +92,17 @@ start_service() {
 
     select_db_mode
 
+    # V10.10.20: 独立 PG 模式持久化镜像与挂载路径（共享 save_db_env 不写这两个字段，避免 restart 时镜像/挂载漂移）
+    if [ "${DB_MODE:-}" = "independent" ] && [ -n "${PG_LOCAL_IMAGE:-}" ]; then
+        mkdir -p "$APP_DIR/.temp"
+        [ -f "$DB_ENV_FILE" ] || touch "$DB_ENV_FILE"
+        grep -v '^PG_LOCAL_IMAGE=' "$DB_ENV_FILE" 2>/dev/null | grep -v '^PG_DATA_DIR=' > "$DB_ENV_FILE.tmp" || true
+        echo "PG_LOCAL_IMAGE=$PG_LOCAL_IMAGE" >> "$DB_ENV_FILE.tmp"
+        echo "PG_DATA_DIR=$PG_DATA_DIR" >> "$DB_ENV_FILE.tmp"
+        mv "$DB_ENV_FILE.tmp" "$DB_ENV_FILE"
+        chmod 600 "$DB_ENV_FILE" 2>/dev/null || true
+    fi
+
     _compose_files=$(compose_files_for_mode)
     if [ -n "$APP_IMAGE" ]; then
         echo_e "${GREEN}使用预构建镜像模式: ${APP_IMAGE}${NC}"
@@ -230,6 +241,7 @@ case "$1" in
         echo_e "  ${GREEN}DB_MODE=sqlite|shared|independent${NC}   直接指定数据库模式跳过交互 (shared 需搭配 DB_PG_CONTAINER)"
         echo_e "  ${GREEN}DB_PG_CONTAINER=<容器名>${NC}            共享 PG 模式复用的已运行容器名，启动时自动接入自有网络 gift-docker_net"
         echo_e "  ${GREEN}DB_RESET=1${NC}                          清除已保存的数据库配置并重新进入交互选择 (自动清理 .db.env 与旧 override 残留)"
+        echo_e "  ${GREEN}PG_IMAGE=postgres:15${NC}                 独立 PG 模式自定义镜像版本（默认: 优先复用本地已有 PG 镜像，无则自动下载 postgres:16-alpine）"
         echo_e "  示例: DB_RESET=1 ./$(basename "$0") start   # 重新选择数据库模式"
         exit 1
         ;;
