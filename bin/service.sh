@@ -82,13 +82,30 @@ start_service() {
         # V10.10.22: 独立 PG 容器就绪后强制 ALTER USER 同步密码——
         # Docker 卷已存在时 POSTGRES_PASSWORD 环境变量被忽略（PG 只在首次初始化时读取），
         # 需 ALTER USER 兑底确保密码与 DATABASE_URL 一致
+        # V10.10.23: ① 容器名修正为 gift_bookkeeping_pg——此前误用 ${PROJECT_NAME}-pg，
+        #    与 docker-compose.db.yml 硬编码的 container_name 不一致，docker exec 找不到容器，
+        #    密码同步从未生效（独立 PG卷已存在时切换/更新密码仍会认证失败）
+        #    ② pg_isready 就绪轮询（最长 30 秒）取代固定 sleep 3（首次初始化卷时 PG 就绪可能更久）
+        #    ③ 同步成功后 restart web——web 若以旧密码启动连接失败，不同步重启无法恢复
         if [ "${DB_MODE:-}" = "independent" ] && [ -n "${PG_PASSWORD:-}" ]; then
-            _pg_svc="${PROJECT_NAME}-pg"
-            sleep 3  # 等待 PG 容器完全就绪
+            _pg_svc="gift_bookkeeping_pg"
+            _pg_wait=0
+            while [ $_pg_wait -lt 30 ]; do
+                docker exec "$_pg_svc" pg_isready -U "${PG_USER:-gift_user}" > /dev/null 2>&1 && break
+                sleep 1
+                _pg_wait=$((_pg_wait + 1))
+            done
             if pg_sync_password "$_pg_svc" "$PG_USER" "$PG_USER" "$PG_PASSWORD"; then
-                echo_e "${GREEN}✅ 独立 PG 密码已同步${NC}"
+                _ps_ok=1
             elif pg_sync_password "$_pg_svc" "postgres" "$PG_USER" "$PG_PASSWORD"; then
-                echo_e "${GREEN}✅ 独立 PG 密码已同步（via postgres）${NC}"
+                _ps_ok=1
+            else
+                _ps_ok=""
+            fi
+            if [ -n "$_ps_ok" ]; then
+                echo_e "${GREEN}✅ 独立 PG 密码已同步${NC}"
+                $DOCKER_COMPOSE $_compose_files restart web >/dev/null 2>&1
+                echo_e "${GREEN}✅ web 容器已重启并以同步后的密码连接 PG${NC}"
             else
                 echo_e "${YELLOW}⚠️ 独立 PG 密码同步未成功，如遇连接失败请手动检查容器 $_pg_svc${NC}"
             fi
