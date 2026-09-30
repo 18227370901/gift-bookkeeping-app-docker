@@ -82,7 +82,7 @@ start_service() {
         # V10.10.22: 独立 PG 容器就绪后强制 ALTER USER 同步密码——
         # Docker 卷已存在时 POSTGRES_PASSWORD 环境变量被忽略（PG 只在首次初始化时读取），
         # 需 ALTER USER 兑底确保密码与 DATABASE_URL 一致
-        # V10.10.23: ① 容器名修正为 gift_bookkeeping_pg——此前误用 ${PROJECT_NAME}-pg，
+        # V10.10.22: ① 容器名修正为 gift_bookkeeping_pg——此前误用 ${PROJECT_NAME}-pg，
         #    与 docker-compose.db.yml 硬编码的 container_name 不一致，docker exec 找不到容器，
         #    密码同步从未生效（独立 PG卷已存在时切换/更新密码仍会认证失败）
         #    ② pg_isready 就绪轮询（最长 30 秒）取代固定 sleep 3（首次初始化卷时 PG 就绪可能更久）
