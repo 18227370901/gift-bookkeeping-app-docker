@@ -1,9 +1,10 @@
-# 人情记账本 独立 PostgreSQL 模式 compose 扩展文件（V10.10.20，对齐 mengya-docker 静态文件模式）
+# 人情记账本 独立 PostgreSQL 模式 compose 扩展文件（V10.10.28 PG 版本化数据卷）
 # 由 run.sh 在 DB_MODE=independent 时按需加载：docker compose -f docker-compose.yml -f docker-compose.db.yml
 # 取代旧版运行时生成的 .temp/docker-compose.db-override.yml 动态 override 机制
 # 说明：
 #   - pg 容器不映射宿主机端口，仅在 gift-docker_net 内部互联（安全模型与萌芽一致）
-#   - PG_LOCAL_IMAGE / PG_PASSWORD / PG_DATA_DIR 由 run.sh 检测/生成后经 shell 环境变量插值注入
+#   - PG_LOCAL_IMAGE / PG_PASSWORD / PG_DATA_DIR / PG_MAJOR 由 run.sh 检测/生成后经 shell 环境变量插值注入
+#   - V10.10.28: 卷名改为 gift_pg_data_${PG_MAJOR:-default}（版本化隔离，防止跨 PG 版本 initdb 冲突）
 
 services:
   pg:
@@ -18,12 +19,13 @@ services:
       - POSTGRES_PASSWORD=${PG_PASSWORD}
     volumes:
       # V10.10.20: 挂载路径按镜像智能匹配（PG18+/pgvector:pg18 → /var/lib/postgresql；15/16/alpine → /var/lib/postgresql/data）
-      - gift_pg_data:${PG_DATA_DIR:-/var/lib/postgresql/data}
+      # V10.10.28: 卷名改为版本化 gift_pg_data_${PG_MAJOR:-default}，各 PG 版本数据天然隔离
+      - gift_pg_data_${PG_MAJOR:-default}:${PG_DATA_DIR:-/var/lib/postgresql/data}
 
   web:
     depends_on:
       - pg
 
 volumes:
-  gift_pg_data:
+  gift_pg_data_${PG_MAJOR:-default}:
     driver: local

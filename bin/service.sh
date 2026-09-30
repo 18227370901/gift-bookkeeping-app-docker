@@ -55,12 +55,13 @@ start_service() {
     if [ "${DB_MODE:-}" = "independent" ] && [ -n "${PG_LOCAL_IMAGE:-}" ]; then
         mkdir -p "$APP_DIR/.temp"
         [ -f "$DB_ENV_FILE" ] || touch "$DB_ENV_FILE"
-        grep -v -E '^(PG_LOCAL_IMAGE|PG_DATA_DIR|PG_USER|PG_PASSWORD|PG_DB)=' "$DB_ENV_FILE" 2>/dev/null > "$DB_ENV_FILE.tmp" || true
+        grep -v -E '^(PG_LOCAL_IMAGE|PG_DATA_DIR|PG_USER|PG_PASSWORD|PG_DB|PG_MAJOR)=' "$DB_ENV_FILE" 2>/dev/null > "$DB_ENV_FILE.tmp" || true
         echo "PG_LOCAL_IMAGE=$PG_LOCAL_IMAGE" >> "$DB_ENV_FILE.tmp"
         echo "PG_DATA_DIR=$PG_DATA_DIR" >> "$DB_ENV_FILE.tmp"
         echo "PG_USER=$PG_USER" >> "$DB_ENV_FILE.tmp"
         echo "PG_PASSWORD=$PG_PASSWORD" >> "$DB_ENV_FILE.tmp"
         echo "PG_DB=$PG_DB" >> "$DB_ENV_FILE.tmp"
+        echo "PG_MAJOR=$PG_MAJOR" >> "$DB_ENV_FILE.tmp"
         mv "$DB_ENV_FILE.tmp" "$DB_ENV_FILE"
         chmod 600 "$DB_ENV_FILE" 2>/dev/null || true
     fi

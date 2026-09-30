@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.27 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
+> **Docker 版** · 版本: V10.10.28 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
 
 ---
 
@@ -524,6 +524,7 @@ base.html (493行 — 全局布局骨架)
 | 共享 PG 状态误判 + 独立 PG 卷布局崩溃 + peer 认证 + 未知参数校验（V10.10.25，两版同步） | ① detect_pg_data_dir 改查镜像真实 PGDATA（docker image inspect Config.Env，100% 可靠）——此前按镜像名通配符猜路径，非标准命名镜像猜错致 PG18+ 容器启动即崩溃（"in 18+ ... data in /var/lib/postgresql/data"）；② 独立 PG 容器启动后 3 秒健康校验，崩溃直接展示 docker logs 15 行 + 卷/镜像不匹配解决方案（不再静默超时 30 秒）；③ 共享 PG 用 docker inspect State.Status 严格判定（docker ps 会把 Restarting 崩溃循环容器误判为在运行）；④ pg_sync_password peer 认证优先（docker exec -u postgres OS 级免密）→ socket 超级用户 → env 检测 POSTGRES_USER 三路兜底（psql -U 默认走 scram-sha-256 密码认证非 trust）；⑤ detect_pg_superuser 检测容器真实超级用户，共享 PG 全部 psql 统一 -u postgres + 检测名；⑥ 未知参数报错 exit 1（此前 --reconfiga 静默忽略照常重启） | `run.sh`（两版）、`bin/db_setup.sh`（两版各自独立） |
 | 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（V10.10.26，两版同步） | ① 传统版独立 PG docker run 补 --restart unless-stopped（此前默认 no，服务器重启后容器不自动恢复）；② detect_pg_environment（共享文件）排除 gift_app-pg 与 gift_bookkeeping_pg 两版单租户容器——同服务器双版本部署时防交互菜单误推荐对侧独立 PG 为共享 PG（对侧 reconfig docker rm -f 会摧毁本版共享实例），显式 DB_PG_CONTAINER 跨版本共享仍支持；③ 双版本 9 组合（3×3）数据隔离矩阵确认：账号/库名/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离零冲突；六场景检测排除模拟验证通过 | `bin/db_setup.sh`（传统版）、`bin/db_select.sh`（两版共享） |
 | 两版首次部署默认数据库差异化（V10.10.27，两版同步） | 传统版首次部署交互菜单默认 SQLite（选项 1）、Docker 版默认共享 PG（选项 2）——bin/config.sh 新增 DB_MENU_DEFAULT（传统版=1、Docker 版=2，可被环境变量/config.local.sh 覆盖），db_select.sh（共享文件）默认选项改读该变量，替代此前按内存阈值的智能推荐（旧逻辑两版行为相同：≥400MB 推共享 PG、≥700MB 推独立 PG）；环境兜底：默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite，非法值/未设置同样回退；菜单项 1（SQLite）补上与其他项一致的 ⭐ 推荐标记；非交互环境（cron/管道）默认行为不变仍为 SQLite；五场景模拟验证通过 | `bin/config.sh`（两版各自）、`bin/db_select.sh`（两版共享） |
+| 独立 PG 版本化数据卷 + 存量卷自动迁移（V10.10.28，两版同步） | ① 卷名改为版本化 ${...}_pg_data_${PG_MAJOR}（传统版 gift_app_pg_data_16 / Docker 版 gift_pg_data_16），各 PG 版本数据天然隔离，此前固定卷名跨版本镜像切换 initdb 冲突（PG16→18 报 "in 18+" / PG18→16 报 "not empty"）；② detect_pg_major 三级探测：docker image inspect 读 PG_MAJOR env → 镜像 tag 数字解析 → 未知 default；③ 存量卷自动迁移：新卷不存在而旧固定卷存在时读 PG_VERSION 判断兼容性——同版本 cp -a 迁移（保留旧卷备份）、跨版本保留旧卷用新空卷（附 pg_upgrade 指引），Docker 版用 docker volume ls 查找 compose 项目前缀实际卷名；④ Docker 版 detect_pg_data_dir 从名字通配符升级为 docker image inspect 查镜像真实 PGDATA（与 V10.10.25 传统版同步）；⑤ Docker 版 service.sh 将 PG_MAJOR 持久化至 .temp/.db.env，compose 卷名插值 restart 不漂移；docker-compose.db.yml 卷名改 gift_pg_data_${PG_MAJOR:-default} | `bin/db_setup.sh`（两版各自独立）、`docker-compose.db.yml`（Docker 版）、`bin/service.sh`（Docker 版） |
 
 #### 6.1.4 PWA 架构
 
@@ -1012,4 +1013,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-30（V10.10.27 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-30（V10.10.28 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表

@@ -74,16 +74,114 @@ resolve_pg_conn_params() {
     export PG_USER PG_PASSWORD PG_DB
 }
 
-# V10.10.20: 智能匹配 PG 镜像数据目录挂载路径（对齐萌芽 DB_DATA_DIR 机制）
+# V10.10.25: 优先查询镜像真实 PGDATA 环境变量（docker image inspect，100% 可靠），名字模式仅作兜底
 # PostgreSQL 18+（含 pgvector/pgvector:pg18）PGDATA 为 /var/lib/postgresql；
 # 15/16/14 及 alpine 变体为 /var/lib/postgresql/data
 # 挂载路径与镜像不匹配会导致数据不落持久卷，容器删除即数据丢失
 detect_pg_data_dir() {
-    case "$1" in
+    _img="$1"
+    # ① 查询镜像 Config.Env 中的 PGDATA（官方 postgres 及衍生镜像如 pgvector 均内置该变量）
+    _pgdata=$(docker image inspect "$_img" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^PGDATA=' | cut -d= -f2)
+    if [ -n "$_pgdata" ]; then
+        case "$_pgdata" in
+            /var/lib/postgresql/data)
+                echo "/var/lib/postgresql/data"   # 18 以下版本：PGDATA 即挂载点
+                return
+                ;;
+            /var/lib/postgresql/*)
+                echo "/var/lib/postgresql"        # 18+ 版本：PGDATA 为版本化子目录（如 18/docker），挂载其父目录
+                return
+                ;;
+            *)
+                echo "$_pgdata"                   # 非标准路径镜像：直接挂载 PGDATA 本身
+                return
+                ;;
+        esac
+    fi
+    # ② 镜像无 PGDATA 变量时按名字模式兜底
+    case "$_img" in
         *18*|*pg18*) echo "/var/lib/postgresql" ;;
         *15*|*16*|*14*|*alpine*) echo "/var/lib/postgresql/data" ;;
-        *) echo "/var/lib/postgresql" ;;
+        *) echo "/var/lib/postgresql/data" ;;     # 未知镜像默认旧版路径（18 以下仍是主流）
     esac
+}
+
+# V10.10.28: 检测 PG 镜像的主版本号（用于版本化数据卷命名，隔离不同 PG 版本的数据布局）
+# 三级探测：① docker image inspect 读 PG_MAJOR env → ② 镜像 tag 数字解析 → ③ 未知 → default
+# 背景：PG18+ 镜像（如 pgvector:pg18）数据目录布局与 PG16 不同（/var/lib/postgresql vs /var/lib/postgresql/data），
+#       同一固定卷名跨版本切换会导致 initdb 失败（"not empty" 或 "in 18+" 报错）；
+#       版本化卷名 gift_pg_data_${PG_MAJOR} 使各版本数据天然隔离
+detect_pg_major() {
+    _img="$1"
+    # ① 查询镜像 Config.Env 中的 PG_MAJOR（官方 postgres 及衍生镜像如 pgvector 均内置该变量）
+    _major=$(docker image inspect "$_img" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^PG_MAJOR=' | cut -d= -f2)
+    if [ -n "$_major" ]; then
+        echo "$_major"
+        return
+    fi
+    # ② 从镜像 tag 解析主版本号（如 postgres:16-alpine → 16, pgvector/pgvector:pg18 → 18, postgres:16.4 → 16）
+    _tag="${_img##*:}"
+    _major=$(echo "$_tag" | grep -oE '[0-9]+' | head -1)
+    if [ -n "$_major" ]; then
+        echo "$_major"
+        return
+    fi
+    # ③ 未知镜像（如 postgres:latest、自建 tag 无版本号）→ default
+    echo "default"
+}
+
+# V10.10.28: 存量卷自动迁移（Docker 版专用——compose 卷名带项目前缀，需 docker volume ls 查找实际卷名）
+# 背景：V10.10.28 前 compose 卷名为固定 gift_pg_data，升级后改为 gift_pg_data_${PG_MAJOR}；
+#       此函数检测旧卷并迁移兼容数据，确保升级脚本后已有数据不丢失
+# 兼容判定：读取旧卷中 PG_VERSION，与当前镜像 PG_MAJOR 一致则 cp -a 迁移；不一致则保留旧卷用新空卷
+# 入参: $1=PG_MAJOR, $2=PG镜像名（用于读取卷内数据与 cp 操作）
+migrate_compose_pg_volume() {
+    _mc_major="$1"; _mc_image="$2"
+    # 查找旧固定卷（compose 项目前缀 + gift_pg_data，不带版本后缀）
+    _mc_old=$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E '_gift_pg_data$' | head -1)
+    # 查找新版本化卷（compose 项目前缀 + gift_pg_data_${PG_MAJOR}）
+    _mc_new=$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E "_gift_pg_data_${_mc_major}$" | head -1)
+    # 新卷已存在 → 无需迁移（已有版本化卷数据）
+    if [ -n "$_mc_new" ]; then
+        return 0
+    fi
+    # 旧卷不存在 → 全新部署，无需迁移
+    if [ -z "$_mc_old" ]; then
+        return 0
+    fi
+    # 读取旧卷中 PG_VERSION 判断数据兼容性
+    # PG16-: PG_VERSION 在卷根目录；PG18+: PG_VERSION 在 <major>/docker/ 子目录
+    _mc_old_ver=$(docker run --rm --entrypoint sh -v "$_mc_old:/data:ro" "$_mc_image" -c '
+        if [ -f /data/PG_VERSION ]; then
+            cat /data/PG_VERSION
+        else
+            for d in /data/*/docker/PG_VERSION; do
+                [ -f "$d" ] && cat "$d" && break
+            done
+        fi
+    ' 2>/dev/null | tr -d ' \t\r\n')
+    if [ -n "$_mc_old_ver" ] && [ "$_mc_old_ver" = "$_mc_major" ]; then
+        # 同版本兼容 → 从旧卷名提取项目前缀，创建新版本化卷并迁移数据
+        _mc_prefix=$(echo "$_mc_old" | sed 's/_gift_pg_data$//')
+        _mc_new_name="${_mc_prefix}_gift_pg_data_${_mc_major}"
+        docker volume create "$_mc_new_name" >/dev/null 2>&1
+        echo_e "${YELLOW}  检测到旧数据卷 ${_mc_old}（PG${_mc_old_ver}），正在迁移至版本化卷 ${_mc_new_name} ...${NC}"
+        docker run --rm --entrypoint sh -v "$_mc_old:/src" -v "$_mc_new_name:/dst" "$_mc_image" -c "cp -a /src/. /dst/"
+        if [ $? -eq 0 ]; then
+            echo_e "${GREEN}✅ 旧数据已迁移至 ${_mc_new_name}（旧卷 ${_mc_old} 保留备份）${NC}"
+        else
+            echo_e "${YELLOW}⚠️ 数据迁移失败，将使用新空卷初始化（旧卷 ${_mc_old} 保留）${NC}"
+            docker volume rm "$_mc_new_name" >/dev/null 2>&1 || true
+        fi
+    else
+        # 版本不兼容或旧卷为空 → 保留旧卷，使用新空卷初始化
+        if [ -n "$_mc_old_ver" ]; then
+            echo_e "${YELLOW}  旧数据卷 ${_mc_old}（PG${_mc_old_ver}）与当前镜像（PG${_mc_major}）不兼容，保留旧卷不迁移${NC}"
+            echo_e "${YELLOW}  使用新空卷初始化；如需使用旧数据，请用匹配的 PG 版本启动或手动 pg_upgrade${NC}"
+        else
+            echo_e "${YELLOW}  旧数据卷 ${_mc_old} 无法读取 PG 版本信息（可能为空卷），使用新空卷初始化${NC}"
+        fi
+    fi
 }
 
 # 共享 PG 模式（对齐萌芽 shared 分支：复用已有 PG 容器 + 接入自有网络，不生成 override）
@@ -160,10 +258,14 @@ setup_independent_pg() {
     resolve_pg_conn_params
     # V10.10.20: 按镜像智能匹配数据目录挂载路径，供 docker-compose.db.yml 的 ${PG_DATA_DIR} 插值
     PG_DATA_DIR=$(detect_pg_data_dir "$PG_LOCAL_IMAGE")
-    export PG_PASSWORD PG_LOCAL_IMAGE PG_DATA_DIR PG_USER PG_DB
+    # V10.10.28: 检测 PG 主版本号 + 版本化数据卷名（隔离不同 PG 版本的存储布局，防止跨版本 initdb 冲突）
+    PG_MAJOR=$(detect_pg_major "$PG_LOCAL_IMAGE")
+    # V10.10.28: 存量卷迁移——旧固定 compose 卷名 gift_pg_data → 新版本化卷名 gift_pg_data_${PG_MAJOR}
+    migrate_compose_pg_volume "$PG_MAJOR" "$PG_LOCAL_IMAGE"
+    export PG_PASSWORD PG_LOCAL_IMAGE PG_DATA_DIR PG_USER PG_DB PG_MAJOR
     # 独立模式容器内端口固定 5432（PG_PORT 仅共享模式生效）
     DATABASE_URL="postgresql://${PG_USER}:${PG_PASSWORD}@pg:5432/${PG_DB}"
     export DATABASE_URL
     rm -f "$DB_OVERRIDE"
-    echo_e "${GREEN}数据库模式: 独立 PostgreSQL (${PG_LOCAL_IMAGE}，挂载 ${PG_DATA_DIR}，库 ${PG_DB}/账号 ${PG_USER})${NC}"
+    echo_e "${GREEN}数据库模式: 独立 PostgreSQL (${PG_LOCAL_IMAGE}，挂载 ${PG_DATA_DIR}，卷 gift_pg_data_${PG_MAJOR}，库 ${PG_DB}/账号 ${PG_USER})${NC}"
 }
