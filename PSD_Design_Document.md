@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.26 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
+> **Docker 版** · 版本: V10.10.27 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
 
 ---
 
@@ -523,6 +523,7 @@ base.html (493行 — 全局布局骨架)
 | Docker 版与传统版数据隔离（V10.10.24） | Docker 版 PG 默认值差异化：gift_docker_user / gift_docker_pass / gift_docker_db（传统版保持 gift_user / gift_pass / gift_bookkeeping），同服务器双版本部署不再冲突；同步 6 个文件（config.sh、docker-compose.db.yml 插值默认值、service.sh、help.sh、db_setup.sh/docker-compose.yml 注释）；确认全部容器重启策略 unless-stopped 无 always | `bin/config.sh`、`docker-compose.db.yml`、`bin/service.sh`、`bin/help.sh`（仅 Docker 版） |
 | 共享 PG 状态误判 + 独立 PG 卷布局崩溃 + peer 认证 + 未知参数校验（V10.10.25，两版同步） | ① detect_pg_data_dir 改查镜像真实 PGDATA（docker image inspect Config.Env，100% 可靠）——此前按镜像名通配符猜路径，非标准命名镜像猜错致 PG18+ 容器启动即崩溃（"in 18+ ... data in /var/lib/postgresql/data"）；② 独立 PG 容器启动后 3 秒健康校验，崩溃直接展示 docker logs 15 行 + 卷/镜像不匹配解决方案（不再静默超时 30 秒）；③ 共享 PG 用 docker inspect State.Status 严格判定（docker ps 会把 Restarting 崩溃循环容器误判为在运行）；④ pg_sync_password peer 认证优先（docker exec -u postgres OS 级免密）→ socket 超级用户 → env 检测 POSTGRES_USER 三路兜底（psql -U 默认走 scram-sha-256 密码认证非 trust）；⑤ detect_pg_superuser 检测容器真实超级用户，共享 PG 全部 psql 统一 -u postgres + 检测名；⑥ 未知参数报错 exit 1（此前 --reconfiga 静默忽略照常重启） | `run.sh`（两版）、`bin/db_setup.sh`（两版各自独立） |
 | 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（V10.10.26，两版同步） | ① 传统版独立 PG docker run 补 --restart unless-stopped（此前默认 no，服务器重启后容器不自动恢复）；② detect_pg_environment（共享文件）排除 gift_app-pg 与 gift_bookkeeping_pg 两版单租户容器——同服务器双版本部署时防交互菜单误推荐对侧独立 PG 为共享 PG（对侧 reconfig docker rm -f 会摧毁本版共享实例），显式 DB_PG_CONTAINER 跨版本共享仍支持；③ 双版本 9 组合（3×3）数据隔离矩阵确认：账号/库名/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离零冲突；六场景检测排除模拟验证通过 | `bin/db_setup.sh`（传统版）、`bin/db_select.sh`（两版共享） |
+| 两版首次部署默认数据库差异化（V10.10.27，两版同步） | 传统版首次部署交互菜单默认 SQLite（选项 1）、Docker 版默认共享 PG（选项 2）——bin/config.sh 新增 DB_MENU_DEFAULT（传统版=1、Docker 版=2，可被环境变量/config.local.sh 覆盖），db_select.sh（共享文件）默认选项改读该变量，替代此前按内存阈值的智能推荐（旧逻辑两版行为相同：≥400MB 推共享 PG、≥700MB 推独立 PG）；环境兜底：默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite，非法值/未设置同样回退；菜单项 1（SQLite）补上与其他项一致的 ⭐ 推荐标记；非交互环境（cron/管道）默认行为不变仍为 SQLite；五场景模拟验证通过 | `bin/config.sh`（两版各自）、`bin/db_select.sh`（两版共享） |
 
 #### 6.1.4 PWA 架构
 
@@ -1011,4 +1012,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-30（V10.10.26 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-09-30（V10.10.27 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
