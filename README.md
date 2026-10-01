@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🔄 **V10.10.29 独立 PG 生命周期闭环：stop 无条件释放 + start 自动重建（两版同步）**：修复传统版独立 PG 部署后 `./run.sh stop` 不释放 PG 容器的问题；本版代码仅涉及共享文件 `db_select.sh` 修正（本版 stop = compose down 删容器、start = compose up 自动重建，生命周期本就闭环）——**`DB_MODE` 环境变量直通部署改为无条件 `save_db_env`**（此前仅交互终端且非 independent 保存）：independent 直通部署后 stop 能正确识别模式，compose down 带上 `docker-compose.db.yml` 删除 pg 容器（此前直通部署后 stop 只删 web/nginx，pg 容器残留）；非交互（cron/CI）直通部署同样保存，后续 stop 与无参 restart 均可正确复用配置；传统版另修复三处缺陷（stop 释放逻辑嵌在端口检查分支内 / 仅 docker stop 不删容器 / start 不重建容器），详见变更历史章节；两版 `db_select.sh` MD5 逐字一致，沙盒 mock docker 26 项断言全部通过。
 > - 🐘 **V10.10.28 独立 PG 版本化数据卷 + 存量卷自动迁移（两版同步）**：① **PG 版本化数据卷命名**——此前独立 PG 使用固定卷名（传统版 `${PROJECT_NAME}_pg_data` / Docker 版 `gift_pg_data`），跨 PG 版本镜像切换时同一卷内数据布局冲突导致 initdb 失败（PG16→18 报 "in 18+" / PG18→16 报 "not empty"）；现改为版本化卷名 `${...}_pg_data_${PG_MAJOR}`（如 `gift_pg_data_16`），各 PG 版本数据天然隔离；② **`detect_pg_major` 三级探测**——`docker image inspect` 读镜像 PG_MAJOR env → 镜像 tag 数字解析 → 未知 default；③ **存量卷自动迁移**——新版本化卷不存在而旧固定卷存在时，读取旧卷 PG_VERSION 判断兼容性：同版本 `cp -a` 迁移（保留旧卷备份）、跨版本保留旧卷用新空卷初始化（附 pg_upgrade 指引）；④ **Docker 版 `detect_pg_data_dir` 升级**——从旧版名字通配符匹配升级为 `docker image inspect` 查镜像真实 PGDATA（与 V10.10.25 传统版同步）；⑤ **Docker 版 `PG_MAJOR` 持久化**——`service.sh` 将 PG_MAJOR 写入 `.temp/.db.env`，restart 不漂移；`docker-compose.db.yml` 卷名改插值 `gift_pg_data_${PG_MAJOR:-default}`。
 > - 🎯 **V10.10.27 两版首次部署默认数据库差异化（两版同步）**：传统版首次部署交互菜单**默认 SQLite**、Docker 版**默认共享 PG**——`bin/config.sh` 新增 `DB_MENU_DEFAULT`（传统版=1、Docker 版=2，可被环境变量/config.local.sh 覆盖），`db_select.sh`（共享文件）默认选项改读该变量，替代此前按内存阈值的智能推荐（旧逻辑两版行为相同）；**环境兜底**：Docker 版默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite（避免默认选项必然失败），非法值/未设置同样回退 SQLite；菜单项 1（SQLite）补上与其他项一致的 ⭐ 推荐标记；五场景模拟验证通过（传统→1 / Docker 有 PG→2 / Docker 无 PG→回退 1 / 非法值→回退 1 / 未设置→回退 1）。
 > - 🔒 **V10.10.26 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（两版同步）**：① **传统版独立 PG 补 `--restart unless-stopped`**——此前 `docker run` 无重启策略（默认 no），服务器重启/Docker 守护进程重启后独立 PG 容器不会自动恢复，现与 Docker 版 compose 策略一致；② **共享 PG 自动检测排除对侧单租户容器**——`detect_pg_environment` 排除 `gift_app-pg`（传统版）与 `gift_bookkeeping_pg`（Docker 版），防止同服务器双版本部署时交互菜单误推荐对侧独立 PG 容器为共享 PG（对侧 reconfig 时 `docker rm -f` 会摧毁本版正在共享的实例）；显式 `DB_PG_CONTAINER=<容器名>` 跨版本共享仍完全支持；③ **双版本 9 组合数据隔离矩阵确认**——账号（gift_user vs gift_docker_user）/库名（gift_bookkeeping vs gift_docker_db）/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离，任一模式组合零冲突（六场景模拟验证通过）。
@@ -1386,6 +1387,26 @@ NAME  ...  STATUS
 - `bin/db_setup.sh`（两版各自独立：新增 detect_pg_major / migrate 函数 / setup_independent_pg 版本化卷名 + Docker 版 detect_pg_data_dir 升级）
 - `docker-compose.db.yml`（Docker 版：卷名改插值 `gift_pg_data_${PG_MAJOR:-default}`）
 - `bin/service.sh`（Docker 版：PG_MAJOR 加入持久化参数列表）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.29：独立 PG 生命周期闭环——stop 无条件释放 + start 自动重建（2026-10-01，传统版 + Docker 版同步）
+
+#### 背景问题
+用户报告传统版以独立 PG 方式部署后，`./run.sh stop` 不会自动释放 PG 容器。核实发现一处两版共有缺陷与三处传统版独立缺陷：
+- **两版共有：`DB_MODE=independent` 环境变量直通部署不保存 `.db.env`**——`db_select.sh` 第 ① 分支仅交互终端且非 independent 才 `save_db_env`；本版直通部署后 stop 时 `compose_files_for_mode` 读不出 independent 模式，`compose down` 不带 `docker-compose.db.yml`，pg 容器（`gift_bookkeeping_pg`）残留运行
+- **传统版独立：stop 释放逻辑嵌在端口检查成功分支内**（端口被占时整体跳过）、**仅 `docker stop` 不删容器**（Exited 残留，与 Docker 版 compose down 行为不一致）、**start 从不重建已释放的 PG 容器**（本版靠 `compose up -d` 自动重建，传统版无对应逻辑）
+
+#### 本版变更内容
+- **`db_select.sh`（两版共享，MD5 逐字一致）**：第 ① 分支（DB_MODE 环境变量直通）改为无条件 `save_db_env`——本版受益点：independent 直通部署后 stop 能正确识别模式，`compose down` 带上 `docker-compose.db.yml` 删除 pg 容器；非交互（cron/CI）直通部署同样保存，后续 stop 与无参 restart 均可正确复用配置
+- Docker 版 stop（`compose down`：容器删除、数据卷保留）与 start（`compose up -d` 自动重建 pg 容器）生命周期本就闭环，`bin/service.sh` 无需改动；传统版配套修复详见传统版 README V10.10.29 章节（stop 无条件 `docker rm -f` + start 重建闭环 + `.db.env` 持久化扩展）
+
+#### 验证结论
+- 23 脚本 bash -n 语法检查全部通过
+- 共享文件 `db_select.sh` 两版 MD5 逐字一致
+- Git Bash 沙盒 mock docker 26 项断言全部通过（覆盖传统版闭环 12 场景：stop 释放/端口被占仍释放/幂等重建/降级中止/持久化剥旧字段等）
+
+#### 涉及文件
+- `bin/db_select.sh`（两版共享：直通部署无条件 save_db_env，MD5 一致）
 - `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
 
 ## 📂 项目文件结构

@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.10.28 · 生成日期: 2026-09-30 · 审计范围: 53 文件 / ~23,800 行代码
+> **Docker 版** · 版本: V10.10.29 · 生成日期: 2026-10-01 · 审计范围: 53 文件 / ~23,800 行代码
 
 ---
 
@@ -525,6 +525,7 @@ base.html (493行 — 全局布局骨架)
 | 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（V10.10.26，两版同步） | ① 传统版独立 PG docker run 补 --restart unless-stopped（此前默认 no，服务器重启后容器不自动恢复）；② detect_pg_environment（共享文件）排除 gift_app-pg 与 gift_bookkeeping_pg 两版单租户容器——同服务器双版本部署时防交互菜单误推荐对侧独立 PG 为共享 PG（对侧 reconfig docker rm -f 会摧毁本版共享实例），显式 DB_PG_CONTAINER 跨版本共享仍支持；③ 双版本 9 组合（3×3）数据隔离矩阵确认：账号/库名/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离零冲突；六场景检测排除模拟验证通过 | `bin/db_setup.sh`（传统版）、`bin/db_select.sh`（两版共享） |
 | 两版首次部署默认数据库差异化（V10.10.27，两版同步） | 传统版首次部署交互菜单默认 SQLite（选项 1）、Docker 版默认共享 PG（选项 2）——bin/config.sh 新增 DB_MENU_DEFAULT（传统版=1、Docker 版=2，可被环境变量/config.local.sh 覆盖），db_select.sh（共享文件）默认选项改读该变量，替代此前按内存阈值的智能推荐（旧逻辑两版行为相同：≥400MB 推共享 PG、≥700MB 推独立 PG）；环境兜底：默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite，非法值/未设置同样回退；菜单项 1（SQLite）补上与其他项一致的 ⭐ 推荐标记；非交互环境（cron/管道）默认行为不变仍为 SQLite；五场景模拟验证通过 | `bin/config.sh`（两版各自）、`bin/db_select.sh`（两版共享） |
 | 独立 PG 版本化数据卷 + 存量卷自动迁移（V10.10.28，两版同步） | ① 卷名改为版本化 ${...}_pg_data_${PG_MAJOR}（传统版 gift_app_pg_data_16 / Docker 版 gift_pg_data_16），各 PG 版本数据天然隔离，此前固定卷名跨版本镜像切换 initdb 冲突（PG16→18 报 "in 18+" / PG18→16 报 "not empty"）；② detect_pg_major 三级探测：docker image inspect 读 PG_MAJOR env → 镜像 tag 数字解析 → 未知 default；③ 存量卷自动迁移：新卷不存在而旧固定卷存在时读 PG_VERSION 判断兼容性——同版本 cp -a 迁移（保留旧卷备份）、跨版本保留旧卷用新空卷（附 pg_upgrade 指引），Docker 版用 docker volume ls 查找 compose 项目前缀实际卷名；④ Docker 版 detect_pg_data_dir 从名字通配符升级为 docker image inspect 查镜像真实 PGDATA（与 V10.10.25 传统版同步）；⑤ Docker 版 service.sh 将 PG_MAJOR 持久化至 .temp/.db.env，compose 卷名插值 restart 不漂移；docker-compose.db.yml 卷名改 gift_pg_data_${PG_MAJOR:-default} | `bin/db_setup.sh`（两版各自独立）、`docker-compose.db.yml`（Docker 版）、`bin/service.sh`（Docker 版） |
+| 独立 PG 生命周期闭环：stop 无条件释放 + start 自动重建（V10.10.29，两版同步） | 修复传统版独立 PG 部署后 ./run.sh stop 不释放 PG 容器（四处缺陷）：① stop 释放逻辑嵌在端口检查成功分支内（端口被占整体跳过）+ 仅 docker stop 不删容器（Exited 残留），现移出分支无条件 docker rm -f（对齐 compose down：容器删除、数据卷保留、start 自动重建），容器名优先读 .db.env 持久化值，非 independent 按命名约定兑底清理遗留容器，共享 PG 提示外部容器保留；② start 检测容器非 running 自动重建（V10.10.28 版本化卷自动接回原数据）、running 幂等跳过、重建降级 SQLite 时中止启动（已有 PG 数据绝不静默切库）、PROJECT_NAME 变更清理旧名容器防泄漏；③ 传统版 .db.env 持久化 PG_CONTAINER_NAME/PG_LOCAL_IMAGE/PG_DATA_DIR/PG_USER/PG_PASSWORD/PG_DB/PG_MAJOR（对齐 Docker 版做法，grep -v 剥旧字段再追加、空值不写入）；④ db_select.sh（两版共享）DB_MODE 直通改为无条件 save_db_env——修复 independent 直通部署后 stop 识别不了模式的漏洞（本版受益：compose down 正确带上 db.yml 删除 pg 容器，此前直通部署后 pg 容器残留）；沙盒 mock docker 26 项断言通过 | `bin/service.sh`（传统版）、`bin/db_select.sh`（两版共享） |
 
 #### 6.1.4 PWA 架构
 
@@ -1013,4 +1014,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-09-30（V10.10.28 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
+> 生成时间: 2026-10-01（V10.10.29 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表
