@@ -905,6 +905,9 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
             'batch_restore_records': 'recycle_bin',
             'batch_purge_records': 'recycle_bin',
             'clear_recycle_bin': 'recycle_bin',
+            # V10.11.7 天气菜单门控：weather_page/api_weather_query → 'weather'
+            'weather_page': 'weather',
+            'api_weather_query': 'weather',
         }
         required_menu = menu_map.get(endpoint)
         if required_menu and hasattr(current_user, 'can_access_menu'):
@@ -914,7 +917,8 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
                     'reconciliation': '人情对账',
                     'reminders': '纪念日备忘',
                     'recycle_bin': '回收站',
-                    'ledger': '礼金账本'
+                    'ledger': '礼金账本',
+                    'weather': '天气'
                 }
                 m_name = menu_names.get(required_menu, '该功能')
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -5058,6 +5062,8 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
         ('reconciliation', '人情对账'),
         ('reminders', '纪念日备忘'),
         ('recycle_bin', '回收站'),
+        # V10.11.7 新增：天气（0/1 级只读工具菜单）
+        ('weather', '天气'),
     ]
 
     @app.route('/permission_tickets')

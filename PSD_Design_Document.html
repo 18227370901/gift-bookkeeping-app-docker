@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.10.29</span>·<span>生成日期: 2026-10-01</span>·<span>审计范围: 53 文件 / ~23,800 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.11.7</span>·<span>生成日期: 2026-10-09</span>·<span>审计范围: 58 文件 / ~26,900 行代码</span>
 </div>
 </header>
 
@@ -75,6 +75,7 @@ li{margin:4px 0}
 <a href="#part7">7.数据持久化</a>
 <a href="#part8">8.工程安全</a>
 <a href="#part9">9.演进路线</a>
+<a href="#part10">10.V10.11.7增量</a>
 </div>
 </nav>
 
@@ -967,6 +968,7 @@ flowchart TD
 <tr><td>镜像体积</td><td><strong>~230MB（多阶段构建后）✅</strong></td><td>~350MB</td><td>145-155MB</td></tr>
 <tr><td>内存优化</td><td><strong>MALLOC_ARENA_MAX=2 ✅</strong></td><td>无</td><td>未要求</td></tr>
 <tr><td>CI/CD</td><td><strong>GitHub Actions 双 Registry 自动构建 ✅</strong></td><td>无</td><td>CI/CD 流水线 ✅</td></tr>
+</table>
 
 <h3>8.5 Nginx 配置</h3>
 <p>实际部署使用<strong>宿主机 Nginx</strong>（非容器化），run.sh 渲染 nginx_ssl.conf 占位符模板：</p>
@@ -1118,12 +1120,63 @@ graph LR
 
 </section>
 
+<!-- ==================== 第 10 部分：V10.11.7 增量 ==================== -->
+<section id="part10">
+<h2>第 10 部分：V10.11.7 功能增量 — 天气查询与表格列宽调整（对齐传统版 V10.11.4/6/7）</h2>
+
+<h3>10.1 天气查询服务（本版新增，Open-Meteo）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>路由</td><td><code>routes_weather.py</code>：/weather 页面 + /api/weather/query（登录后可见，受菜单权限拦截器管控）</td></tr>
+<tr><td>服务</td><td><code>weather_service.py</code>：Geocoding + Forecast + WMO 天气码中文映射 + 统一 WeatherError；<code>_http_get</code> 禁代理直连优先+系统代理兑底</td></tr>
+<tr><td>15 天预报</td><td><code>forecast_days</code> 参数化（默认 15，1~16）；实时增气压/云量/风向（角度→中文方位）/阵风；每日增日出/日落/紫外线/累计降水</td></tr>
+</table>
+
+<h3>10.2 行政区划级联选择（本地内置坐标直查）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>数据源</td><td>阿里云 DataV GeoAtlas：34 省/476 市/2875 区县 + 行政中心坐标，<code>static/js/china-regions.js</code> 144KB 本地内置无外链</td></tr>
+<tr><td>根因</td><td>GeoNames 中文库缺中国区县级地名（「双流区」0 候选），级联改用内置坐标直查（<code>query_weather_by_coords</code>，中国范围校验），零错配且省一次地理编码请求</td></tr>
+<tr><td>兼容</td><td>保留城市名自由输入（Geocoding 旧行为）；直辖市市级层显示省名；记住上次查询方式与地区自动恢复</td></tr>
+</table>
+
+<h3>10.3 天气权限管控（对齐传统版 V10.11.6）</h3>
+<table>
+<tr><th>层</th><th>实现</th></tr>
+<tr><td>权限模型</td><td>weather 受控菜单（0=无权限/1=可查看）；models.py ALL_MENUS×2 + app.py 批量/单用户 ALL_MENUS 与 MENU_NAMES 补 weather</td></tr>
+<tr><td>全链路门控</td><td>routes_ext.py menu_map 新增 weather_page/api_weather_query → 'weather' + menu_names；base.html 导航条件渲染</td></tr>
+<tr><td>工单/管理页</td><td>TICKET_MENU_OPTIONS 补天气；admin_users.html 单用户 + 批量权限弹窗各增天气项（0/1 级）</td></tr>
+<tr><td>回填</td><td>_do_startup_sync 启动幂等回填既有普通用户 weather 菜单访问权（新用户默认无权限）</td></tr>
+<tr><td>Webhook</td><td>PAGE_NAMES 补 'weather':'天气'；PAGE_EVENT_MATRIX 补 weather: [] 只读行（矩阵展示"—"）</td></tr>
+</table>
+
+<h3>10.4 表格列宽手动调整（21 张主业务表）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>机制</td><td><code>static/js/table-resizer.js</code> 全局脚本（零依赖）：table[data-resizable=表ID] + th[data-col=列key]；首次固化自然宽度 + table-layout: fixed</td></tr>
+<tr><td>交互/约束</td><td>表头右缘 8px 分隔条拖拽实时生效；总宽超容器出横向滚动；双击自适应内容宽；默认 min 60/max 480 单列可覆盖</td></tr>
+<tr><td>持久化</td><td>localStorage 键 gift_colw_{用户ID}_{表ID} 按用户+表格隔离；容器右上角自动注入「重置列宽」按钮</td></tr>
+<tr><td>降级/主题</td><td>Pointer Events 触摸兼容；&lt;768px 自动降级；黑夜/白天双主题；截断单元格补 title 悬停</td></tr>
+<tr><td>覆盖</td><td>礼金账本 14 列、人情对账×2、宴席列表+详情×2、用户管理×2、Webhook×2、备份管理×4、回收站、纪念日、操作日志、权限工单、系统广播、分享台账</td></tr>
+</table>
+
+<h3>10.5 验证结论（11445 临时实例 + 全新 SQLite）</h3>
+<table>
+<tr><th>场景</th><th>结果</th></tr>
+<tr><td>礼金账本 14 列 resizer + fixed + 重置按钮</td><td>✅</td></tr>
+<tr><td>天气默认/级联查询（四川→成都→双流）15 天 + 趋势图</td><td>✅</td></tr>
+<tr><td>级联记忆恢复（刷新后自动恢复双流查询）</td><td>✅</td></tr>
+<tr><td>用户管理权限弹窗含天气项（menu_perm_weather）</td><td>✅</td></tr>
+<tr><td>全部 Python 文件编译通过</td><td>✅</td></tr>
+</table>
+</section>
+
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-01（V10.10.29 修订） | 审计范围: 53 文件 / ~23,800 行代码 | 161 个路由 | 22 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-09（V10.11.7 修订：天气查询 + 级联选择 + 表格列宽调整，承接 V10.10.29） | 审计范围: 58 文件 / ~26,900 行代码 | 165 个路由 | 22 张数据表</p>
 </div>
 
 </div>
