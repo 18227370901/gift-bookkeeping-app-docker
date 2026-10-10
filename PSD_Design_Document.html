@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.12</span>·<span>生成日期: 2026-10-10</span>·<span>审计范围: 63 文件 / ~27,900 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.11.13</span>·<span>生成日期: 2026-10-10</span>·<span>审计范围: 64 文件 / ~28,000 行代码</span>
 </div>
 </header>
 
@@ -1267,9 +1267,10 @@ graph LR
 <tr><th>优化维度</th><th>具体实现与优化方案</th></tr>
 <tr><td>天气/万年历防抖动布局 (CLS=0)</td><td>省市区三级级联下拉由动态隐藏（<code>display:none</code>）升级为稳定四列栅格配合 <code>disabled</code> 状态受控切换，彻底消除选择过程中的 DOM 布局突跳</td></tr>
 <tr><td>万年历移动端 7 列紧凑适配</td><td>针对 <code>@media (max-width: 767.98px)</code> 精细化调整 7 列格子 min-height (62px)、边距 (3px)、公历/农历字号，杜绝小屏横向溢出与挤压</td></tr>
-<tr><td>宴席业务链路打通</td><td>万年历月视图与 40 天天气详情面板新增「在此日举办宴席」业务直达按钮，带日期参数跳转 <code>/banquets?action=new&date=YYYY-MM-DD</code></td></tr>
+<tr><td>宴席业务链路打通</td><td>万年历月视图详情面板新增「在此日举办宴席」业务直达按钮，带日期参数跳转 <code>/banquets?action=new&date=YYYY-MM-DD</code>；天气日历详情面板同款按钮与 banquets 页参数接收由 V10.11.13 补齐（预报天数上限实为 16 天，此前「40 天」表述有误）</td></tr>
 <tr><td>节假日离线/弱网兜底</td><td><code>holiday_service.py</code> 内置 2024~2026 年国务院官方放假与调休补班字典（<code>BUILTIN_HOLIDAYS</code>），外网断开时零延迟无损降级并回写缓存</td></tr>
 <tr><td>文案与代码清理</td><td>修正礼金明细账簿页面错别字「大薄」→「账簿」；清理 <code>weather_service.py</code> 中重复声明的 <code>AIR_QUALITY_URL</code> 常量</td></tr>
+</table>
 <h3>11.9 V10.11.12 登录后背景横幅：时间/农历/节气节日班休/天气（对齐传统版）</h3>
 <table>
 <tr><th>项</th><th>说明</th></tr>
@@ -1283,6 +1284,17 @@ graph LR
 <tr><td>接入点</td><td><code>index.html</code> + <code>permission_tickets.html</code>（无账本权限用户登录落点页）双页 include——所有登录用户可见</td></tr>
 <tr><td>同步方式</td><td>routes_weather.py 与 _home_banner.html 两版 MD5 逐字一致；两模板同锚点插入 include</td></tr>
 </table>
+
+<h3>11.10 V10.11.13 五项缺陷修复（对齐传统版）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>选中日范围联动</td><td><code>renderView</code> 单点收敛：列表/万年历一律清、月视图限当前展示月、周视图限今起 7 天；选中态变化就地清详情 DOM + 重绘趋势图（万年历分支提前 return 场景）</td></tr>
+<tr><td>节假日滚动窗口</td><td>磁盘缓存 [当前年-2, 当前年]（2027 年自动变 2025-2027）；失败/未发布 1 小时冷却；成功永久缓存；内置 2024-2026 兑底</td></tr>
+<tr><td>宴席直达补齐</td><td>天气详情面板补按钮（预报内显示）；banquets 读参（action=new 开弹窗 + date 三重校验预填高亮 + replaceState 清参）；文档「40 天」修正 16 天</td></tr>
+<tr><td>天气权限归一</td><td>单/批量保存归一（0 级剔除勾选，修复双轨语义冲突）；回填一次性标记 weather_backfill_done；存量「勾选×0」幂等清洗（回填在前、清洗在后）</td></tr>
+<tr><td>同步方式</td><td>weather.html / banquets.html（升级为共享文件）/ holiday_service.py 三文件 MD5 逐字一致；app.py 手工合并（保留无 dashboard/family 差异；批量 ALL_MENUS 已含 weather 仅补归一与回填改造）</td></tr>
+<tr><td>验证</td><td>传统版 11444 副本库 17 场景全过（同函数逻辑语义回归覆盖本版）</td></tr>
+</table>
 </section>
 
 <!-- ==================== 文档总结 ==================== -->
@@ -1290,7 +1302,7 @@ graph LR
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.12 修订：登录后背景横幅；承接 V10.11.8~11 天气增强 + 告警推送 + 万年历独立模块 + 班休服务 + 全面优化修复） | 审计范围: 63 文件 / ~27,900 行代码 | 173 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.13 修订：五项缺陷修复；承接 V10.11.12 登录后背景横幅） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
 </div>
 
 </div>

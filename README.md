@@ -12,6 +12,7 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🐛 **V10.11.13 五项缺陷修复（对齐传统版）**：① **选中日与展示范围联动**——`renderView` 单点收敛范围校验（列表/万年历一律清、月视图限当前月、周视图限今起 7 天），切视图/翻月/回到今天/子视图切换后详情面板与趋势图标记线不再残留旧日期；② **法定节假日滚动窗口**——磁盘缓存 [当前年-2, 当前年] 滚动（2027 年自动变 2025-2027）+ 失败冷却 1 小时（未发布年份不重复请求）；③ **宴席直达链路补齐**——天气日历详情面板补按钮（预报内显示）+ banquets 页 URL 参数接收（action=new 自动开弹窗 + date 校验预填 + 清参防刷新重弹），文档「40 天」修正为 16 天；④ **天气权限归一**——单/批量保存时 0 级自动剔除勾选（修复「勾选+无权限仍可访问」三层根因）；启动回填改一次性标记 + 存量「勾选×0」脏数据幂等清洗；⑤ 本版同步：weather.html/banquets.html/holiday_service.py 三共享文件 MD5 逐字一致（banquets.html 升级为共享文件），app.py 四处手工合并（保留无 dashboard/family 差异）。
 > - 🖼️ **V10.11.12 登录后背景横幅：当前时间/星期/农历/节气节日班休徽章/天气（对齐传统版）**：登录后页面顶部新增红金渐变背景横幅（白天红金/黑夜深红双主题，纯 CSS 零图片）——左侧时段问候 + 用户名、**时间大字走秒**（等宽数字）、公历日期星期、**农历全称**（复用 `lunar_utils.js` 权威数据本地计算零请求）、节气胶囊/节日徽章/班休徽章（班休由服务端直读 `holiday_service`，无权限用户也能获取）；右侧轻量天气块（城市名 + 来源徽章 + 当前温度 + 状况图标 + 今明高低温）。**天气城市三层分流（服务端判定）**：① 有天气页权限且用过「城市名自由输入」→ 自己记忆的城市；② 无权限/无记忆/级联模式 → **管理员**自由输入框查过的城市（`/api/weather/query` 成功时自动同步 `SystemSetting.admin_weather_city`，前端零改动）；③ 管理员从未查过 → **兜底成都**；无权限用户传的任何 city 参数一律服务端忽略（安全）；内存缓存 30 分钟 + `days=2` 轻量查询；失败仅隐藏天气区。接入点：`index.html` + `permission_tickets.html`（无账本权限用户登录落点）单源 include `_home_banner.html`，所有登录用户可见。本版改动 4 文件与传统版同步（routes_weather.py 与 _home_banner.html 两版 MD5 逐字一致）。
 > - 🛠️ **V10.11.11 全面优化修复与天气联动加固（Docker版同步）**：① **天气与万年历防抖动布局 (CLS=0)**——省市区三级级联由 `display:none` 动态显隐升级为稳定四列栅格与 `disabled` 状态受控切换，消除级联选择引起的布局跳动；② **万年历移动端精细适配**——新增 `@media (max-width: 767.98px)` 7 列紧凑网格排版，字体尺寸与格子间距自适应，移动设备端视觉平整美观；③ **人情宴席业务链路无缝打通**——万年历月视图与 40 天天气详情面板新增「在此日举办宴席」直达按钮，携带日期参数跳转 `/banquets?action=new&date=YYYY-MM-DD` 快速筹备；④ **法定节假日离线/弱网兜底**——`holiday_service.py` 内置 2024~2026 年国务院办公厅官方放假及调休补班权威字典（`BUILTIN_HOLIDAYS`），弱网或接口超时冷启动时零延迟无损降级并回写本地缓存；⑤ **文案与代码清理**——修正礼金明细页等处错别字「大薄」为「账簿」，精简 `weather_service.py` 重复常量。
 > - 🧧 **V10.11.8~10 天气增强 + 告警消息推送 + 万年历独立模块 + 法定节假日班/休角标（对齐传统版 V10.11.8/9/10 三代增量）**：① **天气页面全面增强（V10.11.8）**——查询交互 4 项修复（省/市/县任意一级即可查 + 下拉懒加载逐级展开；自由输入优先匹配本地行政区划库；两种查询方式按钮独立 loading + 请求序号防竞态；前端 30 秒超时 AbortController）；预报天数自定义（分段按钮 + 下拉 1~16 天）；日历视图（月/周子视图 + 点击日期联动详情与趋势图）；多城市对比（上限 3 个最高温同图叠加）；生活指数 6 项自研规则卡片；空气质量（Open-Meteo Air Quality API，PM2.5 按中国 24h 标准分级徽章，失败静默降级）；localStorage 全键按用户隔离 + 重置记忆按钮。② **告警消息推送（V10.11.8）**——`admin_backups` 页新增「告警消息推送」卡片：4 类触发条件（天气预警自研规则 / 接口异常 / 数据完整性 / 定时任务失败）、静默期防告警风暴、同类型合并推送、测试推送、推送日志筛选与 CSV 导出；后台告警巡检守护线程每 30 分钟自动巡检（`alert_service.py`），推送复用既有 Webhook 渠道（企微长连接/钉钉/飞书/pushplus/通用 URL）全支持；权限联调（`alert_push_grants` 按用户授权 3 项操作、告警 8 个 API 纳入 `menu_map` backups 门控、前端三态渲染、权限全回收自动停用推送）；`_SCHEMA_VERSION` 1017→**1019**（建告警两表；**跳过传统版 1018 家庭记账迁移——本版无 family 功能**）。③ **日历视图万年历化（V10.11.9）**——本地历法库 `static/js/lunar_utils.js`（零依赖零外网，1900-2100 农历压缩表 + 二十四节气 base32 表，由寿星天文历 sxtwl 全量生成，73,414 天 roundtrip 校验 0 不一致）；今日信息卡（公历大字 + 星期红 + 农历全称 + 节气胶囊 + 节日徽章）；月网格三层格子（公历 + 万年历小字：节日>节气>农历日优先级红字，初一显示月名，闰月带「闰」 + 天气层）；自由翻月（1900-2100）+「回到今天」；点击任意日期详情万年历化（农历全称/干支/生肖/节气/节日）；周视图补农历小字；周末列头标红 + 今日红框。④ **万年历独立模块 + 班休角标（V10.11.10）**——视图切换第三态「万年历」（列表/日历/万年历），**不依赖天气预报数据可独立使用**：今日大卡（含今日班/休徽章）+ 大月历网格 + 年/月双下拉（1900-2100）+ 前后翻月 + 回到今天 + 点击日期独立详情面板 + 视图记忆恢复；法定节假日班/休角标实时拉取 **timor.tech 聚合接口**（内容与国务院办公厅放假安排公报一致，免费无 Key 国内直连）：`holiday=true` 红色「休」角标 / `false` 灰色「班」角标（调休补班），双缓存（进程内存 + 磁盘 `data/holiday_cache.json` 重启免拉取）+ 网络双路径（禁代理直连优先 + 系统代理兜底）+ 模拟浏览器 UA 规避反爬 403 + 失败降级返回空 + 2007 年前无数据跳过。⑤ **AI 配置网络策略修复（V10.11.8，本版适配）**——`ai_service.py` 合入 `_chat_with_fallback`（OpenAI SDK `httpx.Client(trust_env=False)` 直连优先，连接类异常回落系统代理重试一次），覆盖配置测试（15s）与 AI 对话（30s）两条出网链（本版为精简版 AI 服务，无模型列表拉取/OCR，不涉及）；修复代理进程存活但出口不通时配置测试约 26 秒后报 Connection error 的问题。⑥ **同步方式**——7 个共享文件逐字复制（MD5 校验一致）：`weather_service.py` / `routes_weather.py` / `templates/weather.html` / `static/js/lunar_utils.js` / `holiday_service.py`（新增）/ `alert_service.py`（新增）/ `routes_alert.py`（新增）；5 个文件按本版特性手工合并：`models.py`（告警两模型）/ `app.py`（schema 1019 + 迁移 + 告警路由注册 + 巡检线程）/ `routes_ext.py`（`menu_map` 补 `api_holiday_year` + 8 个告警 endpoint）/ `ai_service.py`（精简版保留补网络修复）/ `templates/admin_backups.html`（告警卡片 + JS 区块合并）；49 项静态验证 ALL_PASS。
@@ -213,6 +214,16 @@ AIGC:
 - 🧭 **天气城市三层分流**（`routes_weather.py::api_home_weather` 服务端判定）：① 有 weather 菜单权限且 localStorage 记忆为「自由输入」模式 → 自己的城市（source=user 徽章「我的城市」）；② 无权限/无记忆/级联模式 → `SystemSetting.admin_weather_city`（管理员自由输入查询时自动同步，source=admin 徽章「管理员城市」）；③ 管理员从未查过 → **成都**（source=default 徽章「默认」）。
 - 🛡️ **安全与性能**：无权限用户传的任何 city 参数服务端一律忽略（禁止借本接口绕过 weather 菜单权限）；接口仅需登录不挂 menu_map；班休徽章服务端直读 `holiday_service`（不走 HTTP 避免权限 403）；模块级内存缓存 30 分钟 + `days=2` 轻量查询；天气失败仅隐藏天气区（时间/农历零影响）。
 - 🔌 **接入点**：`_home_banner.html` 自包含独立块（HTML+CSS+JS 单源 include）；`index.html`（有账本权限用户登录落点）+ `permission_tickets.html`（无账本权限用户登录落点页）——所有登录用户可见。
+
+---
+
+
+### 17. 五项缺陷修复 (Bug Fixes) `V10.11.13 新增（对齐传统版）`
+- 🗓️ **选中日范围联动**：选中日期不在当前视图（列表/万年历）/月（翻月/回到今天）/周（今起 7 天）范围时自动清除详情面板与趋势图标记线；月→周切换周内日期合理保留；万年历分支 DOM 就地清理（showAlmanacView 提前 return 场景）。
+- 📅 **节假日滚动窗口 + 失败冷却**：磁盘缓存 [当前年-2, 当前年]（2027 年自动变 2025-2027，官方安排发布后自动拉取入窗）；失败/未发布年份 1 小时冷却不重复请求；成功永久缓存；内置 2024-2026 兑底不变。
+- 🔗 **宴席直达补齐**：天气日历详情面板「在此日举办宴席」按钮（仅预报内显示）；banquets 页 `action=new` 自动开弹窗 + `date` 三重校验（正则/真实日历/年份 1900-2100）预填高亮 + `history.replaceState` 清参。
+- 🔐 **天气权限归一**：单/批量保存时 `menu_perm_weather=0` 自动剔除勾选（双轨语义冲突修复）；启动回填一次性标记（`weather_backfill_done`，此后重启不覆盖管理员设置）；存量「勾选×0」脏数据幂等清洗（回填在前、清洗在后）。
+- 🐳 **本版同步差异**：三共享文件（weather/banquets/holiday_service）MD5 逐字一致（banquets 升级为共享文件）；app.py 保留无 dashboard/family 菜单差异；批量 ALL_MENUS 本版自 V10.11.8~10 同步起已含 weather，仅补保存归一与回填改造。
 
 ---
 
@@ -1467,10 +1478,22 @@ NAME  ...  STATUS
 - **同锚点插入 include（2 个）**：`templates/index.html` 与 `templates/permission_tickets.html` 在 content 块开头插入 `{% include '_home_banner.html' %}`（两版此位置结构同构；本版 index.html 仍为旧版 UI 子集，未同步传统版 V10.11.1 按钮重构，为既有状态非本版范围）。
 
 #### 验证结论
-- 10 项静态验证 ALL_PASS：py_compile；2 个共享文件 MD5 一致；双页面 include 就位；`/api/home/weather`/admin_weather_city/成都兜底等关键点齐全；Docker 版 `models.SystemSetting` 与 `holiday_service.get_year_holidays` 依赖均存在（模块同名，无需合并）。
+- 10 项静态验证 ALL_PASS：py_compile；2 个共享文件 MD5 一致；双页面 include 就位；`/api/home/weather`/admin_weather_city/成都兑底等关键点齐全；Docker 版 `models.SystemSetting` 与 `holiday_service.get_year_holidays` 依赖均存在（模块同名，无需合并）。
 
 #### 涉及文件
 - `routes_weather.py` / `templates/_home_banner.html` / `templates/index.html` / `templates/permission_tickets.html` + `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`
+
+### V10.11.13：五项缺陷修复（2026-10-10，传统版 + Docker 版同步）
+
+#### 本版变更内容
+- **共享文件直接复制（3 个，两版 MD5 逐字一致）**：`templates/weather.html`（选中日范围联动 + 详情面板宴席按钮）、`templates/banquets.html`（URL 参数接收，升级为共享文件——此前两版仅 1 行历史样式差异）、`holiday_service.py`（滚动窗口 + 失败冷却）。
+- **手工合并（1 个）**：`app.py`——单用户/批量两路由保存归一（0 级剔除勾选）+ 启动回填一次性标记 + 存量脏数据幂等清洗；保留本版无 dashboard/family 菜单差异；批量 ALL_MENUS 本版已含 weather 无需补。
+
+#### 验证结论
+- py_compile 通过；3 共享文件 MD5 一致；归一/标记/清洗关键点齐全；语义回归由传统版 17 场景验证覆盖（同函数逻辑）；本版菜单差异（无 dashboard/family）不受影响。
+
+#### 涉及文件
+- 上述 4 个代码文件 + `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`
 
 ## 📂 项目文件结构
 

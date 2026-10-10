@@ -1152,7 +1152,7 @@ graph LR
 |---|---|---|
 | **天气/万年历防抖动布局 (CLS=0)** | 将省市区三级级联下拉由动态隐藏（`display:none`）升级为稳定四列栅格配合 `disabled` 状态解构与控制，消除省份/城市选择时的 DOM 突变跳动 | `templates/weather.html` |
 | **万年历移动端 7 列紧凑适配** | 针对 `@media (max-width: 767.98px)` 精细化调整 7 列格子 min-height (62px)、边距 (3px)、公历字号 (0.78rem)、农历字号 (0.58rem)，避免小屏横向溢出 | `templates/weather.html` |
-| **宴席业务链路无缝打通** | 在万年历月视图详情面板与 40 天天气详情面板中新增「在此日举办宴席」直达按钮，带日期参数跳转 `/banquets?action=new&date=YYYY-MM-DD` | `templates/weather.html` |
+| **宴席业务链路无缝打通** | 在万年历月视图详情面板中新增「在此日举办宴席」直达按钮，带日期参数跳转 `/banquets?action=new&date=YYYY-MM-DD`；天气日历详情面板同款按钮与 banquets 页参数接收由 V10.11.13 补齐（预报天数上限实为 16 天，此前「40 天」表述有误） | `templates/weather.html` |
 | **节假日离线/弱网兜底字典** | `holiday_service.py` 内置 2024~2026 年国务院官方节假日与调休补班字典（`BUILTIN_HOLIDAYS`），timor.tech 接口不可达时零秒无缝降级并回写缓存 | `holiday_service.py` |
 | **页面文案与用词规范化** | 修正礼金明细页（`templates/index.html`）等处错别字「礼金明细大薄」/「礼金收支明细大薄」为「礼金明细账簿」/「礼金收支明细账簿」 | `templates/index.html` |
 | **冗余代码精简** | 移除 `weather_service.py` 中重复声明的 `AIR_QUALITY_URL` 常量 | `weather_service.py` |
@@ -1172,6 +1172,17 @@ graph LR
 | 同步方式 | `routes_weather.py` 与 `templates/_home_banner.html` 与传统版 MD5 逐字一致；两模板同锚点插入 include（本版 index.html 为旧版 UI 子集，未同步传统版 V10.11.1 按钮重构，既有状态） |
 | 验证 | 10 项静态 ALL_PASS（py_compile / MD5 / include / 关键点 / Docker 版依赖存在性） |
 
+### 11.10 V10.11.13 五项缺陷修复（对齐传统版）
+
+| 项 | 说明 |
+|---|---|
+| 选中日范围联动 | `renderView` 单点收敛：列表/万年历一律清、月视图限当前展示月、周视图限今起 7 天；选中态变化就地清详情 DOM + 重绘趋势图（万年历分支提前 return 场景） |
+| 节假日滚动窗口 | 磁盘缓存 [当前年-2, 当前年]（2027 年自动变 2025-2027）；失败/未发布 1 小时冷却；成功永久缓存；内置 2024-2026 兑底 |
+| 宴席直达补齐 | 天气详情面板补按钮（预报内显示）；banquets 读参（action=new 开弹窗 + date 三重校验预填高亮 + replaceState 清参）；文档「40 天」修正 16 天 |
+| 天气权限归一 | 单/批量保存归一（0 级剔除勾选）；回填一次性标记 weather_backfill_done；存量「勾选×0」幂等清洗（回填在前、清洗在后） |
+| 同步方式 | weather.html/banquets.html（升级为共享文件）/holiday_service.py 三文件 MD5 逐字一致；app.py 手工合并（保留无 dashboard/family 差异；批量 ALL_MENUS 已含 weather 仅补归一与回填改造） |
+| 验证 | 传统版 11444 副本库 17 场景全过（同函数逻辑语义回归覆盖本版） |
+
 ---
 
 ## 文档总结
@@ -1180,4 +1191,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-10（V10.11.12 修订：登录后背景横幅；承接 V10.11.8~11 天气增强 + 告警推送 + 万年历独立模块 + 班休服务 + 全面优化修复） | 审计范围: 63 文件 / ~27,900 行代码 | 173 个路由 | 24 张数据表
+> 生成时间: 2026-10-10（V10.11.13 修订：五项缺陷修复；承接 V10.11.12 登录后背景横幅） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表
