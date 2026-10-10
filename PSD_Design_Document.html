@@ -1262,6 +1262,15 @@ graph LR
 <tr><td>ai_service.py 特性（_chat_with_fallback / 延迟导入 / 无 fetch_model_list / 无 OCR）</td><td>✅</td></tr>
 <tr><td>admin_backups.html 告警区块（卡片 + JS + loadAlertConfig 调用 + WebDAV 原功能保留）</td><td>✅</td></tr>
 </table>
+<h3>11.8 V10.11.11 全面优化修复与天气联动加固（Docker版同步）</h3>
+<table>
+<tr><th>优化维度</th><th>具体实现与优化方案</th></tr>
+<tr><td>天气/万年历防抖动布局 (CLS=0)</td><td>省市区三级级联下拉由动态隐藏（<code>display:none</code>）升级为稳定四列栅格配合 <code>disabled</code> 状态受控切换，彻底消除选择过程中的 DOM 布局突跳</td></tr>
+<tr><td>万年历移动端 7 列紧凑适配</td><td>针对 <code>@media (max-width: 767.98px)</code> 精细化调整 7 列格子 min-height (62px)、边距 (3px)、公历/农历字号，杜绝小屏横向溢出与挤压</td></tr>
+<tr><td>宴席业务链路打通</td><td>万年历月视图与 40 天天气详情面板新增「在此日举办宴席」业务直达按钮，带日期参数跳转 <code>/banquets?action=new&date=YYYY-MM-DD</code></td></tr>
+<tr><td>节假日离线/弱网兜底</td><td><code>holiday_service.py</code> 内置 2024~2026 年国务院官方放假与调休补班字典（<code>BUILTIN_HOLIDAYS</code>），外网断开时零延迟无损降级并回写缓存</td></tr>
+<tr><td>文案与代码清理</td><td>修正礼金明细账簿页面错别字「大薄」→「账簿」；清理 <code>weather_service.py</code> 中重复声明的 <code>AIR_QUALITY_URL</code> 常量</td></tr>
+</table>
 </section>
 
 <!-- ==================== 文档总结 ==================== -->
@@ -1269,7 +1278,7 @@ graph LR
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.8~10 修订：天气增强 + 告警推送 + 万年历独立模块 + 班休服务，承接 V10.11.7 天气查询与表格列宽） | 审计范围: 62 文件 / ~27,800 行代码 | 172 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.8~11 修订：天气增强 + 告警推送 + 万年历独立模块 + 班休服务，承接 V10.11.7 天气查询与表格列宽） | 审计范围: 62 文件 / ~27,800 行代码 | 172 个路由 | 24 张数据表</p>
 </div>
 
 </div>

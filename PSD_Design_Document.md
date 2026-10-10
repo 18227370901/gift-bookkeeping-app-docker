@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.11.7 · 生成日期: 2026-10-09 · 审计范围: 58 文件 / ~26,900 行代码
+> **Docker 版** · 版本: V10.11.11 · 生成日期: 2026-10-09 · 审计范围: 58 文件 / ~26,900 行代码
 
 ---
 
@@ -1146,6 +1146,16 @@ graph LR
 | models.py 特性（AlertPushConfig/AlertPushGrant 就位 / 无 FamilyMember） | ✅ |
 | ai_service.py 特性（_chat_with_fallback / 延迟导入 / 无 fetch_model_list / 无 OCR） | ✅ |
 | admin_backups.html 告警区块（卡片 + JS + loadAlertConfig 调用 + WebDAV 原功能保留） | ✅ |
+### 11.8 V10.11.11 全面优化修复与天气联动加固（Docker版同步）
+
+| 优化维度 | 具体实现与优化方案 | 关联文件/位置 |
+|---|---|---|
+| **天气/万年历防抖动布局 (CLS=0)** | 将省市区三级级联下拉由动态隐藏（`display:none`）升级为稳定四列栅格配合 `disabled` 状态解构与控制，消除省份/城市选择时的 DOM 突变跳动 | `templates/weather.html` |
+| **万年历移动端 7 列紧凑适配** | 针对 `@media (max-width: 767.98px)` 精细化调整 7 列格子 min-height (62px)、边距 (3px)、公历字号 (0.78rem)、农历字号 (0.58rem)，避免小屏横向溢出 | `templates/weather.html` |
+| **宴席业务链路无缝打通** | 在万年历月视图详情面板与 40 天天气详情面板中新增「在此日举办宴席」直达按钮，带日期参数跳转 `/banquets?action=new&date=YYYY-MM-DD` | `templates/weather.html` |
+| **节假日离线/弱网兜底字典** | `holiday_service.py` 内置 2024~2026 年国务院官方节假日与调休补班字典（`BUILTIN_HOLIDAYS`），timor.tech 接口不可达时零秒无缝降级并回写缓存 | `holiday_service.py` |
+| **页面文案与用词规范化** | 修正礼金明细页（`templates/index.html`）等处错别字「礼金明细大薄」/「礼金收支明细大薄」为「礼金明细账簿」/「礼金收支明细账簿」 | `templates/index.html` |
+| **冗余代码精简** | 移除 `weather_service.py` 中重复声明的 `AIR_QUALITY_URL` 常量 | `weather_service.py` |
 
 ---
 
@@ -1155,4 +1165,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-10（V10.11.8~10 修订：天气增强 + 告警推送 + 万年历独立模块 + 班休服务，承接 V10.11.7 天气查询与表格列宽） | 审计范围: 62 文件 / ~27,800 行代码 | 172 个路由 | 24 张数据表
+> 生成时间: 2026-10-10（V10.11.8~11 修订：天气增强 + 告警推送 + 万年历独立模块 + 班休服务，承接 V10.11.7 天气查询与表格列宽） | 审计范围: 62 文件 / ~27,800 行代码 | 172 个路由 | 24 张数据表
