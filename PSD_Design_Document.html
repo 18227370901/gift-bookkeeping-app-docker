@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.8~10</span>·<span>生成日期: 2026-10-10</span>·<span>审计范围: 62 文件 / ~27,800 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.11.12</span>·<span>生成日期: 2026-10-10</span>·<span>审计范围: 63 文件 / ~27,900 行代码</span>
 </div>
 </header>
 
@@ -1270,6 +1270,18 @@ graph LR
 <tr><td>宴席业务链路打通</td><td>万年历月视图与 40 天天气详情面板新增「在此日举办宴席」业务直达按钮，带日期参数跳转 <code>/banquets?action=new&date=YYYY-MM-DD</code></td></tr>
 <tr><td>节假日离线/弱网兜底</td><td><code>holiday_service.py</code> 内置 2024~2026 年国务院官方放假与调休补班字典（<code>BUILTIN_HOLIDAYS</code>），外网断开时零延迟无损降级并回写缓存</td></tr>
 <tr><td>文案与代码清理</td><td>修正礼金明细账簿页面错别字「大薄」→「账簿」；清理 <code>weather_service.py</code> 中重复声明的 <code>AIR_QUALITY_URL</code> 常量</td></tr>
+<h3>11.9 V10.11.12 登录后背景横幅：时间/农历/节气节日班休/天气（对齐传统版）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>需求</td><td>登录后背景图区域展示当前时间（走秒）、星期、农历、天气；城市与用户在天气页「城市名自由输入」查询保持一致</td></tr>
+<tr><td>核心难点</td><td>管理员天气城市记忆存于其浏览器 localStorage，其他用户无法读取</td></tr>
+<tr><td>解法</td><td>管理员查询时服务端自动同步 <code>SystemSetting.admin_weather_city</code>（前端零改动）；无权限用户由新接口 <code>/api/home/weather</code> 服务端读取共享</td></tr>
+<tr><td>三层分流</td><td>① user：有 weather 权限且记忆「自由输入」模式 → 自己的城市；② admin：无权限/无记忆/级联模式 → 管理员城市；③ default：管理员从未查过 → <strong>成都</strong>（固定兜底）</td></tr>
+<tr><td>安全</td><td>无权限用户传的任何 city 参数一律忽略；接口仅需登录不挂 menu_map；班休徽章服务端直读 <code>holiday_service</code></td></tr>
+<tr><td>性能</td><td>模块级内存缓存 30 分钟；<code>days=2</code> 轻量查询；失败仅隐藏天气区（时间/农历零影响）</td></tr>
+<tr><td>前端块</td><td><code>templates/_home_banner.html</code>（自包含 HTML+CSS+JS 单源）：走秒等宽数字、LunarUtils 本地农历/节气/节日（与万年历同源零请求）、班休徽章、来源徽章、白天红金/黑夜深红双主题、<768px 堆叠</td></tr>
+<tr><td>接入点</td><td><code>index.html</code> + <code>permission_tickets.html</code>（无账本权限用户登录落点页）双页 include——所有登录用户可见</td></tr>
+<tr><td>同步方式</td><td>routes_weather.py 与 _home_banner.html 两版 MD5 逐字一致；两模板同锚点插入 include</td></tr>
 </table>
 </section>
 
@@ -1278,7 +1290,7 @@ graph LR
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.8~11 修订：天气增强 + 告警推送 + 万年历独立模块 + 班休服务，承接 V10.11.7 天气查询与表格列宽） | 审计范围: 62 文件 / ~27,800 行代码 | 172 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.12 修订：登录后背景横幅；承接 V10.11.8~11 天气增强 + 告警推送 + 万年历独立模块 + 班休服务 + 全面优化修复） | 审计范围: 63 文件 / ~27,900 行代码 | 173 个路由 | 24 张数据表</p>
 </div>
 
 </div>
