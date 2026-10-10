@@ -135,6 +135,25 @@ def _build_config_list(user=None):
 
 # ==================== OpenAI 调用 ====================
 
+# V10.11.8 同步（AI 网络策略修复）：OpenAI SDK 调用双路径
+# 路径①禁代理直连（httpx trust_env=False）优先；路径②连接类异常（含超时）回落系统代理重试一次
+# 根因：requests/httpx 默认 trust_env 自动走系统代理，代理进程存活但出口不通时请求挂死至超时
+def _chat_with_fallback(client_kwargs, create_kwargs):
+    """OpenAI SDK 双路径调用：直连优先，仅连接类异常回落系统代理
+    返回 chat.completions.create 的响应对象；鉴权/参数类错误直接抛出不回落
+    """
+    import httpx
+    from openai import APIConnectionError
+    # 路径①：禁代理直连（国内环境 AI 网关直连可达）
+    client = OpenAI(http_client=httpx.Client(trust_env=False), **client_kwargs)
+    try:
+        return client.chat.completions.create(**create_kwargs)
+    except APIConnectionError:
+        pass  # 直连网络层失败（含超时）→ 路径②回落系统代理（httpx 默认 trust_env=True）
+    client = OpenAI(**client_kwargs)
+    return client.chat.completions.create(**create_kwargs)
+
+
 def _call_openai(prompt, api_key, base_url, model):
     """
     调用 OpenAI API
@@ -148,18 +167,18 @@ def _call_openai(prompt, api_key, base_url, model):
         client_kwargs = {'api_key': api_key}
         if base_url:
             client_kwargs['base_url'] = base_url
-        client = OpenAI(**client_kwargs)
 
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
+        resp = _chat_with_fallback(client_kwargs, {
+            'model': model,
+            'messages': [
                 {"role": "system", "content": "你是一个乐于助人的智能助手，名叫礼小宝。"},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=2000,
-            temperature=0.7,
-            timeout=30
-        )
+            'max_tokens': 2000,
+            'temperature': 0.7,
+            'timeout': 30
+        })
+
         content = resp.choices[0].message.content.strip()
         if content:
             return True, content, ''
@@ -192,19 +211,18 @@ def test_ai_config(api_key, base_url, model):
         client_kwargs = {'api_key': api_key}
         if base_url:
             client_kwargs['base_url'] = base_url
-        client = OpenAI(**client_kwargs)
 
-        # 发送极简测试消息，max_tokens 限制为 20 以快速返回
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
+        # 发送极简测试消息，max_tokens 限制为 20 以快速返回（V10.11.8 同步：双路径直连优先）
+        resp = _chat_with_fallback(client_kwargs, {
+            'model': model,
+            'messages': [
                 {"role": "system", "content": "你是一个测试助手，请简短回复。"},
                 {"role": "user", "content": "请回复'测试成功'四个字"}
             ],
-            max_tokens=20,
-            temperature=0,
-            timeout=15  # 测试用较短超时，快速反馈
-        )
+            'max_tokens': 20,
+            'temperature': 0,
+            'timeout': 15  # 测试用较短超时，快速反馈
+        })
         content = resp.choices[0].message.content.strip()
         latency_ms = int((time.time() - start_time) * 1000)
 

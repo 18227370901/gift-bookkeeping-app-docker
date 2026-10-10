@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.7</span>·<span>生成日期: 2026-10-09</span>·<span>审计范围: 58 文件 / ~26,900 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.11.8~10</span>·<span>生成日期: 2026-10-10</span>·<span>审计范围: 62 文件 / ~27,800 行代码</span>
 </div>
 </header>
 
@@ -76,6 +76,7 @@ li{margin:4px 0}
 <a href="#part8">8.工程安全</a>
 <a href="#part9">9.演进路线</a>
 <a href="#part10">10.V10.11.7增量</a>
+<a href="#part11">11.V10.11.8~10增量</a>
 </div>
 </nav>
 
@@ -1171,12 +1172,104 @@ graph LR
 </table>
 </section>
 
+<!-- ==================== 第 11 部分：V10.11.8~10 增量 ==================== -->
+<section id="part11">
+<h2>第 11 部分：V10.11.8~10 功能增量 — 天气增强 + 告警推送 + 万年历独立模块 + 班休服务（对齐传统版）</h2>
+
+<h3>11.1 天气页面全面增强（V10.11.8）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>级联任意级查询</td><td>省/市/县任意一级即可查（省级→省会坐标、市级→市中心坐标）；下拉懒加载逐级展开</td></tr>
+<tr><td>自由输入本地匹配</td><td><code>localMatchCity</code>：归一化去后缀 + 省/市/县三级匹配，更具体层级优先；命中走坐标模式直查，未命中回退在线 Geocoding（保留国外城市能力）</td></tr>
+<tr><td>双按钮冲突修复</td><td>按钮独立 loading（btnPending 计数）+ reqSeq 请求序号防竞态（旧响应丢弃）</td></tr>
+<tr><td>页面锁死修复</td><td>前端 AbortController 30s 超时；记忆键全部追加用户 ID（gift_weather_{uid}_*）；「重置记忆」按钮一键清空</td></tr>
+<tr><td>天数控件</td><td>分段按钮（7/15/16）+ 下拉框（1~16）组合，切换即重查并记忆</td></tr>
+<tr><td>日历视图</td><td>月视图（当月网格图标/高低温/降水概率，范围外灰置）+ 周视图（7 天全要素行）+ 点击日期联动详情与趋势图标记线</td></tr>
+<tr><td>多城对比</td><td>本地匹配添加（上限 3 个），主城 + 对比城最高温同图叠加（ECharts 多系列 + 图例）</td></tr>
+<tr><td>生活指数</td><td>穿衣/雨伞/防晒/洗车/出行/舒适度 6 项自研规则 2×3 卡片</td></tr>
+<tr><td>空气质量</td><td><code>fetch_air_quality</code>（Open-Meteo Air Quality API）失败静默降级；PM2.5 按中国 24h 标准分级配色徽章</td></tr>
+</table>
+
+<h3>11.2 告警消息推送与权限联调（V10.11.8）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>数据模型</td><td>alert_push_configs（单行全局配置）+ alert_push_grants（按用户操作授权，user_id 唯一）；_SCHEMA_VERSION 1017 → <strong>1019</strong>（<strong>跳过传统版 1018 家庭记账迁移——本版无 family 功能</strong>，1019 建告警两表与传统版同义）</td></tr>
+<tr><td>巡检线程</td><td>alert_service.start_alert_inspector：daemon 线程，首轮延迟 60s 后每 30 分钟一轮；每轮实时判定总开关 + 有效授权（无任何授权用户自动停用推送，配置保留不生效）</td></tr>
+<tr><td>四类触发</td><td>天气预警（降温≥8℃/日降水概率≥70%/阵风≥50km/h/最低温≤0℃/最高温≥38℃）/ 接口异常（天气接口调用失败）/ 数据完整性（关键文件非空校验）/ 定时任务失败（35 分钟回溯窗口扫描失败日志）</td></tr>
+<tr><td>频控</td><td>同类型静默期内不重复推（持久化重启仍有效）；同类型多条合并一条消息</td></tr>
+<tr><td>推送执行</td><td>复用 trigger_webhook_event(force_channels=True)：企微长连接/钉钉/飞书/pushplus/通用 URL 全支持</td></tr>
+<tr><td>路由</td><td>routes_alert.py：config（GET/POST）/test/run/logs/logs-csv/grants（GET/POST）；操作级实时校验 + menu_map backups 门控（8 个 endpoint）</td></tr>
+<tr><td>前端配置区</td><td>admin_backups.html 新增「告警消息推送」卡片（配置/立即巡检/测试推送/授权管理/日志筛选与 CSV 导出）；权限三态渲染</td></tr>
+<tr><td>联调规则</td><td>无 backups 权限 URL 直访被 menu_map 拦截；操作中权限回收 → 403 + 前端提示跳首页；保存失败事务回滚；权限全回收 → 巡检自动停用（无孤儿任务）</td></tr>
+</table>
+
+<h3>11.3 AI 配置网络策略修复（V10.11.8，本版适配）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>问题现象</td><td>AI 配置「测试」约 26s 后报 Connection error（API 配置本身正确，关代理后可用）</td></tr>
+<tr><td>根因</td><td>requests 与 OpenAI SDK（httpx）默认 trust_env 自动走系统代理；代理进程存活但出口节点不通时，AI 出网请求挂死在坏代理上直至超时</td></tr>
+<tr><td>双路径函数</td><td><code>_chat_with_fallback</code>：SDK httpx.Client(trust_env=False) 直连优先，仅 APIConnectionError（连接类异常含超时）回落系统代理重试一次，鉴权/参数类错误不回落</td></tr>
+<tr><td>覆盖调用链</td><td>test_ai_config（配置测试，timeout=15）/ _call_openai（AI 对话，timeout=30）两条出网链（<strong>本版为精简版 AI 服务，无模型列表拉取/OCR 功能，不涉及</strong>；传统版为 4 条链）</td></tr>
+</table>
+
+<h3>11.4 日历视图万年历化（V10.11.9）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>核心数据</td><td><code>static/js/lunar_utils.js</code>（零依赖零外网）：1900-2100 农历表 201 项位编码（bit0-3 闰月月号 / bit4-15 月大小 / bit16 闰月大月）+ 节气表 base32（201 年×24 字符）</td></tr>
+<tr><td>数据权威性</td><td>由寿星天文历（sxtwl）全量生成，roundtrip 校验 73,414 天 0 不一致 + 4,824 节气点 0 不一致；春节/中秋/除夕/闰六月/节气等权威锚点全命中</td></tr>
+<tr><td>今日信息卡</td><td>公历大字 + 星期（红）+ 农历全称 + 当日节气绿色胶囊 + 节日红色徽章</td></tr>
+<tr><td>月网格三层</td><td>公历数字（周末浅红/今日蓝/红描边）+ 万年历小字（节日&gt;节气&gt;农历日优先级红字；初一显月名；闰月带「闰」）+ 天气层（范围外弱化「无预报」）</td></tr>
+<tr><td>自由翻月</td><td>取消「不可早于当前月」限制（1900-2100 自由翻）+「今天」按钮</td></tr>
+<tr><td>详情万年历化</td><td>任意日期可点击：万年历信息条（农历全称/干支/生肖/节气/节日）+ 天气 8 项指标（预报内）；范围外仅万年历信息</td></tr>
+<tr><td>周视图</td><td>每行补农历/节日小字</td></tr>
+<tr><td>节日库</td><td>公历固定 15 项 + 浮动（母亲节/父亲节/感恩节）+ 农历固定 10 项 + 除夕动态判断；闰月当天不算农历节日</td></tr>
+</table>
+
+<h3>11.5 万年历独立模块 + 班休服务（V10.11.10）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>模块形态</td><td>视图切换第三态「万年历」（列表/日历/万年历）；<strong>不依赖天气预报数据可独立使用</strong>（动态创建视图容器）；隐藏天数控件、显示专属导航；视图记忆恢复</td></tr>
+<tr><td>今日大卡</td><td>公历大字 1.9rem + 星期红 + 今日班/休徽章 + 农历全称 + 节气胶囊 + 节日徽章 + 班休说明行</td></tr>
+<tr><td>大月历网格</td><td>公历数字 1.3rem + 右上角班/休角标（休红底/班灰底，hover 显名称）+ 万年历小字 + 今日红框红底 + 选中绿框</td></tr>
+<tr><td>点击详情</td><td>独立面板（与天气详情互不干扰）：农历全称大字 + 干支/生肖/节气/节日徽章 + 班/休状态与名称</td></tr>
+<tr><td>年月切换</td><td>年下拉 1900-2100 + 月下拉 1-12 + ‹ › 翻月 +「今天」一键返回</td></tr>
+<tr><td>班休数据源</td><td>holiday_service.py：timor.tech 聚合接口 GET /api/holiday/year/{y}（内容与国务院办公厅放假安排公报一致，免费无 Key 国内直连）；holiday=true 休 / false 调休补班</td></tr>
+<tr><td>反爬适配</td><td>timor.tech 屏蔽 python-requests 默认 UA（403），请求头模拟浏览器 UA</td></tr>
+<tr><td>双缓存</td><td>进程内存（按年）+ 磁盘 data/holiday_cache.json（重启免拉取；失败不缓存便于重试；保留 2010-2100 键防膨胀）</td></tr>
+<tr><td>网络与降级</td><td>禁代理直连优先 + 系统代理兑底，超时 (5, 8)s；拉取失败返回空（万年历主体不受影响仅无角标）；2007 年前跳过</td></tr>
+<tr><td>接口</td><td>GET /api/holiday/year/&lt;int:year&gt;（登录 + weather 菜单权限，menu_map api_holiday_year）</td></tr>
+</table>
+
+<h3>11.6 本版同步方式与特性差异</h3>
+<table>
+<tr><th>类别</th><th>明细</th></tr>
+<tr><td>直接复制（7 个，MD5 逐字一致）</td><td>weather_service.py / routes_weather.py / templates/weather.html / static/js/lunar_utils.js / holiday_service.py（新增）/ alert_service.py（新增）/ routes_alert.py（新增）</td></tr>
+<tr><td>手工合并（5 个）</td><td>models.py（追加告警两模型，保留本版无 FamilyMember 子集特性）/ app.py（schema 1019 + 告警路由注册 + 巡检线程）/ routes_ext.py（menu_map 补 api_holiday_year + 8 个告警 endpoint）/ ai_service.py（精简版保留，合入 _chat_with_fallback）/ templates/admin_backups.html（告警卡片 HTML 149 行 + JS 区块 154 行合并，WebDAV 原功能不变）</td></tr>
+<tr><td>schema 差异</td><td>1017→1019 直升，迁移注释说明跳过传统版 1018（family 两表，本版无该功能）</td></tr>
+<tr><td>功能差异</td><td>本版无家庭记账/模型列表拉取/OCR（传统版有），其余三代增量功能完全对齐</td></tr>
+</table>
+
+<h3>11.7 验证结论（49 项静态验证 ALL_PASS）</h3>
+<table>
+<tr><th>场景</th><th>结果</th></tr>
+<tr><td>py_compile 9 个 py 文件（models/app/routes_ext/ai_service/alert_service/routes_alert/holiday_service/routes_weather/weather_service）</td><td>✅</td></tr>
+<tr><td>7 个共享文件两版 MD5 逐字一致</td><td>✅</td></tr>
+<tr><td>admin_backups.html / weather.html div/script/style 标签配对平衡（合并后 1555 行）</td><td>✅</td></tr>
+<tr><td>webhook_utils 符号兼容（alert_service 依赖 trigger_webhook_event 存在）</td><td>✅</td></tr>
+<tr><td>menu_map 9 条目（api_holiday_year + 8 个 admin_alerts_*）</td><td>✅</td></tr>
+<tr><td>app.py 特性（schema 1019 / 1018 跳过说明 / 告警路由注册 / 巡检线程 / 告警两表迁移）</td><td>✅</td></tr>
+<tr><td>models.py 特性（AlertPushConfig/AlertPushGrant 就位 / 无 FamilyMember）</td><td>✅</td></tr>
+<tr><td>ai_service.py 特性（_chat_with_fallback / 延迟导入 / 无 fetch_model_list / 无 OCR）</td><td>✅</td></tr>
+<tr><td>admin_backups.html 告警区块（卡片 + JS + loadAlertConfig 调用 + WebDAV 原功能保留）</td><td>✅</td></tr>
+</table>
+</section>
+
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-09（V10.11.7 修订：天气查询 + 级联选择 + 表格列宽调整，承接 V10.10.29） | 审计范围: 58 文件 / ~26,900 行代码 | 165 个路由 | 22 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.8~10 修订：天气增强 + 告警推送 + 万年历独立模块 + 班休服务，承接 V10.11.7 天气查询与表格列宽） | 审计范围: 62 文件 / ~27,800 行代码 | 172 个路由 | 24 张数据表</p>
 </div>
 
 </div>
