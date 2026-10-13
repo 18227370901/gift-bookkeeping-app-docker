@@ -6,6 +6,7 @@ AI 助手核心服务层
 import os
 import re
 import time
+import requests
 from datetime import datetime
 
 # 延迟导入 OpenAI SDK（可选依赖，未安装时降级为本地引擎）
@@ -30,6 +31,49 @@ def _ensure_openai():
 from models import db, User, ChatSession, ChatMessage, AIQueryLog
 from models import encrypt_credential, decrypt_credential
 from web_search import needs_search, search_and_summarize
+from gift_utils import cn2num as _cn2num
+
+
+# ==================== V10.11.8 网络策略：禁代理直连优先 + 系统代理兑底 ====================
+# 与 weather_service._http_get 同款双路径。
+# 背景：用户机器常开系统级代理（环境变量 HTTP_PROXY/HTTPS_PROXY 指向本机代理端口），
+#       代理出口节点故障时 requests/httpx 默认走代理会持续超时，
+#       表现为「获取模型列表超时」「配置测试 Connection error (26333ms)」等误导性报错，
+#       而 AI 网关国内直连通常可达；反之仅代理可达的境外网关由兑底路径覆盖。
+
+AI_HTTP_TIMEOUT = (5, 20)  # 连接 5s / 读取 20s
+
+
+def _ai_http_get(url, headers=None):
+    """AI 网关 GET（requests 版）：① 禁代理直连（Session trust_env=False，彻底绕过异常本地代理与权限限制）；② 失败回落系统代理重试一次"""
+    try:
+        with requests.Session() as s:
+            s.trust_env = False
+            return s.get(url, headers=headers, timeout=AI_HTTP_TIMEOUT)
+    except (requests.Timeout, requests.RequestException, Exception):
+        pass
+    # 回落：系统代理/环境变量（默认 trust_env 行为）
+    with requests.Session() as s:
+        s.trust_env = True
+        return s.get(url, headers=headers, timeout=AI_HTTP_TIMEOUT)
+
+
+def _chat_with_fallback(client_kwargs, create_kwargs):
+    """OpenAI SDK 调用双路径：① 禁代理直连（httpx trust_env=False）；② 连接类异常回落系统代理重试一次
+    仅连接层错误（APIConnectionError 及其子类 APITimeoutError）回落，
+    鉴权/限流/模型不存在等业务错误不重试（避免无意义双倍消耗额度）。
+    client_kwargs: {'api_key':..., 'base_url':...}；create_kwargs: model/messages/max_tokens/timeout 等
+    """
+    import httpx
+    import openai as _openai_mod
+    # 路径①：禁代理直连
+    client = OpenAI(http_client=httpx.Client(trust_env=False), **client_kwargs)
+    try:
+        return client.chat.completions.create(**create_kwargs)
+    except _openai_mod.APIConnectionError:
+        # 直连网络层失败（含超时）→ 路径②：回落系统代理（httpx 默认 trust_env=True）
+        client = OpenAI(**client_kwargs)
+        return client.chat.completions.create(**create_kwargs)
 
 
 # ==================== System Prompt ====================
@@ -135,23 +179,44 @@ def _build_config_list(user=None):
 
 # ==================== OpenAI 调用 ====================
 
-# V10.11.8 同步（AI 网络策略修复）：OpenAI SDK 调用双路径
-# 路径①禁代理直连（httpx trust_env=False）优先；路径②连接类异常（含超时）回落系统代理重试一次
-# 根因：requests/httpx 默认 trust_env 自动走系统代理，代理进程存活但出口不通时请求挂死至超时
-def _chat_with_fallback(client_kwargs, create_kwargs):
-    """OpenAI SDK 双路径调用：直连优先，仅连接类异常回落系统代理
-    返回 chat.completions.create 的响应对象；鉴权/参数类错误直接抛出不回落
+def normalize_base_url(base_url):
+    """清洗用户填写的 Base URL（V10.11.3 OCR/测试配置 404 修复）
+
+    常见误填：用户把完整接口端点当 Base URL 填入（如
+    https://apihub.agnes-ai.com/v1/images/generations），
+    而 OpenAI SDK 的 chat 接口会自动追加 /chat/completions，
+    拼出不存在的 /v1/images/generations/chat/completions → 404 Invalid URL。
+    此处剥除常见 endpoint 后缀，还原为根地址，可循环剥除多层。
     """
-    import httpx
-    from openai import APIConnectionError
-    # 路径①：禁代理直连（国内环境 AI 网关直连可达）
-    client = OpenAI(http_client=httpx.Client(trust_env=False), **client_kwargs)
-    try:
-        return client.chat.completions.create(**create_kwargs)
-    except APIConnectionError:
-        pass  # 直连网络层失败（含超时）→ 路径②回落系统代理（httpx 默认 trust_env=True）
-    client = OpenAI(**client_kwargs)
-    return client.chat.completions.create(**create_kwargs)
+    url = (base_url or '').strip()
+    if not url:
+        return url
+    # 常见完整端点后缀（含 OpenAI/Anthropic/图像生成/响应/向量化各类接口）
+    suffixes = ('/chat/completions', '/images/generations', '/images/edits',
+                '/completions', '/messages', '/responses', '/embeddings',
+                '/models')
+    changed = True
+    while changed:
+        changed = False
+        # 先剥尾斜杠再匹配后缀（处理 /chat/completions/ 这类带斜杠写法）
+        stripped = url.rstrip('/')
+        if stripped != url:
+            url = stripped
+            changed = True
+        for suf in suffixes:
+            if url.lower().endswith(suf):
+                url = url[: -len(suf)]
+                changed = True
+    return url.rstrip('/')
+
+
+def _is_image_gen_model(model):
+    """检测模型名是否为图像生成模型（如 agnes-image-2.5-flash）。
+    图像生成模型只能"生成图片"，不能"看懂图片提取文字"，
+    用于 OCR/对话场景必然失败。"""
+    m = (model or '').lower()
+    return 'image' in m and ('gen' in m or 'flux' in m or 'dall' in m or
+                             'sd' in m.split('-') or 'agnes-image' in m or 'video' in m)
 
 
 def _call_openai(prompt, api_key, base_url, model):
@@ -166,7 +231,8 @@ def _call_openai(prompt, api_key, base_url, model):
     try:
         client_kwargs = {'api_key': api_key}
         if base_url:
-            client_kwargs['base_url'] = base_url
+            # V10.11.3：清洗 Base URL，剥除误填的完整端点后缀
+            client_kwargs['base_url'] = normalize_base_url(base_url)
 
         resp = _chat_with_fallback(client_kwargs, {
             'model': model,
@@ -178,7 +244,6 @@ def _call_openai(prompt, api_key, base_url, model):
             'temperature': 0.7,
             'timeout': 30
         })
-
         content = resp.choices[0].message.content.strip()
         if content:
             return True, content, ''
@@ -210,9 +275,11 @@ def test_ai_config(api_key, base_url, model):
     try:
         client_kwargs = {'api_key': api_key}
         if base_url:
-            client_kwargs['base_url'] = base_url
+            # V10.11.3：清洗 Base URL，剥除误填的完整端点后缀
+            client_kwargs['base_url'] = normalize_base_url(base_url)
 
-        # 发送极简测试消息，max_tokens 限制为 20 以快速返回（V10.11.8 同步：双路径直连优先）
+        # 发送极简测试消息，max_tokens 限制为 20 以快速返回
+        # V10.11.8：双路径网络策略（禁代理直连优先+代理兑底），修复系统代理故障时误报「无法连接」
         resp = _chat_with_fallback(client_kwargs, {
             'model': model,
             'messages': [
@@ -246,10 +313,17 @@ def test_ai_config(api_key, base_url, model):
 
         # 常见错误自动归类提示
         err_lower = err_str.lower()
-        if 'authentication' in err_lower or 'api key' in err_lower or '401' in err_lower:
+        if 'invalid url' in err_lower or ('invalid_request_error' in err_lower and '404' in err_lower):
+            # V10.11.3：404 + Invalid URL 是端点路径拼接错误（Base URL 误填完整端点），
+            # 而非模型名错误——SDK 自动追加 /chat/completions 拼出不存在的路径
+            reason = 'Base URL 疑似误填了完整接口地址（SDK 会自动追加 /chat/completions），请改填根地址（如 https://apihub.agnes-ai.com/v1）'
+        elif 'authentication' in err_lower or 'api key' in err_lower or '401' in err_lower:
             reason = 'API Key 无效或已过期'
         elif 'connection' in err_lower or 'connect' in err_lower or 'timeout' in err_lower or 'refused' in err_lower:
-            reason = '无法连接到 API 地址，请检查 Base URL 是否正确'
+            if '10013' in err_str or 'permission' in err_lower:
+                reason = '网络连接权限受限（[WinError 10013]，可能是防火墙、安全软件或系统代理限制），请检查网络'
+            else:
+                reason = '无法连接到 API 地址，请检查 Base URL 是否正确'
         elif 'not found' in err_lower or '404' in err_lower or 'model' in err_lower:
             reason = '模型名称不存在，请检查 Model 参数'
         elif 'rate limit' in err_lower or '429' in err_lower:
@@ -259,12 +333,113 @@ def test_ai_config(api_key, base_url, model):
         else:
             reason = '未知错误'
 
+        # V10.11.3：图像生成模型检测——agnes-image-* 等模型只能"生成图片"，
+        # 不能用于对话/识图（OCR），给出针对性引导
+        if _is_image_gen_model(model):
+            reason += ('；注意：该模型为图像生成模型（画图用），不支持对话与看图识别，'
+                       '请改用支持图像理解的文本模型（如 agnes-2.5-flash）')
+
         return {
             'success': False,
             'message': reason,
             'latency_ms': latency_ms,
             'detail': err_str[:500]
         }
+
+
+# ==================== 获取可用模型列表 ====================
+
+def fetch_model_list(api_key, base_url):
+    """
+    调用 {base_url}/models 获取可用模型列表（OpenAI 兼容接口，V10.11.4 新增）
+    - 请求: GET {base_url}/models, 请求头 Authorization: Bearer {api_key}
+    - 返回: {"data": [{"id": "gpt-4o", ...}, ...]}
+    返回 dict: { success, models: [str], message, detail }
+    """
+    if not api_key:
+        return {'success': False, 'models': [], 'message': 'API Key 为空，请先填写', 'detail': ''}
+
+    # Base URL 清洗：剥除误填的完整端点后缀（含 /models），取根地址再拼 /models
+    base = normalize_base_url(base_url) if base_url else 'https://api.openai.com/v1'
+    base_clean = base.rstrip('/')
+
+    # 候选端点探活：
+    # 候选 1: base + /models (如 https://exaiapi.fenzoz.com/v1/models)
+    # 候选 2: 若未以 /v1 结尾，补测 /v1/models (如 https://exaiapi.fenzoz.com -> https://exaiapi.fenzoz.com/v1/models)
+    # 候选 3: 若以 /v1 结尾，补测根 /models (如部分网关模型列表挂载在根端点)
+    candidate_urls = [base_clean + '/models']
+    if not base_clean.lower().endswith('/v1'):
+        candidate_urls.append(base_clean + '/v1/models')
+    else:
+        candidate_urls.append(base_clean[:-3].rstrip('/') + '/models')
+
+    resp = None
+    last_err = None
+    for target_url in candidate_urls:
+        try:
+            r = _ai_http_get(target_url, headers={'Authorization': 'Bearer ' + api_key})
+            resp = r
+            if r.status_code == 200:
+                break
+            if r.status_code in (401, 403):
+                # 鉴权失败说明端点本身存在，不需要继续探测其他端点
+                break
+        except (requests.Timeout, requests.RequestException, Exception) as e:
+            last_err = e
+            continue
+
+    if resp is None:
+        err_msg = str(last_err) if last_err else '无法连接'
+        err_lower = err_msg.lower()
+        if '10013' in err_msg or 'permission' in err_lower:
+            hint = '网络连接权限受限（[WinError 10013]，可能是防火墙、安全软件或系统代理限制），请检查网络'
+        elif 'timeout' in err_lower:
+            hint = '请求模型列表超时，请检查 Base URL 与网络连接'
+        else:
+            hint = '无法连接模型列表接口，请检查 Base URL 与网络'
+        return {'success': False, 'models': [], 'message': hint, 'detail': err_msg[:300]}
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return {'success': False, 'models': [],
+                'message': '接口返回的不是有效 JSON（可能不是 OpenAI 兼容的 /models 接口）',
+                'detail': resp.text[:300]}
+
+    if resp.status_code in (401, 403):
+        return {'success': False, 'models': [],
+                'message': 'API Key 无效或无权访问模型列表（HTTP {0}）'.format(resp.status_code),
+                'detail': resp.text[:300]}
+
+    if resp.status_code == 404:
+        return {'success': False, 'models': [],
+                'message': '该 API 服务未开放 /models 模型列表接口（HTTP 404），可直接手动填写模型名称',
+                'detail': resp.text[:300]}
+
+    if resp.status_code != 200:
+        # OpenAI 风格: {"error": {...}}；Open-Meteo 风格: {"reason": ...}
+        err_obj = data.get('error') or {}
+        if isinstance(err_obj, dict):
+            reason = err_obj.get('message') or data.get('reason') or 'HTTP {0}'.format(resp.status_code)
+        else:
+            reason = data.get('reason') or 'HTTP {0}'.format(resp.status_code)
+        return {'success': False, 'models': [],
+                'message': '模型列表接口返回错误：{0}'.format(reason),
+                'detail': resp.text[:300]}
+
+    models = []
+    for item in data.get('data') or []:
+        if isinstance(item, dict) and item.get('id'):
+            models.append(str(item['id']))
+
+    if not models:
+        return {'success': False, 'models': [],
+                'message': '模型列表接口返回的模型列表为空',
+                'detail': resp.text[:300]}
+
+    return {'success': True, 'models': models,
+            'message': '成功获取 {0} 个可用模型'.format(len(models)),
+            'detail': ''}
 
 
 # ==================== 本地兜底引擎 ====================
@@ -453,3 +628,271 @@ _SUGGESTIONS = [
 def _get_suggestions():
     """返回推荐问题列表"""
     return _SUGGESTIONS
+
+
+# ==================== OCR 图片智能识别（功能三） ====================
+
+def _pick_field(record, keys):
+    """从记录字典中按候选键名（中英文别名）取第一个非空值（V10.11.4 容错解析）
+    部分视觉模型不严格遵循提示词，会返回中文键名（如 {"姓名":...}），
+    仅取英文键会把所有记录过滤掉导致"成功识别 0 条记录"。
+    """
+    if not isinstance(record, dict):
+        return ''
+    for k in keys:
+        v = record.get(k)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return ''
+
+
+def _parse_amount(value):
+    """OCR 金额容错解析（V10.11.4 增强）
+    支持：500 / 500.0 / "500元" / "¥500.00" / "五百" / "五百元" / "1,000" 等写法
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        try:
+            return round(float(value), 2)
+        except (ValueError, TypeError):
+            return 0.0
+    s = str(value).strip()
+    if not s:
+        return 0.0
+    # 去除常见货币符号与单位、千分位分隔符
+    cleaned = re.sub(r'[¥￥$,\s]', '', s)
+    cleaned = cleaned.replace('元', '').replace('圆', '').replace('块', '').replace('整', '')
+    # 纯数字直接转换
+    try:
+        return round(float(cleaned), 2)
+    except ValueError:
+        pass
+    # 汉字数字/汉字金额（如"五百"、"五百元"、"壹仟"）
+    if re.search(r'[零〇一二两三四五六七八九十百千万亿壹贰叁肆伍陆柒捌玖拾佰仟]', s):
+        try:
+            val = _cn2num(s)
+            if val > 0:
+                return round(val, 2)
+        except Exception:
+            pass
+    # 最后尝试提取数字部分（如"约500元"、"500左右"）
+    m = re.search(r'\d+(?:\.\d+)?', s)
+    if m:
+        try:
+            return round(float(m.group()), 2)
+        except (ValueError, TypeError):
+            return 0.0
+    return 0.0
+
+
+def _parse_record_type(value):
+    """OCR 收送类型容错归一：统一为 receive / send"""
+    s = str(value or '').strip().lower()
+    if s in ('receive', 'recv', 'in', 'get', 'income', '收', '收礼', '收到', '收礼金', '收钱', '礼金收入'):
+        return 'receive'
+    if s in ('send', 'give', 'out', 'paid', '支出', '送礼', '送', '送人', '礼金支出'):
+        return 'send'
+    return 'receive'  # 无法识别时默认收礼
+
+
+def _sniff_image_mime(image_base64):
+    """根据 base64 头部嗅探图片真实 MIME 类型（部分网关严格校验 data URI 的 MIME）
+
+    V3.1.1 修复：此前版本 b64decode 后仅截取前 8 字节再判断 prefix[8:12]，
+    WEBP 魔数（RIFF....WEBP）的 'WEBP' 恰好位于第 8-12 字节，被截掉后
+    永远嗅探不出 webp。现统一解码出 18 字节头部再判断。
+    """
+    try:
+        # 取头部 24 个 base64 字符（解码后 18 字节），覆盖所有格式魔数 + RIFF size + WEBP
+        head = str(image_base64)[:24].lstrip('\r\n')
+        import base64 as _b64
+        pad = -len(head) % 4
+        prefix = _b64.b64decode(head + ('=' * pad))[:18]
+        if prefix.startswith(b'\x89PNG'):
+            return 'image/png'
+        if prefix[:3] == b'\xff\xd8\xff':
+            return 'image/jpeg'
+        if prefix[:4] == b'RIFF' and prefix[8:12] == b'WEBP':
+            return 'image/webp'
+        if prefix[:2] == b'BM':
+            return 'image/bmp'
+        if prefix[:4] in (b'II*\x00', b'MM\x00*'):
+            return 'image/tiff'
+    except Exception:
+        pass
+    return 'image/jpeg'
+
+
+def recognize_gift_image(image_base64, user=None):
+    """
+    调用 AI Vision 模型识别人情簿/礼金簿图片
+    image_base64: base64 编码的图片数据（不含 data:image/ 前缀）
+    user: 当前用户对象
+    返回: {"code": 200, "records": [...], "message": "..."}
+    
+    V3.1.1 修复：不再按模型名关键词白名单擅自替换用户的模型。
+    原逻辑缺陷：用户经自建网关（NewApi/OneAPI 等）配置的模型实际支持图片识别，
+    但模型名不含 'gpt-4o'/'vision'/'vl'/'4v'/'claude-3' 关键词时被硬改为
+    'gpt-4o-mini'，而该网关无此模型名 → 请求必然失败 → 提示
+    "所有 AI 配置均无法识别图片"，误导用户以为配置的 AI 不支持图片。
+    新逻辑：① 优先用用户配置的原始模型名直连调用（模型是否支持图片由服务端判定）；
+             ② 仅当原始模型调用失败时，才以常见 vision 模型名兜底再试一次；
+             ③ 收集每次失败的真实错误并在最终提示中透出，便于诊断。
+    """
+    OpenAI = _ensure_openai()
+    if not OpenAI:
+        return {'code': 503, 'message': 'AI 服务未安装 OpenAI SDK，无法识别图片', 'records': []}
+
+    # 获取用户 AI 配置
+    configs = []
+    if user:
+        configs = user.get_ai_configs()
+    # 优先取第一个启用的配置
+    enabled_configs = [c for c in configs if c.get('enabled', True)] if configs else []
+    if not enabled_configs:
+        return {'code': 403, 'message': '尚未配置或启用任何 AI 服务，请先在【AI 助手配置】中添加并启用', 'records': []}
+
+    # 清理 base64 中的换行符（部分客户端编码会插入，严格网关会解码失败）
+    image_base64 = ''.join(str(image_base64).split())
+    image_mime = _sniff_image_mime(image_base64)
+
+    # OCR 识别 Prompt（V10.11.4：强调英文字段名与纯数字金额，降低模型自由发挥概率）
+    ocr_prompt = (
+        "请识别这张人情簿/礼金簿图片中的所有记录。"
+        "每条记录包含：姓名、金额（元）、事由、收礼或送礼类型。"
+        "请以 JSON 数组格式返回，每条记录格式如下：\n"
+        '[{"name":"张三","amount":500,"event_reason":"婚宴","record_type":"receive"}]\n'
+        "其中 record_type 只有两个值：receive（收礼）或 send（送礼）。\n"
+        "金额 amount 只填阿拉伯数字，不要带'元'、'¥'等符号。\n"
+        "如果无法识别某字段，对应值设为 null；如果图片中没有礼金记录，请返回空数组 []。\n"
+        "请只返回 JSON 数组，不要添加任何其他文字说明或代码块标记。"
+    )
+
+    # 收集每次尝试的真实错误，全部失败时透出便于诊断
+    attempts_errors = []
+
+    for cfg in enabled_configs:
+        api_key = cfg.get('api_key', '')
+        base_url = cfg.get('base_url', '')
+        model = (cfg.get('model', '') or '').strip()
+
+        if not api_key:
+            attempts_errors.append(f"[{cfg.get('name', '未命名')}] 该配置缺少 API Key，已跳过")
+            continue
+
+        # ① 用户配置的原始模型优先（客户端不做能力猜测，由服务端判定）
+        # ② 原始模型失败后，才尝试常见 vision 模型名兜底（且不与原始模型重复）
+        candidate_models = [model] if model else []
+        fallbacks = [m for m in ('gpt-4o-mini', 'gpt-4o', 'gemini-2.0-flash')
+                     if m and m != model]
+        candidate_models += fallbacks
+
+        for target_model in candidate_models:
+            try:
+                # V3.2.1：显式设置超时（大图 + 慢网关场景；SDK 默认虽为 600s，
+                # 但部分网关/网络环境更早断连，明确超时便于错误信息定位）
+                # V10.11.3：Base URL 清洗——剥除误填的完整端点后缀
+                # V10.11.8：双路径网络策略（禁代理直连优先+代理兑底）
+                _ocr_client_kwargs = {
+                    'api_key': api_key,
+                    'base_url': normalize_base_url(base_url) if base_url else None,
+                }
+                response = _chat_with_fallback(_ocr_client_kwargs, {
+                    'model': target_model,
+                    'messages': [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": ocr_prompt},
+                            {"type": "image_url", "image_url": {
+                                "url": f"data:{image_mime};base64,{image_base64}"
+                            }}
+                        ]
+                    }],
+                    'max_tokens': 4000,
+                    'temperature': 0.1,
+                    'timeout': 120
+                })
+                content = response.choices[0].message.content.strip()
+
+                # 尝试从返回内容中提取 JSON 数组
+                import json
+                # 去除可能的 markdown 代码块标记
+                content = content.replace('```json', '').replace('```', '').strip()
+                # 尝试找到 JSON 数组
+                start = content.find('[')
+                end = content.rfind(']')
+                if start != -1 and end != -1:
+                    json_str = content[start:end + 1]
+                    records = json.loads(json_str)
+                    # 清理和验证记录（V10.11.4：中英文键名容错 + 金额容错解析）
+                    cleaned = []
+                    for r in records:
+                        if not isinstance(r, dict):
+                            continue
+                        name = _pick_field(r, ('name', '姓名', '名字', '人名', '客人', '客人姓名', '户主'))
+                        amount = _parse_amount(_pick_field(
+                            r, ('amount', '金额', '礼金', '数额', '数目', 'money', 'price')))
+                        if not name or amount <= 0:
+                            continue
+                        cleaned.append({
+                            'name': name,
+                            'amount': amount,
+                            'event_reason': _pick_field(r, ('event_reason', '事由', '原因', '事项', '场合', '类型')) or '其它',
+                            'record_type': _parse_record_type(_pick_field(
+                                r, ('record_type', '类型', '收送', '收礼', '送礼', 'relation', 'direction'))),
+                            'notes': _pick_field(r, ('notes', '备注', '说明', '备注说明'))
+                        })
+
+                    # V10.11.4：识别成功但字段无效时给出可读诊断（提示模型实际返回内容）
+                    if not cleaned:
+                        raw_snippet = content[:200] if content else '（空）'
+                        return {
+                            'code': 200,
+                            'records': cleaned,
+                            'message': (
+                                f'成功识别 0 条记录（使用模型: {target_model}）。'
+                                f'模型返回内容无法解析出有效记录（姓名/金额缺失），原始返回: {raw_snippet}'
+                            ),
+                            'config_name': cfg.get('name', '')
+                        }
+
+                    return {
+                        'code': 200,
+                        'records': cleaned,
+                        'message': f'成功识别 {len(cleaned)} 条记录（使用模型: {target_model}）',
+                        'config_name': cfg.get('name', '')
+                    }
+                else:
+                    # 原始模型调用成功（未抛异常）但返回内容不像 JSON 数组：
+                    # 无需继续尝试兜底模型，直接返回让用户重试
+                    return {'code': 422,
+                            'message': f'模型 {target_model} 返回内容无法解析为记录列表（请确认为图片识别模型后重试）',
+                            'records': []}
+
+            except Exception as e:
+                error_msg = str(e)
+                # 连接类错误补充提示：base_url 未填写时 SDK 默认走官方域名，
+                # 自定义网关场景必然失败——错误透出即可见 "Connection error" 等
+                attempts_errors.append(
+                    f"[{cfg.get('name', '未命名')} / {target_model}] {error_msg}")
+                # 该模型失败，继续尝试下一个候选模型
+                continue
+
+    # 全部配置与候选模型均失败：透出最后 3 条真实错误，帮助用户定位
+    detail = '；'.join(attempts_errors[-3:]) if attempts_errors else '无可用尝试'
+    # V10.11.3：针对性引导——用户模型为图像生成模型或 Base URL 误填完整端点
+    hints = []
+    for cfg in enabled_configs:
+        cfg_model = (cfg.get('model', '') or '').strip()
+        if _is_image_gen_model(cfg_model):
+            hints.append(f'配置 [{cfg.get("name", "未命名")}] 的模型 {cfg_model} 是图像生成模型（画图用），'
+                         f'不支持看图识别文字，请改用支持图像理解的文本模型（如 agnes-2.5-flash）')
+        if 'invalid url' in str(detail).lower():
+            hints.append('Base URL 请填写根地址（如 https://apihub.agnes-ai.com/v1），不要带 /images/generations 或 /chat/completions 等端点后缀')
+    hint_text = ('。' + '；'.join(hints)) if hints else ''
+    return {'code': 503,
+            'message': f'图片识别失败（已尝试 {len(attempts_errors)} 次）。最后错误：{detail}。'
+                       f'请检查 AI 配置的 API Key、接口地址与模型名是否正确，'
+                       f'且所用模型需支持图片输入。{hint_text}',
+            'records': []}

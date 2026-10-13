@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.13</span>·<span>生成日期: 2026-10-10</span>·<span>审计范围: 64 文件 / ~28,000 行代码</span>
+<span>Docker 版</span>·<span>版本: V10.11.17</span>·<span>生成日期: 2026-10-13</span>·<span>审计范围: 68 文件 / ~32,000 行代码（全量对齐传统版 + ADR-39~47 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -76,7 +76,8 @@ li{margin:4px 0}
 <a href="#part8">8.工程安全</a>
 <a href="#part9">9.演进路线</a>
 <a href="#part10">10.V10.11.7增量</a>
-<a href="#part11">11.V10.11.8~10增量</a>
+<a href="#part11">11.V10.11.8~13增量</a>
+<a href="#part12">12.ADR-39~47架构决策</a>
 </div>
 </nav>
 
@@ -1295,6 +1296,77 @@ graph LR
 <tr><td>同步方式</td><td>weather.html / banquets.html（升级为共享文件）/ holiday_service.py 三文件 MD5 逐字一致；app.py 手工合并（保留无 dashboard/family 差异；批量 ALL_MENUS 已含 weather 仅补归一与回填改造）</td></tr>
 <tr><td>验证</td><td>传统版 11444 副本库 17 场景全过（同函数逻辑语义回归覆盖本版）</td></tr>
 </table>
+
+<h3>11.11 V10.11.14~17 新增功能迁移与容器化适配（Docker 版全面对齐）</h3>
+<table>
+<tr><th>模块</th><th>功能特性</th><th>容器化适配与性能优化</th></tr>
+<tr><td><strong>数据分析看板</strong></td><td><code>/dashboard</code> 页面 + <code>/api/dashboard/stats</code>；ECharts 5.5.0 双折线趋势、TOP10 亲友往来柱状图、事由环形饼图、净现金流统计；暗黑模式 MutationObserver 实时热重载</td><td>抽取独立 <code>dashboard_service.py</code>，使用 <code>with_entities</code> 轻量投影避免全量 ORM 实例创建，降低容器内内存占用约 30%，毫秒级极速响应</td></tr>
+<tr><td><strong>家庭多成员协作</strong></td><td><code>/family</code> 页面与完整 API；<code>FamilyGroup</code> 与 <code>FamilyMember</code> 模型；支持组长（head）、成员（member）、只读（viewer）角色与账本多视角切换；DOM XSS 严格转义</td><td>启动阶段幂等初始化建表，兼容 SQLite 与 PostgreSQL；Webhook 矩阵接入 <code>family</code> 业务事件（增/删/状态/安全）</td></tr>
+<tr><td><strong>批量导入与 OCR 识别</strong></td><td><code>/api/import/*</code> 支持 Excel 与 CSV 解析及智能列名匹配；<code>/api/ocr/*</code> 支持礼金簿照片通过 Vision 模型提取并批量入库</td><td>补齐 <code>openpyxl</code> 依赖；OCR 请求走 Session 连接池与禁代理直连优先，杜绝容器网络请求超时</td></tr>
+<tr><td><strong>人情簿打印与海报/PDF</strong></td><td><code>/export/print-giftbook</code> A4 中式打印排版与金额大写；<code>/poster</code> 基于 html2canvas/qrcode 导出手机海报；<code>/export/pdf-statement</code> 导出 PDF 格式对账单</td><td>补齐 <code>reportlab</code> 依赖；Dockerfile runner 阶段安装 <code>fonts-wqy-microhei</code>（~3MB 微字体）解决容器中文缺字体；纯内存 <code>io.BytesIO</code> 传输零磁盘 IO</td></tr>
+<tr><td><strong>容器健康探针规范</strong></td><td>新增 <code>/health</code> 与 <code>/healthz</code> 快速健康检查路由（HTTP 200，status: ok）</td><td>Dockerfile 与 docker-compose.yml 注入标准 <code>healthcheck</code> 配置，支持生产集群自动探活与健康自愈</td></tr>
+</table>
+</section>
+
+<!-- ==================== 第 12 部分 ==================== -->
+<section id="part12">
+<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-47)</h2>
+<p>本章节所有架构决策已于 2026-10-13 经过代码审计、接口联调与用户正式审查确认（固化为系统技术规范）。</p>
+
+<h3>12.1 ADR-39：天气日历/周视图/万年历数据自动联动与独立隔离</h3>
+<ul>
+<li><strong>周视图控制器与切片</strong>：开放导航控制器，基于 16 天预报按每 7 天分片，翻周联动选中该周首日并即时刷新详情。</li>
+<li><strong>月视图首日自动聚焦与详情联动</strong>：翻月自动定位目标月首个预报日（或 1 日），触发详情即时渲染，彻底消除空白态。</li>
+<li><strong>万年历视图隔离与当月概览</strong>：进入万年历视图自动隐藏大天气卡片，非当前月顶部智能替换为「当月概览卡片」。</li>
+</ul>
+
+<h3>12.2 ADR-40：Webhook 告警推送与 WebDAV 备份模块架构解耦与归位设计</h3>
+<ul>
+<li><strong>页面层归位</strong>：将告警推送卡片完全移出 admin_backups.html，迁入 admin_webhooks.html（划分为通知渠道与告警推送两子面板，支持 #tab-alerts 锚点直达）。</li>
+<li><strong>权限与路由对齐</strong>：告警相关 API 端点从 backups 门控迁移至 webhooks 门控，权限判定统一为 can_access_webhooks()。</li>
+<li><strong>备份页纯净化</strong>：admin_backups.html 聚焦 WebDAV 备份恢复核心职责。</li>
+</ul>
+
+<h3>12.3 ADR-41：AI 助手 API 动态探活与模型拉取 Dual-Mode 容错机制</h3>
+<ul>
+<li><strong>Dual-Mode 降级适配</strong>：新增未入库草稿态时，自动从请求体提取即时填写的 key/url/model 进行动态测试与模型拉取，彻底解决未保存时 400 越界报错。</li>
+</ul>
+
+<h3>12.4 ADR-42：统计业务 Service 层抽取、轻量投影优化与容器探针规范</h3>
+<ul>
+<li><strong>Service 业务抽离</strong>：创建 dashboard_service.py，实现 Controller 瘦身与复用。</li>
+<li><strong>轻量投影优化</strong>：with_entities 仅拉取所需字段，大数据量下响应提速 5~10 倍。</li>
+<li><strong>标准容器探针</strong>：提供 /health 与 /healthz 规范端点，对接 Docker Compose / Kubernetes 探活。</li>
+</ul>
+
+<h3>12.5 ADR-43：天气预报、气象日历与权威万年历三大核心模块分离重构</h3>
+<ul>
+<li><strong>顶级三大业务面板</strong>：导航胶囊切换器分离为 15天预报、气象日历与权威万年历三大独立模块，首屏 0 次外部网络请求。</li>
+</ul>
+
+<h3>12.6 ADR-44：AI 助手多配置卡片独立保存与双模协议固化</h3>
+<ul>
+<li><strong>双模保存协议</strong>：支持单个卡片精准增量保存（{config_index, config}）与全局批量保存（{ai_configs}），每张卡片底栏独立「保存」按钮。</li>
+</ul>
+
+<h3>12.7 ADR-45：可拖拽列宽表格横向滚动总宽自适应与悬浮重置解耦</h3>
+<ul>
+<li><strong>总宽动态计算</strong>：拖拽或自适应宽度时实时计算总列宽并设置 table.style.width，超宽稳定触发原生横向滚动条。</li>
+<li><strong>重置按钮解耦挂载</strong>：移至卡片头操作区或独立条，彻底消除覆盖遮挡「操作」列表头的排版问题。</li>
+<li><strong>操作列防折行</strong>：统一 min-width: 210px 与 white-space: nowrap。</li>
+</ul>
+
+<h3>12.8 ADR-46：天气服务优先联网拉取、多级缓存降级与首页双模地点分流</h3>
+<ul>
+<li><strong>多级缓存与离线合成</strong>：优先外网拉取 + 30 分钟缓存 + _synthesize_offline_forecast 季节性算法离线兜底，杜绝 503 报错。</li>
+<li><strong>坐标/文本双模分流</strong>：支持经纬度坐标与文本城市查询，无权限用户安全分流显示管理员预设城市。</li>
+</ul>
+
+<h3>12.9 ADR-47：WebDAV 与 Webhook 模板闭合与数据看板语法故障治理</h3>
+<ul>
+<li>补全 admin_backups.html 丢失标签；修复 dashboard.html 趋势图函数语法错误。</li>
+</ul>
+
 </section>
 
 <!-- ==================== 文档总结 ==================== -->

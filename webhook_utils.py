@@ -463,7 +463,7 @@ PAGE_NAMES = {
     'admin_logs': '操作审计日志', 'admin_broadcasts': '系统广播', 'admin_webhooks': 'Webhook通知',
     'admin_backups': 'WebDAV备份', 'ai_assistant': 'AI助手', 'ai_config': 'AI助手配置',
     'security': '系统安全', 'invites': '邀请链接', 'permission_tickets': '权限工单',
-    # V10.11.7 新增：天气（只读工具页面，无业务事件）
+    'dashboard': '数据分析', 'family': '家庭记账',
     'weather': '天气',
 }
 
@@ -495,8 +495,10 @@ PAGE_EVENT_MATRIX = {
     'security':          ['security'],
     'invites':           ['create', 'delete', 'status_change'],
     'permission_tickets': ['create', 'status_change', 'delete'],
-    # V10.11.7 新增：天气只读页面，无任何业务事件（矩阵界面展示"—"）
-    'weather':          [],
+    'family':            ['create', 'delete', 'status_change', 'security'],
+    # 只读页面：数据分析（dashboard）与天气（weather）不产生业务事件，矩阵留空展示为"—"
+    'dashboard':         [],
+    'weather':           [],
 }
 
 # 事件类型 → 开关字段名映射

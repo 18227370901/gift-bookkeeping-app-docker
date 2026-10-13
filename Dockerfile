@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libffi8 \
     libssl3 \
+    fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
 # 从 builder 阶段拷贝已安装的 Python 依赖
@@ -49,4 +50,8 @@ COPY . /app/
 EXPOSE 11443
 
 # 使用 Gunicorn 配置文件启动（workers/threads/timeout 等参数均由 gunicorn.conf.py 控制）
+# V10.11.17 (ADR-42): 标准容器健康检查探针
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://127.0.0.1:11443/health || exit 1
+
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]

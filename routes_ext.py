@@ -12,7 +12,7 @@ from models import (
     db, User, GiftRecord, Banquet, AnniversaryReminder, Broadcast, BroadcastRead,
     WebhookConfig, WebhookLog, SharedLedgerLink, BackupConfig, LoginRisk, SecurityRisk,
     SystemSetting, ScheduledBackupTask, BackupAttachment, PermissionTicket,
-    ScheduledTaskExecutionLog
+    ScheduledTaskExecutionLog, FamilyGroup, FamilyMember
 )
 from webhook_utils import trigger_webhook_event, test_single_webhook, validate_wecom_credentials, extract_chatid_from_url, start_wecom_long_connection_listener, _cached_chatids, record_webhook_log, _send_payload, send_wecom_long_connection_message
 from webdav_utils import (
@@ -36,6 +36,48 @@ from gift_utils import (
 from _daemon_lock import try_acquire_daemon_lock
 
 
+# ===== 金额转中文大写辅助函数 =====
+def _amount_to_cn(num):
+    """金额转中文大写（用于打印/PDF）"""
+    if num is None:
+        num = 0
+    num = round(float(num), 2)
+    int_part = int(num)
+    dec_part = round((num - int_part) * 100)
+    digit_map = '零壹贰叁肆伍陆柒捌玖'
+    unit_map = ['', '拾', '佰', '仟', '万', '拾', '佰', '仟', '亿']
+    if int_part == 0:
+        int_cn = '零'
+    else:
+        int_cn = ''
+        s = str(int_part)
+        for i, d in enumerate(s):
+            d = int(d)
+            pos = len(s) - i - 1
+            if d == 0:
+                if not int_cn.endswith('零') and pos not in (4, 8):
+                    int_cn += '零'
+                elif pos == 4 and not int_cn.endswith('万'):
+                    int_cn += '万'
+                elif pos == 8 and not int_cn.endswith('亿'):
+                    int_cn += '亿'
+            else:
+                int_cn += digit_map[d] + unit_map[pos]
+    result = int_cn + '元'
+    if dec_part == 0:
+        result += '整'
+    else:
+        jiao = int(dec_part // 10)
+        fen = int(dec_part % 10)
+        if jiao > 0:
+            result += digit_map[jiao] + '角'
+        elif int_part > 0 or dec_part > 0:
+            result += '零'
+        if fen > 0:
+            result += digit_map[fen] + '分'
+    return result
+
+
 
 import sqlite3 as _sqlite3
 import tempfile as _tempfile
@@ -56,7 +98,8 @@ _PG_ALL_TABLES = [
     'shared_ledger_links', 'backup_configs', 'banquets',
     'anniversary_reminders', 'chat_sessions', 'chat_messages',
     'ai_query_logs', 'scheduled_backup_tasks', 'backup_attachments',
-    'permission_tickets', 'scheduled_task_execution_logs'
+    'permission_tickets', 'scheduled_task_execution_logs',
+    'family_groups', 'family_members', 'alert_push_configs', 'alert_push_grants'
 ]
 _PG_USER_TABLES = ['gift_records', 'banquets', 'anniversary_reminders']
 _PG_GLOBAL_TABLES = [t for t in _PG_ALL_TABLES if t not in _PG_USER_TABLES]
@@ -202,6 +245,7 @@ def build_user_scoped_backup_db(db_path, user):
             'registration_tokens', 'broadcasts', 'broadcast_reads',
             'shared_ledger_links', 'backup_attachments', 'permission_tickets',
             'chat_sessions', 'chat_messages', 'ai_query_logs',
+            'family_groups', 'family_members', 'alert_push_configs', 'alert_push_grants',
         ]
         for tbl in _global_tables:
             try:
@@ -905,20 +949,32 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
             'batch_restore_records': 'recycle_bin',
             'batch_purge_records': 'recycle_bin',
             'clear_recycle_bin': 'recycle_bin',
-            # V10.11.7 天气菜单门控：weather_page/api_weather_query → 'weather'
+            'dashboard_view': 'dashboard',
+            'api_dashboard_stats': 'dashboard',
+            'family_view': 'family',
+            'api_family_my_groups': 'family',
+            'api_family_create': 'family',
+            'api_family_invite': 'family',
+            'api_family_dissolve': 'family',
+            'api_family_invitable_users': 'family',
+            'api_family_my_perspective_users': 'family',
+            'export_print_giftbook': 'ledger',
+            'export_pdf_statement': 'ledger',
+            'poster_view': 'ledger',
+            'api_poster_data': 'ledger',
             'weather_page': 'weather',
             'api_weather_query': 'weather',
-            # V10.11.10 同步：万年历班/休接口与天气查询同挂 weather 菜单门控
+            # V10.11.10 万年历班/休接口：与天气查询同挂 weather 菜单门控
             'api_holiday_year': 'weather',
-            # V10.11.8 同步：告警推送接口挂 backups 菜单门控（无 WebDAV 备份菜单权限的用户直访这些 URL 会被拦截）
-            'admin_alerts_config': 'backups',
-            'admin_alerts_config_save': 'backups',
-            'admin_alerts_test': 'backups',
-            'admin_alerts_run': 'backups',
-            'admin_alerts_logs': 'backups',
-            'admin_alerts_logs_csv': 'backups',
-            'admin_alerts_grants': 'backups',
-            'admin_alerts_grants_save': 'backups',
+            # V10.11.8 告警推送接口：挂 backups 菜单门控（无 WebDAV 备份菜单权限的用户直访这些 URL 会被拦截）
+            'admin_alerts_config': 'webhooks',
+            'admin_alerts_config_save': 'webhooks',
+            'admin_alerts_test': 'webhooks',
+            'admin_alerts_run': 'webhooks',
+            'admin_alerts_logs': 'webhooks',
+            'admin_alerts_logs_csv': 'webhooks',
+            'admin_alerts_grants': 'webhooks',
+            'admin_alerts_grants_save': 'webhooks',
         }
         required_menu = menu_map.get(endpoint)
         if required_menu and hasattr(current_user, 'can_access_menu'):
@@ -929,7 +985,12 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
                     'reminders': '纪念日备忘',
                     'recycle_bin': '回收站',
                     'ledger': '礼金账本',
-                    'weather': '天气'
+                    'dashboard': '数据分析',
+                    'family': '家庭记账',
+                    'weather': '天气',
+                    'webhooks': 'Webhook通知',
+                    'admin_webhooks': 'Webhook通知',
+                    'backups': 'WebDAV备份'
                 }
                 m_name = menu_names.get(required_menu, '该功能')
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -2379,39 +2440,72 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
             return redirect(url_for('banquets_view'))
 
         records = GiftRecord.query.filter_by(banquet_id=b.id).filter(GiftRecord.deleted_at.is_(None)).order_by(GiftRecord.created_at.asc()).all()
-
-        output = io.StringIO()
-        output.write('\ufeff')
-        import csv
-        writer = csv.writer(output)
-        writer.writerow([f"【{b.title}】收礼台账与盈亏简报"])
-        writer.writerow([f"活动类型: {b.event_type or '宴席'}", f"举办日期: {b.event_date or '未定'}", f"地点: {b.venue or '无'}"])
         total_income = sum(r.amount for r in records if getattr(r, 'record_type', 'receive') != 'send')
         cost = b.banquet_cost or 0.0
-        writer.writerow([f"总收礼金额: ¥{total_income:.2f}", f"办宴成本: ¥{cost:.2f}", f"净盈亏: ¥{total_income - cost:.2f}"])
-        writer.writerow([])
-        writer.writerow(['序号', '客人姓名', '礼金金额(元)', '联系电话', '联系地址', '备注说明', '登记时间'])
 
-        for idx, r in enumerate(records, start=1):
-            writer.writerow([
-                idx,
-                r.name,
-                f"{r.amount:.2f}",
-                r.phone or '',
-                r.address or '',
-                r.notes or '',
-                r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else ''
-            ])
+        export_format = request.args.get('format', 'xlsx').strip().lower()
 
-        response = Response(output.getvalue(), mimetype='text/csv; charset=utf-8')
-        filename = f"banquet_{b.id}_{b.title}_ledger.csv"
-        response.headers['Content-Disposition'] = f"attachment; filename={urllib.parse.quote(filename)}"
-        safe_log('导出宴席台账', f"导出了宴席 [{b.title}] 的全部礼金记录")
+        if export_format == 'csv':
+            # CSV 导出
+            output = io.StringIO()
+            output.write('\ufeff')
+            import csv as _csv_mod
+            writer = _csv_mod.writer(output)
+            writer.writerow([f"【{b.title}】收礼台账与盈亏简报"])
+            writer.writerow([f"活动类型: {b.event_type or '宴席'}", f"举办日期: {b.event_date or '未定'}", f"地点: {b.venue or '无'}"])
+            writer.writerow([f"总收礼金额: ¥{total_income:.2f}", f"办宴成本: ¥{cost:.2f}", f"净盈亏: ¥{total_income - cost:.2f}"])
+            writer.writerow([])
+            writer.writerow(['序号', '客人姓名', '礼金金额(元)', '联系电话', '联系地址', '备注说明', '登记时间'])
+            for idx, r in enumerate(records, start=1):
+                writer.writerow([idx, r.name, f"{r.amount:.2f}", r.phone or '', r.address or '', r.notes or '', r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else ''])
+            response = Response(output.getvalue(), mimetype='text/csv; charset=utf-8')
+            filename = f"banquet_{b.id}_{b.title}_ledger.csv"
+            response.headers['Content-Disposition'] = f"attachment; filename={urllib.parse.quote(filename)}"
+        else:
+            # Excel 导出（openpyxl 真实 .xlsx）
+            try:
+                from openpyxl import Workbook
+                from openpyxl.utils import get_column_letter
+            except ImportError:
+                flash('Excel 导出需要 openpyxl 库。', 'danger')
+                return redirect(url_for('banquet_detail_view', banquet_id=banquet_id))
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = b.title[:31] if b.title else '台账'
+            # 标题行
+            ws.append([f"【{b.title}】收礼台账与盈亏简报"])
+            ws.append([f"活动类型: {b.event_type or '宴席'}", f"举办日期: {b.event_date or '未定'}", f"地点: {b.venue or '无'}"])
+            ws.append([f"总收礼金额: ¥{total_income:.2f}", f"办宴成本: ¥{cost:.2f}", f"净盈亏: ¥{total_income - cost:.2f}"])
+            ws.append([])
+            # 表头
+            headers = ['序号', '客人姓名', '礼金金额(元)', '联系电话', '联系地址', '备注说明', '登记时间']
+            ws.append(headers)
+            for idx, r in enumerate(records, start=1):
+                ws.append([idx, r.name, float(r.amount), r.phone or '', r.address or '', r.notes or '', r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else ''])
+            # 自动列宽
+            for col_idx in range(1, len(headers) + 1):
+                max_len = len(str(headers[col_idx - 1]))
+                for row_idx in range(5, 5 + len(records)):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell_len = len(str(cell.value)) if cell.value else 0
+                    if cell_len > max_len:
+                        max_len = cell_len
+                ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 4, 40)
+
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+            response = Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            filename = f"banquet_{b.id}_{b.title}_ledger.xlsx"
+            response.headers['Content-Disposition'] = f"attachment; filename={urllib.parse.quote(filename)}"
+
+        safe_log('导出宴席台账', f"导出了宴席 [{b.title}] 的全部礼金记录（{export_format.upper()}）")
         try:
             trigger_webhook_event(
                 WebhookConfig.query.filter_by(is_enabled=True).all(), 'security',
                 f'导出宴席台账',
-                f'操作人：{current_user.username} | 页面：专属宴席 | 宴席：{b.title} | 记录数：{len(records)}',
+                f'操作人：{current_user.username} | 页面：专属宴席 | 宴席：{b.title} | 记录数：{len(records)} | 格式：{export_format.upper()}',
                 page_key='banquets', user_name=current_user.username,
                 operator_id=current_user.id
             )
@@ -3268,7 +3362,7 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
     @login_required
     def admin_webhooks():
         """管理员 Webhook 与长连接机器人配置及推送日志"""
-        if not current_user.is_admin:
+        if not current_user.is_admin and not (hasattr(current_user, 'can_access_menu') and (current_user.can_access_menu('webhooks') or current_user.can_access_menu('admin_webhooks'))):
             flash('权限不足', 'danger')
             return redirect(url_for('index'))
 
@@ -5069,12 +5163,13 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
     # 可申请的菜单列表
     TICKET_MENU_OPTIONS = [
         ('ledger', '礼金账本'),
+        ('dashboard', '数据分析'),
+        ('family', '家庭记账'),
+        ('weather', '天气'),
         ('banquets', '专属宴席'),
         ('reconciliation', '人情对账'),
         ('reminders', '纪念日备忘'),
         ('recycle_bin', '回收站'),
-        # V10.11.7 新增：天气（0/1 级只读工具菜单）
-        ('weather', '天气'),
     ]
 
     @app.route('/permission_tickets')
@@ -5468,6 +5563,597 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
 
         flash(f'已批量删除 {count} 条工单。', 'info')
         return redirect(url_for('permission_tickets_view'))
+
+    # ==================== 功能一：数据分析看板 ====================
+
+    @app.route('/dashboard')
+    @login_required
+    def dashboard_view():
+        """数据分析看板页面"""
+        if not current_user.is_admin and not current_user.can_access_menu('dashboard'):
+            return render_template('dashboard.html')
+        return render_template('dashboard.html')
+
+    @app.route('/api/dashboard/stats')
+    @login_required
+    def api_dashboard_stats():
+        """数据分析看板 API — 返回汇总/月度/年度/事由分布/TOP10 数据，支持日期范围筛选 (P2-1 / P2-5 优化)"""
+        try:
+            from dashboard_service import calculate_dashboard_stats
+            data = calculate_dashboard_stats(
+                current_user,
+                start_month=request.args.get('start_month', '').strip(),
+                end_month=request.args.get('end_month', '').strip(),
+                start_year=request.args.get('start_year', '').strip(),
+                end_year=request.args.get('end_year', '').strip()
+            )
+            return jsonify({'code': 200, 'data': data})
+        except Exception as e:
+            return jsonify({'code': 500, 'message': f'获取看板数据失败: {str(e)}'}), 500
+
+    # ==================== 功能二：家庭多成员协作记账 ====================
+
+    @app.route('/family')
+    @login_required
+    def family_view():
+        """家庭协作记账管理页面"""
+        return render_template('family.html')
+
+    @app.route('/api/family/my-groups')
+    @login_required
+    def api_family_my_groups():
+        """获取当前用户所在的家庭组列表"""
+        try:
+            # 查找用户所在的所有家庭组
+            memberships = FamilyMember.query.filter_by(user_id=current_user.id).all()
+            group_ids = [m.group_id for m in memberships]
+            groups = FamilyGroup.query.filter(FamilyGroup.id.in_(group_ids)).all() if group_ids else []
+            result = []
+            for g in groups:
+                members = FamilyMember.query.filter_by(group_id=g.id).all()
+                member_list = []
+                for m in members:
+                    u = User.query.get(m.user_id)
+                    member_list.append({
+                        'id': m.id,
+                        'user_id': m.user_id,
+                        'username': u.username if u else '未知',
+                        'role': m.role,
+                        'nickname': m.nickname or ''
+                    })
+                result.append({
+                    'id': g.id,
+                    'name': g.name,
+                    'description': g.description or '',
+                    'owner_id': g.owner_id,
+                    'members': member_list
+                })
+            return jsonify({'code': 200, 'groups': result})
+        except Exception as e:
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    @app.route('/api/family/create', methods=['POST'])
+    @login_required
+    def api_family_create():
+        """创建家庭组"""
+        try:
+            data = request.get_json(force=True)
+            name = (data.get('name') or '').strip()
+            if not name:
+                return jsonify({'code': 400, 'message': '请输入家庭名称'}), 400
+            group = FamilyGroup(name=name, owner_id=current_user.id, description=data.get('description', ''))
+            db.session.add(group)
+            db.session.flush()
+            # 创建者自动成为家长成员
+            member = FamilyMember(group_id=group.id, user_id=current_user.id, role='head', nickname='家长')
+            db.session.add(member)
+            db.session.commit()
+            safe_log('创建家庭组', f'家庭名称: {name}', user=current_user)
+            try:
+                trigger_webhook_event(
+                    WebhookConfig.query.filter_by(is_enabled=True).all(),
+                    'create', f'家庭组 [{name}] 已创建',
+                    page_key='family', user_name=current_user.username, operator_id=current_user.id
+                )
+            except Exception:
+                pass
+            return jsonify({'code': 200, 'message': '家庭组创建成功', 'group_id': group.id})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    @app.route('/api/family/<int:group_id>/invitable-users')
+    @login_required
+    def api_family_invitable_users(group_id):
+        """获取可邀请的用户列表（排除已在组内的）"""
+        try:
+            group = FamilyGroup.query.get(group_id)
+            if not group:
+                return jsonify({'code': 404, 'message': '家庭组不存在'}), 404
+            existing_ids = [m.user_id for m in FamilyMember.query.filter_by(group_id=group_id).all()]
+            all_users = User.query.filter(User.is_active == True, ~User.id.in_(existing_ids) if existing_ids else True).all()
+            return jsonify({'code': 200, 'users': [{'id': u.id, 'username': u.username} for u in all_users]})
+        except Exception as e:
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    @app.route('/api/family/<int:group_id>/invite', methods=['POST'])
+    @login_required
+    def api_family_invite(group_id):
+        """邀请成员加入家庭组"""
+        try:
+            group = FamilyGroup.query.get(group_id)
+            if not group:
+                return jsonify({'code': 404, 'message': '家庭组不存在'}), 404
+            # 仅家长或管理员可邀请
+            if not current_user.is_admin and group.owner_id != current_user.id:
+                my_membership = FamilyMember.query.filter_by(group_id=group_id, user_id=current_user.id, role='head').first()
+                if not my_membership:
+                    return jsonify({'code': 403, 'message': '仅家长可邀请成员'}), 403
+            data = request.get_json(force=True)
+            user_id = data.get('user_id')
+            if not user_id:
+                return jsonify({'code': 400, 'message': '请选择用户'}), 400
+            # 检查是否已在组内
+            existing = FamilyMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+            if existing:
+                return jsonify({'code': 409, 'message': '该用户已在家庭组中'}), 409
+            role = data.get('role', 'member')
+            nickname = data.get('nickname', '')
+            member = FamilyMember(group_id=group_id, user_id=user_id, role=role, nickname=nickname)
+            db.session.add(member)
+            db.session.commit()
+            safe_log('邀请家庭成员', f'家庭组: {group.name}, 用户ID: {user_id}, 角色: {role}', user=current_user)
+            try:
+                trigger_webhook_event(
+                    WebhookConfig.query.filter_by(is_enabled=True).all(),
+                    'status_change', f'家庭组 [{group.name}] 新增成员',
+                    page_key='family', user_name=current_user.username, operator_id=current_user.id
+                )
+            except Exception:
+                pass
+            return jsonify({'code': 200, 'message': '邀请成功'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    @app.route('/api/family/<int:group_id>/dissolve', methods=['DELETE'])
+    @login_required
+    def api_family_dissolve(group_id):
+        """解散家庭组"""
+        try:
+            group = FamilyGroup.query.get(group_id)
+            if not group:
+                return jsonify({'code': 404, 'message': '家庭组不存在'}), 404
+            if not current_user.is_admin and group.owner_id != current_user.id:
+                return jsonify({'code': 403, 'message': '仅家长可解散家庭组'}), 403
+            safe_log('解散家庭组', f'家庭名称: {group.name}', user=current_user)
+            db.session.delete(group)  # 级联删除成员
+            db.session.commit()
+            try:
+                trigger_webhook_event(
+                    WebhookConfig.query.filter_by(is_enabled=True).all(),
+                    'delete', f'家庭组 [{group.name}] 已解散',
+                    page_key='family', user_name=current_user.username, operator_id=current_user.id
+                )
+            except Exception:
+                pass
+            return jsonify({'code': 200, 'message': '家庭组已解散'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    @app.route('/api/family/my-perspective-users')
+    @login_required
+    def api_family_my_perspective_users():
+        """获取当前用户可查看的家庭成员视角列表（用于账本视角切换）"""
+        try:
+            memberships = FamilyMember.query.filter_by(user_id=current_user.id).all()
+            perspective_users = [{'id': current_user.id, 'username': current_user.username, 'label': '我的账本'}]
+            for m in memberships:
+                group = FamilyGroup.query.get(m.group_id)
+                if not group:
+                    continue
+                # 家长可看全部成员，member 可看自己，viewer 可看汇总
+                if m.role == 'head' or current_user.is_admin:
+                    group_members = FamilyMember.query.filter_by(group_id=m.group_id).all()
+                    for gm in group_members:
+                        if gm.user_id != current_user.id:
+                            u = User.query.get(gm.user_id)
+                            if u:
+                                perspective_users.append({
+                                    'id': u.id,
+                                    'username': u.username,
+                                    'label': f'{group.name} - {gm.nickname or u.username}'
+                                })
+            return jsonify({'code': 200, 'users': perspective_users})
+        except Exception as e:
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    # ==================== 功能三：批量导入与智能识别 ====================
+
+    @app.route('/api/import/preview', methods=['POST'])
+    @login_required
+    def api_import_preview():
+        """Excel/CSV 文件上传预览：解析表头与前5行数据"""
+        try:
+            file = request.files.get('file')
+            if not file:
+                return jsonify({'code': 400, 'message': '请选择文件'}), 400
+            filename = file.filename or ''
+            ext = os.path.splitext(filename)[1].lower()
+
+            if ext == '.csv':
+                import csv as _csv
+                import io as _io
+                content = file.read().decode('utf-8-sig')
+                reader = _csv.reader(_io.StringIO(content))
+                rows = list(reader)
+            elif ext in ('.xlsx', '.xls'):
+                try:
+                    from openpyxl import load_workbook
+                except ImportError:
+                    return jsonify({'code': 503, 'message': 'openpyxl 未安装，无法解析 Excel 文件'}), 503
+                wb = load_workbook(file, read_only=True, data_only=True)
+                ws = wb.active
+                rows = []
+                for row in ws.iter_rows(values_only=True):
+                    rows.append([str(cell) if cell is not None else '' for cell in row])
+                wb.close()
+            else:
+                return jsonify({'code': 400, 'message': '仅支持 .csv / .xlsx 格式'}), 400
+
+            if len(rows) < 2:
+                return jsonify({'code': 400, 'message': '文件为空或只有表头'}), 400
+
+            headers = [str(h).strip() for h in rows[0]]
+            preview_rows = rows[1:6]  # 前5行预览
+
+            # 智能列名匹配
+            field_map = {
+                'name': ['姓名', '客人姓名', '名字', 'name', '送礼人', '联系人'],
+                'amount': ['金额', '礼金', '礼金金额', '数额', '金额(元)', '金额（元）', 'amount'],
+                'event_reason': ['事由', '办席原因', '原因', '事由/原因', 'event_reason', 'reason'],
+                'record_type': ['类型', '往来类型', '收送', '收礼/送礼', 'record_type', 'type'],
+                'age': ['年龄', 'age'],
+                'phone': ['电话', '联系电话', '手机', 'phone'],
+                'address': ['地址', '联系地址', 'address'],
+                'notes': ['备注', '说明', '备注说明', 'notes', 'remark']
+            }
+            auto_mapping = {}
+            for field, keywords in field_map.items():
+                for idx, header in enumerate(headers):
+                    if header.lower() in [kw.lower() for kw in keywords]:
+                        auto_mapping[field] = idx
+                        break
+
+            return jsonify({
+                'code': 200,
+                'headers': headers,
+                'total_rows': len(rows) - 1,
+                'preview': preview_rows,
+                'auto_mapping': auto_mapping
+            })
+        except Exception as e:
+            return jsonify({'code': 500, 'message': f'文件解析失败: {str(e)}'}), 500
+
+    @app.route('/api/import/confirm', methods=['POST'])
+    @login_required
+    def api_import_confirm():
+        """确认字段映射后批量导入"""
+        try:
+            data = request.get_json(force=True)
+            file_path = data.get('file_path')
+            mapping = data.get('mapping', {})  # {field_name: column_index}
+
+            # 由于文件已在上传时读取，此处通过重新上传或临时文件处理
+            # 这里接收 base64 文件数据
+            file_b64 = data.get('file_data')
+            if not file_b64:
+                return jsonify({'code': 400, 'message': '缺少文件数据'}), 400
+
+            import base64 as _b64
+            file_bytes = _b64.b64decode(file_b64)
+
+            ext = data.get('file_ext', '.csv')
+            if ext == '.csv':
+                import csv as _csv
+                import io as _io
+                content = file_bytes.decode('utf-8-sig')
+                reader = _csv.reader(_io.StringIO(content))
+                rows = list(reader)
+            elif ext in ('.xlsx', '.xls'):
+                from openpyxl import load_workbook
+                import io as _io2
+                wb = load_workbook(_io2.BytesIO(file_bytes), read_only=True, data_only=True)
+                ws = wb.active
+                rows = []
+                for row in ws.iter_rows(values_only=True):
+                    rows.append([str(cell) if cell is not None else '' for cell in row])
+                wb.close()
+            else:
+                return jsonify({'code': 400, 'message': '不支持的文件格式'}), 400
+
+            if len(rows) < 2:
+                return jsonify({'code': 400, 'message': '文件为空'}), 400
+
+            # 解析映射
+            name_idx = mapping.get('name')
+            amount_idx = mapping.get('amount')
+            reason_idx = mapping.get('event_reason')
+            type_idx = mapping.get('record_type')
+            age_idx = mapping.get('age')
+            phone_idx = mapping.get('phone')
+            address_idx = mapping.get('address')
+            notes_idx = mapping.get('notes')
+
+            if name_idx is None or amount_idx is None:
+                return jsonify({'code': 400, 'message': '必须映射姓名和金额列'}), 400
+
+            imported = 0
+            skipped = 0
+            for row in rows[1:]:
+                try:
+                    if name_idx >= len(row) or amount_idx >= len(row):
+                        skipped += 1
+                        continue
+                    name = str(row[name_idx]).strip()
+                    if not name:
+                        skipped += 1
+                        continue
+                    amount_str = str(row[amount_idx]).strip().replace('¥', '').replace('元', '').replace(',', '')
+                    try:
+                        amount = float(amount_str)
+                    except ValueError:
+                        amount = cn2num(amount_str)
+                    if amount <= 0:
+                        skipped += 1
+                        continue
+
+                    event_reason = '其它'
+                    if reason_idx is not None and reason_idx < len(row):
+                        event_reason = str(row[reason_idx]).strip() or '其它'
+
+                    record_type = 'receive'
+                    if type_idx is not None and type_idx < len(row):
+                        type_val = str(row[type_idx]).strip().lower()
+                        if type_val in ('send', '送礼', '随礼', '出', 'give'):
+                            record_type = 'send'
+
+                    age_val = None
+                    if age_idx is not None and age_idx < len(row):
+                        try:
+                            age_val = int(str(row[age_idx]).strip()) if str(row[age_idx]).strip() else None
+                        except ValueError:
+                            age_val = None
+
+                    phone_val = str(row[phone_idx]).strip() if phone_idx is not None and phone_idx < len(row) else None
+                    address_val = str(row[address_idx]).strip() if address_idx is not None and address_idx < len(row) else None
+                    notes_val = str(row[notes_idx]).strip() if notes_idx is not None and notes_idx < len(row) else None
+
+                    record = GiftRecord(
+                        name=name, amount=amount, event_reason=event_reason,
+                        record_type=record_type, age=age_val, phone=phone_val,
+                        address=address_val, notes=notes_val, user_id=current_user.id
+                    )
+                    db.session.add(record)
+                    imported += 1
+                except Exception:
+                    skipped += 1
+                    continue
+
+            db.session.commit()
+            safe_log('批量导入', f'成功导入 {imported} 条，跳过 {skipped} 条', user=current_user)
+            try:
+                trigger_webhook_event(
+                    WebhookConfig.query.filter_by(is_enabled=True).all(),
+                    'add', f'{current_user.username} 批量导入了 {imported} 条礼金记录',
+                    page_key='ledger', user_name=current_user.username, operator_id=current_user.id
+                )
+            except Exception:
+                pass
+            return jsonify({'code': 200, 'message': f'成功导入 {imported} 条记录，跳过 {skipped} 条无效数据', 'imported': imported, 'skipped': skipped})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 500, 'message': f'导入失败: {str(e)}'}), 500
+
+    @app.route('/api/ocr/recognize', methods=['POST'])
+    @login_required
+    def api_ocr_recognize():
+        """OCR 图片智能识别"""
+        try:
+            data = request.get_json(force=True)
+            image_b64 = data.get('image')
+            if not image_b64:
+                return jsonify({'code': 400, 'message': '请上传图片'}), 400
+            # 去除可能的 data:image/xxx;base64, 前缀
+            if ',' in image_b64 and image_b64.startswith('data:'):
+                image_b64 = image_b64.split(',', 1)[1]
+
+            from ai_service import recognize_gift_image
+            result = recognize_gift_image(image_b64, user=current_user)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'code': 500, 'message': f'OCR 识别失败: {str(e)}'}), 500
+
+    @app.route('/api/ocr/batch-add', methods=['POST'])
+    @login_required
+    def api_ocr_batch_add():
+        """OCR 识别结果批量入库"""
+        try:
+            data = request.get_json(force=True)
+            records = data.get('records', [])
+            if not records:
+                return jsonify({'code': 400, 'message': '无可入库记录'}), 400
+            added = 0
+            for r in records:
+                name = str(r.get('name', '')).strip()
+                amount = float(r.get('amount', 0))
+                if not name or amount <= 0:
+                    continue
+                record = GiftRecord(
+                    name=name, amount=amount,
+                    event_reason=str(r.get('event_reason', '其它')).strip() or '其它',
+                    record_type='send' if str(r.get('record_type', 'receive')).lower() in ('send', 'give') else 'receive',
+                    notes=str(r.get('notes', '')).strip() or None,
+                    user_id=current_user.id
+                )
+                db.session.add(record)
+                added += 1
+            db.session.commit()
+            safe_log('OCR批量录入', f'通过图片识别录入 {added} 条记录', user=current_user)
+            try:
+                trigger_webhook_event(
+                    WebhookConfig.query.filter_by(is_enabled=True).all(),
+                    'add', f'{current_user.username} 通过 OCR 识别录入了 {added} 条记录',
+                    page_key='ledger', user_name=current_user.username, operator_id=current_user.id
+                )
+            except Exception:
+                pass
+            return jsonify({'code': 200, 'message': f'成功录入 {added} 条记录', 'added': added})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 500, 'message': f'批量入库失败: {str(e)}'}), 500
+
+    # ==================== 功能四：人情簿打印与海报导出 ====================
+
+    @app.route('/export/print-giftbook')
+    @login_required
+    def export_print_giftbook():
+        """人情簿 A4 打印预览页面"""
+        try:
+            # 获取记录
+            if current_user.is_admin or current_user.can_view_others_for('ledger'):
+                query = GiftRecord.query.filter(GiftRecord.deleted_at.is_(None))
+            else:
+                query = GiftRecord.query.filter(GiftRecord.deleted_at.is_(None), GiftRecord.user_id == current_user.id)
+            records = query.order_by(GiftRecord.created_at.desc()).all()
+
+            total_received = sum(r.amount for r in records if r.record_type not in ('send', 'give'))
+            total_sent = sum(r.amount for r in records if r.record_type in ('send', 'give'))
+            net_amount = total_received - total_sent
+
+            # 金额大写转换
+            for r in records:
+                r.amount_cn = _amount_to_cn(r.amount)
+
+            # 分页计算
+            per_page = 20
+            total_pages = (len(records) + per_page - 1) // per_page if records else 1
+
+            return render_template('print_giftbook.html',
+                                   title='人情礼金簿',
+                                   subtitle=f'{datetime.now().strftime("%Y年度")} · 全部往来',
+                                   records=records,
+                                   total_count=len(records),
+                                   total_received=total_received,
+                                   total_sent=total_sent,
+                                   net_amount=net_amount,
+                                   total_pages=total_pages,
+                                   generated_at=datetime.now().strftime('%Y-%m-%d %H:%M'))
+        except Exception as e:
+            flash(f'生成打印页面失败: {str(e)}', 'danger')
+            return redirect(url_for('index'))
+
+    @app.route('/export/pdf-statement')
+    @login_required
+    def export_pdf_statement():
+        """生成 PDF 对账单"""
+        try:
+            # 获取记录
+            if current_user.is_admin or current_user.can_view_others_for('ledger'):
+                query = GiftRecord.query.filter(GiftRecord.deleted_at.is_(None))
+            else:
+                query = GiftRecord.query.filter(GiftRecord.deleted_at.is_(None), GiftRecord.user_id == current_user.id)
+            records = query.order_by(GiftRecord.created_at.desc()).all()
+
+            total_received = sum(r.amount for r in records if r.record_type not in ('send', 'give'))
+            total_sent = sum(r.amount for r in records if r.record_type in ('send', 'give'))
+            net_amount = total_received - total_sent
+
+            # 构造 PDF 数据
+            record_list = []
+            for r in records:
+                record_list.append({
+                    'name': r.name,
+                    'record_type': r.record_type,
+                    'amount': r.amount,
+                    'event_reason': r.event_reason,
+                    'notes': r.notes or '',
+                    'created_at': r.created_at.strftime('%Y-%m-%d') if r.created_at else ''
+                })
+            summary = {
+                'total_received': total_received,
+                'total_sent': total_sent,
+                'net_amount': net_amount,
+                'total_count': len(records)
+            }
+
+            from pdf_generator import generate_pdf_statement
+            pdf_buffer = generate_pdf_statement(record_list, summary, title='礼金对账单')
+            safe_log('导出PDF对账单', f'共 {len(records)} 条记录', user=current_user)
+
+            response = make_response(pdf_buffer.getvalue())
+            response.headers['Content-Type'] = 'application/pdf'
+            # V10.11.4 修复：HTTP 头仅支持 latin-1，中文文件名直接写入会触发
+            # UnicodeEncodeError（Werkzeug http.server 编码头部失败 → 浏览器收不到响应，
+            # 表现为"点击导出 PDF 对账单无反应"）。改用 RFC 5987：
+            # filename 放 ASCII 兜底名 + filename*=UTF-8'' 携带中文名。
+            from urllib.parse import quote as _url_quote
+            pdf_date = datetime.now().strftime('%Y%m%d')
+            pdf_filename = f'礼金对账单_{pdf_date}.pdf'
+            response.headers['Content-Disposition'] = (
+                "attachment; filename=\"gift_statement_{0}.pdf\"; "
+                "filename*=UTF-8''{1}"
+            ).format(pdf_date, _url_quote(pdf_filename))
+            return response
+        except Exception as e:
+            flash(f'生成 PDF 失败: {str(e)}', 'danger')
+            return redirect(url_for('index'))
+
+    @app.route('/poster')
+    @login_required
+    def poster_view():
+        """长图海报页面"""
+        return render_template('poster_template.html')
+
+    @app.route('/api/poster/data')
+    @login_required
+    def api_poster_data():
+        """海报数据 API (P2-1 / P2-5 优化)"""
+        try:
+            from dashboard_service import calculate_poster_stats
+            data = calculate_poster_stats(current_user, root_url=request.url_root)
+            return jsonify({'code': 200, 'data': data})
+        except Exception as e:
+            return jsonify({'code': 500, 'message': str(e)}), 500
+
+    # ==================== 海报二维码 URL 管理（管理员） ====================
+
+    @app.route('/api/admin/poster-qr-url')
+    @login_required
+    def api_admin_poster_qr_url_get():
+        """获取海报二维码 URL 设置"""
+        if not current_user.is_admin:
+            return jsonify({'code': 403, 'message': '仅管理员可操作'}), 403
+        qr_url = SystemSetting.get_val('poster_qr_url', '')
+        return jsonify({'code': 200, 'qr_url': qr_url or ''})
+
+    @app.route('/api/admin/poster-qr-url', methods=['POST'])
+    @login_required
+    def api_admin_poster_qr_url_save():
+        """保存海报二维码 URL 设置"""
+        if not current_user.is_admin:
+            return jsonify({'code': 403, 'message': '仅管理员可操作'}), 403
+        try:
+            data = request.get_json(force=True)
+            qr_url = (data.get('qr_url') or '').strip()
+            SystemSetting.set_val('poster_qr_url', qr_url)
+            db.session.commit()
+            safe_log('海报二维码设置', f'URL: {qr_url or "(空)"}', user=current_user)
+            return jsonify({'code': 200, 'message': '保存成功'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 500, 'message': str(e)}), 500
 
     # 启动企业微信智能机器人长连接后台监听守护线程与亲友纪念日自动提醒后台调度器
     try:

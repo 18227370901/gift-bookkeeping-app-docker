@@ -21,7 +21,8 @@ from models import (
     LoginRisk, SecurityRisk, Broadcast, BroadcastRead, WebhookConfig, WebhookLog,
     SharedLedgerLink, BackupConfig, Banquet, AnniversaryReminder,
     ChatSession, ChatMessage, AIQueryLog,
-    ScheduledBackupTask, BackupAttachment, PermissionTicket
+    ScheduledBackupTask, BackupAttachment, PermissionTicket,
+    FamilyGroup, FamilyMember
 )
 from webhook_utils import trigger_webhook_event
 from webdav_utils import (
@@ -41,6 +42,8 @@ else:
 template_folder = os.path.join(BUNDLE_DIR, 'templates')
 app = Flask(__name__, template_folder=template_folder)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or 'gift-bookkeeping-secret-key-2026-prod-secure'
+if not os.environ.get('SECRET_KEY') or os.environ.get('SECRET_KEY') == 'gift-bookkeeping-secret-key-2026-prod-secure':
+    app.logger.warning('[Security Warning] 未检测到自定义环境变量 SECRET_KEY，正在使用默认密钥。生产环境请设置 SECRET_KEY 环境变量！')
 
 # 服务/容器启动时间戳：用于在服务重启时强制失效所有旧用户会话
 APP_START_TIME = time.time()
@@ -666,8 +669,7 @@ def num2cn_filter(num):
 
 # V10.10.16: 数据库结构版本标记，用于幂等快速跳过迁移流程
 # V10.10.17: 支持 PostgreSQL（用 schema_version 表替代 PRAGMA user_version）
-# V10.11.8 同步：新增 alert_push_configs / alert_push_grants 两张告警推送表，版本 1017 → 1019
-# （Docker 版无家庭记账功能，1018 的 family 表迁移不适用，直接升 1019 与传统版版本号对齐）
+# V10.11.8: 新增 alert_push_configs / alert_push_grants 两张告警推送表
 _SCHEMA_VERSION = 1019
 
 def _is_db_schema_current():
@@ -756,16 +758,17 @@ def _do_startup_sync():
         db.session.commit()
         print(f"[Init] 已同步更新管理员账号 [{admin.username}] 密码为最新配置并确保处于激活状态")
 
-    # V10.11.7: 天气菜单权限回填（幂等）
-    # 背景：天气功能（V10.11.4 引入）初始对所有登录用户开放；纳入权限管控后，
-    #       为既有普通用户幂等追加 weather 菜单访问权，避免老用户权限回退；
-    #       新注册用户默认无天气权限（需管理员授权或工单申请）
-    # V10.11.13 修复①（一次性标记，对齐传统版）：回填改为仅首次启动执行（SystemSetting 键
+    # V10.11.6: 天气菜单权限回填（幂等）
+    # 背景：V10.11.4 天气功能对所有登录用户开放；V10.11.6 纳入权限管控后，
+    # 为避免既有用户权限回退，把 weather 追加进现有非管理员用户的 allowed_menus。
+    # 仅追加、幂等；新注册用户默认无天气权限，需管理员授权或工单申请。
+    # V10.11.13 修复①（一次性标记）：回填改为仅首次启动执行（SystemSetting 键
     #   weather_backfill_done）——此前每次重启都无条件追加，会在管理员显式收回
     #   某用户天气权限后被启动逻辑悄悄恢复，权限形同虚设。
-    # V10.11.13 修复②（存量冲突清洗，对齐传统版）：旧版保存过「勾选天气 + 0 级」
+    # V10.11.13 修复②（存量冲突清洗）：旧版保存过「勾选天气 + 0 级（无权限）」
     #   的用户，allowed_menus 含 weather 而 menu_permissions.weather = 0（运行时
-    #   can_access_menu 只看 allowed_menus → 仍可访问）。每次启动幂等清洗。
+    #   can_access_menu 只看 allowed_menus → 仍可访问）。每次启动幂等清洗：显式
+    #   设置过 weather=0 的用户剔除勾选；未设置过 weather 键的老用户不受影响。
     # 顺序要求：回填在前、清洗在后（否则回填会把刚清洗掉的勾选加回来）。
     try:
         import json as _json
@@ -774,34 +777,35 @@ def _do_startup_sync():
         _bf_flag = SystemSetting.query.filter_by(key='weather_backfill_done').first()
         if not _bf_flag:
             _backfilled = 0
-            for u in User.query.filter_by(is_admin=False).all():
-                menus = [m.strip() for m in (u.allowed_menus or '').split(',') if m.strip()]
-                if 'weather' not in menus:
-                    menus.append('weather')
-                    u.allowed_menus = ','.join(menus)
+            for _u in User.query.filter_by(is_admin=False).all():
+                _raw_menus = (getattr(_u, 'allowed_menus', '') or '').strip()
+                _menu_list = [m.strip() for m in _raw_menus.split(',') if m.strip()]
+                if 'weather' not in _menu_list:
+                    _menu_list.append('weather')
+                    _u.allowed_menus = ','.join(_menu_list)
                     _backfilled += 1
-            if _backfilled > 0:
+            if _backfilled:
                 db.session.commit()
-                print(f"[Init] V10.11.7 已为 {_backfilled} 个普通用户回填「天气」菜单权限")
+                print(f"[Init] V10.11.6 已为 {_backfilled} 个普通用户回填「天气」菜单权限")
             SystemSetting.set_val('weather_backfill_done', '1')
             print("[Init] V10.11.13 天气权限回填已写入一次性标记（此后重启不再自动恢复权限）")
 
         # ② 存量冲突清洗（幂等）：显式 weather=0 的用户剔除 allowed_menus 中的 weather
         _cleaned = 0
-        for u in User.query.filter_by(is_admin=False).all():
+        for _u in User.query.filter_by(is_admin=False).all():
             try:
-                _perm_raw = (u.menu_permissions or '').strip()
+                _perm_raw = (_u.menu_permissions or '').strip()
                 _perms = _json.loads(_perm_raw) if _perm_raw else {}
             except Exception:
                 _perms = {}
             if not isinstance(_perms, dict):
                 _perms = {}
-            _has_w = (getattr(u, 'allowed_menus', '') or '').strip() != '' and \
-                'weather' in [m.strip() for m in u.allowed_menus.split(',')]
+            _has_w = (getattr(_u, 'allowed_menus', '') or '').strip() != '' and \
+                'weather' in [m.strip() for m in _u.allowed_menus.split(',')]
             if _has_w and _perms.get('weather') == 0:
-                menus = [m.strip() for m in u.allowed_menus.split(',')
-                         if m.strip() and m.strip() != 'weather']
-                u.allowed_menus = ','.join(menus)
+                _menu_list = [m.strip() for m in _u.allowed_menus.split(',')
+                              if m.strip() and m.strip() != 'weather']
+                _u.allowed_menus = ','.join(_menu_list)
                 _cleaned += 1
         if _cleaned:
             db.session.commit()
@@ -986,7 +990,28 @@ def init_database():
             "ALTER TABLE webhook_configs ADD COLUMN monitor_event_types TEXT DEFAULT '[]'",
         ])
 
-        # --- V10.11.8 同步新增：告警消息推送（管理员菜单权限 ↔ WebDAV 告警配置联调） ---
+        # --- V10.11 新增：家庭多成员协作记账 + 数据分析看板 ---
+        migration_sqls.extend([
+            # 家庭组表
+            """CREATE TABLE IF NOT EXISTS family_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(100) NOT NULL,
+                owner_id INTEGER NOT NULL REFERENCES users(id),
+                description VARCHAR(256),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )""",
+            # 家庭成员关联表
+            """CREATE TABLE IF NOT EXISTS family_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL REFERENCES family_groups(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                role VARCHAR(20) DEFAULT 'member',
+                nickname VARCHAR(64),
+                joined_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )""",
+        ])
+
+        # --- V10.11.8 新增：告警消息推送（管理员菜单权限 ↔ WebDAV 告警配置联调） ---
         migration_sqls.extend([
             # 告警推送配置表（单行全局）
             """CREATE TABLE IF NOT EXISTS alert_push_configs (
@@ -1097,6 +1122,16 @@ try:
 except Exception as _e:
     print(f"[Warning] 应用启动自动初始化数据库提示: {_e}")
 
+
+@app.route('/health', methods=['GET'])
+@app.route('/healthz', methods=['GET'])
+def health_check():
+    """轻量健康检查端点（供容器探针/负载均衡器/监控服务调用）"""
+    return jsonify({
+        'status': 'ok',
+        'app': 'gift_bookkeeping_app',
+        'version': 'V10.11.15'
+    }), 200
 
 @app.route('/')
 @login_required
@@ -1919,6 +1954,17 @@ def edit_record(record_id):
     record.event_reason = event_reason
     record.notes = notes
 
+    # V10.11.6：登记时间自定义（datetime-local 提交格式 YYYY-MM-DDTHH:MM）
+    created_at_str = request.form.get('created_at', '').strip()
+    if created_at_str:
+        try:
+            record.created_at = datetime.strptime(created_at_str, '%Y-%m-%dT%H:%M')
+        except (ValueError, TypeError):
+            if is_ajax:
+                return jsonify({'code': 400, 'message': '登记时间格式不正确，请重新选择！', 'field': 'created_at'}), 400
+            flash('登记时间格式不正确，请重新选择！', 'danger')
+            return redirect(url_for('index'))
+
     if record.record_type == 'receive':
         b_id_str = request.form.get('banquet_id', '').strip()
         if b_id_str and b_id_str.isdigit():
@@ -2308,7 +2354,8 @@ def admin_logs():
         ('reminders', '纪念日备忘'), ('recycle_bin', '回收站'), ('admin_users', '用户管理'),
         ('webhooks', 'Webhook'), ('backups', '备份管理'), ('permission_tickets', '权限工单'),
         ('broadcasts', '系统广播'), ('ai_assistant', 'AI助手'), ('auth', '认证安全'),
-        ('system', '系统配置'),
+        ('system', '系统配置'), ('weather', '天气'), ('family', '家庭记账'),
+        ('dashboard', '数据分析'),
     ]
     if not audit_modules_raw:
         audit_modules_enabled = [m[0] for m in audit_modules_all]  # 默认全部启用
@@ -2600,8 +2647,8 @@ def admin_batch_user_permissions():
         menus_list = [m for m in menus_list if m != 'weather']
     allowed_menus_str = ",".join(menus_list)
 
-    # 注：本版 ALL_MENUS 无 dashboard/family（无此功能，特性差异保留）
-    ALL_MENUS = ['ledger', 'banquets', 'reconciliation', 'reminders', 'recycle_bin', 'backups', 'weather']
+    # V10.11.13 补齐 weather（与单用户路由对齐——此前批量保存会整体丢弃天气权限数据）
+    ALL_MENUS = ['ledger', 'dashboard', 'family', 'banquets', 'reconciliation', 'reminders', 'recycle_bin', 'backups', 'weather']
     menu_perms = {}
     for m in ALL_MENUS:
         val = request.form.get(f'menu_perm_{m}')
@@ -2688,10 +2735,12 @@ def admin_update_user_permissions(user_id):
         menus_list = [m for m in menus_list if m != 'weather']
     user.allowed_menus = ",".join(menus_list)
 
-    # 2. 各菜单独立数据权限更新（注：本版无 dashboard/family，特性差异保留）
-    ALL_MENUS = ['ledger', 'banquets', 'reconciliation', 'reminders', 'recycle_bin', 'backups', 'weather']
+    # 2. 各菜单独立数据权限更新
+    ALL_MENUS = ['ledger', 'dashboard', 'family', 'banquets', 'reconciliation', 'reminders', 'recycle_bin', 'backups', 'weather']
     MENU_NAMES = {
         'ledger': '礼金账本',
+        'dashboard': '数据分析',
+        'family': '家庭记账',
         'banquets': '专属宴席',
         'reconciliation': '人情对账',
         'reminders': '纪念日备忘',
@@ -3068,6 +3117,7 @@ def export_csv():
 
     scope = request.args.get('scope', '').strip()  # 'all', 'filtered', 'page', 'selected'
     ids_param = request.args.get('ids', '').strip()
+    export_format = request.args.get('format', 'csv').strip().lower()  # 'csv' or 'xlsx'
 
     if ids_param:
         id_list = [int(x) for x in ids_param.split(',') if x.strip().isdigit()]
@@ -3135,15 +3185,13 @@ def export_csv():
         else:
             records = query.all()
 
-    output = io.StringIO()
-    output.write('\ufeff')
-    writer = csv.writer(output)
-    writer.writerow(['ID', '客人姓名', '往来类型', '年龄', '联系电话', '礼金金额(元)', '大写金额', '办席原因', '归属专属宴席', '联系地址', '备注说明', '登记时间', '录入用户'])
-
+    # 构建数据行（CSV 和 Excel 共用）
+    csv_headers = ['ID', '客人姓名', '往来类型', '年龄', '联系电话', '礼金金额(元)', '大写金额', '办席原因', '归属专属宴席', '联系地址', '备注说明', '登记时间', '录入用户']
+    data_rows = []
     for r in records:
         r_type_label = '送礼' if getattr(r, 'record_type', 'receive') in ('send', 'give') else '收礼'
         banquet_title = r.banquet.title if (r.banquet and not r.banquet.deleted_at) else ''
-        writer.writerow([
+        data_rows.append([
             r.id,
             r.name,
             r_type_label,
@@ -3159,36 +3207,120 @@ def export_csv():
             r.owner.username if r.owner else ''
         ])
 
-    response = Response(output.getvalue(), mimetype='text/csv; charset=utf-8')
-    response.headers['Content-Disposition'] = 'attachment; filename=gift_records.csv'
-    log_action('导出数据', f'用户导出了 {len(records)} 条礼金记录 CSV 文件')
-    try:
-        trigger_webhook_event(
-            WebhookConfig.query.filter_by(is_enabled=True).all(), 'security',
-            f'导出礼金数据',
-            f'操作人：{current_user.username} | 页面：礼金账本 | 导出记录数：{len(records)}',
-            page_key='ledger', user_name=current_user.username,
-            operator_id=current_user.id
-        )
-    except Exception:
-        pass
-    return response
+    if export_format == 'xlsx':
+        # Excel 导出（openpyxl）
+        try:
+            from openpyxl import Workbook
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            flash('Excel 导出需要 openpyxl 库，请先安装。', 'danger')
+            return redirect(url_for('index'))
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '礼金记录'
+        ws.append(csv_headers)
+        for row in data_rows:
+            ws.append(row)
+        # 自动列宽
+        for col_idx in range(1, len(csv_headers) + 1):
+            max_len = len(str(csv_headers[col_idx - 1]))
+            for row in data_rows:
+                cell_len = len(str(row[col_idx - 1]))
+                if cell_len > max_len:
+                    max_len = cell_len
+            ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 4, 40)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response.headers['Content-Disposition'] = 'attachment; filename=gift_records.xlsx'
+        log_action('导出数据', f'用户导出了 {len(records)} 条礼金记录 Excel 文件')
+        try:
+            trigger_webhook_event(
+                WebhookConfig.query.filter_by(is_enabled=True).all(), 'security',
+                f'导出礼金数据',
+                f'操作人：{current_user.username} | 页面：礼金账本 | 导出记录数：{len(records)} | 格式：Excel',
+                page_key='ledger', user_name=current_user.username,
+                operator_id=current_user.id
+            )
+        except Exception:
+            pass
+        return response
+    else:
+        # CSV 导出（保持原有逻辑）
+        output = io.StringIO()
+        output.write('\ufeff')
+        writer = csv.writer(output)
+        writer.writerow(csv_headers)
+        for row in data_rows:
+            writer.writerow(row)
+
+        response = Response(output.getvalue(), mimetype='text/csv; charset=utf-8')
+        response.headers['Content-Disposition'] = 'attachment; filename=gift_records.csv'
+        log_action('导出数据', f'用户导出了 {len(records)} 条礼金记录 CSV 文件')
+        try:
+            trigger_webhook_event(
+                WebhookConfig.query.filter_by(is_enabled=True).all(), 'security',
+                f'导出礼金数据',
+                f'操作人：{current_user.username} | 页面：礼金账本 | 导出记录数：{len(records)} | 格式：CSV',
+                page_key='ledger', user_name=current_user.username,
+                operator_id=current_user.id
+            )
+        except Exception:
+            pass
+        return response
 
 
 @app.route('/import/template')
 @login_required
 def download_import_template():
-    output = io.StringIO()
-    output.write('\ufeff')
-    writer = csv.writer(output)
-    writer.writerow(['客人姓名(必填)', '往来类型(选填，收礼/随礼，默认收礼)', '年龄(选填)', '联系电话(选填)', '礼金金额(元)(必填)', '办席原因(必填)', '联系地址(选填)', '备注说明(选填)'])
-    writer.writerow(['张三', '收礼', '30', '13800138000', '500', '婚礼', '北京市朝阳区', '新婚大吉'])
-    writer.writerow(['李四', '随礼', '', '13900139000', '1000', '满月酒', '上海市浦东新区', '贺百天之喜'])
+    export_format = request.args.get('format', 'csv').strip().lower()
 
-    response = Response(output.getvalue(), mimetype='text/csv')
-    response.headers['Content-Disposition'] = 'attachment; filename=gift_records_template.csv'
-    log_action('下载模板', '用户下载了批量导入样例模版 CSV 文件')
-    return response
+    template_headers = ['客人姓名(必填)', '往来类型(选填，收礼/随礼，默认收礼)', '年龄(选填)', '联系电话(选填)', '礼金金额(元)(必填)', '办席原因(必填)', '联系地址(选填)', '备注说明(选填)']
+    template_rows = [
+        ['张三', '收礼', '30', '13800138000', '500', '婚礼', '北京市朝阳区', '新婚大吉'],
+        ['李四', '随礼', '', '13900139000', '1000', '满月酒', '上海市浦东新区', '贺百天之喜']
+    ]
+
+    if export_format == 'xlsx':
+        try:
+            from openpyxl import Workbook
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            flash('Excel 模版下载需要 openpyxl 库。', 'danger')
+            return redirect(url_for('index'))
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '导入模版'
+        ws.append(template_headers)
+        for row in template_rows:
+            ws.append(row)
+        for col_idx in range(1, len(template_headers) + 1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = min(len(template_headers[col_idx - 1]) + 4, 40)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response.headers['Content-Disposition'] = 'attachment; filename=gift_records_template.xlsx'
+        log_action('下载模板', '用户下载了批量导入样例模版 Excel 文件')
+        return response
+    else:
+        output = io.StringIO()
+        output.write('\ufeff')
+        writer = csv.writer(output)
+        writer.writerow(template_headers)
+        for row in template_rows:
+            writer.writerow(row)
+
+        response = Response(output.getvalue(), mimetype='text/csv')
+        response.headers['Content-Disposition'] = 'attachment; filename=gift_records_template.csv'
+        log_action('下载模板', '用户下载了批量导入样例模版 CSV 文件')
+        return response
 
 
 @app.route('/import/csv', methods=['POST'])
@@ -3354,17 +3486,16 @@ register_routes_ext(
 from routes_ai import register_ai_routes
 register_ai_routes(app, log_action=log_action)
 
-# 注册天气查询路由（V10.11.4 引入，V10.11.7 同步 Docker 版：15 天预报 + 级联选择）
+# 注册天气查询路由（Open-Meteo 数据源）
 from routes_weather import register_weather_routes
 register_weather_routes(app)
 
-# V10.11.8 同步：注册告警推送路由（配置/测试/日志/授权）并启动后台巡检守护线程
+# V10.11.8 注册告警推送路由（配置/测试/日志/授权）并启动后台巡检守护线程
 from routes_alert import register_alert_routes
 from alert_service import start_alert_inspector
 register_alert_routes(app)
 start_alert_inspector(app)
 print('[Init] 告警巡检守护线程已启动（30 分钟一轮，总开关/授权由巡检时实时判定）')
-
 
 
 if __name__ == '__main__':
