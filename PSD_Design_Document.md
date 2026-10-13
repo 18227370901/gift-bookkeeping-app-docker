@@ -1280,7 +1280,7 @@ graph LR
 
 ### 12.10 ADR-48：Webhook 与系统告警全链路权限自洽、批量授权修复与日志性能治理（V10.11.18 落地）
 - **决策方案与容器化环境统一规范**：
-  1. **模型与字段完整闭环**：`models.py` User 模型补齐 `webhook_authorized` 列及 `can_use_webhook()` 方法；同步 `ALL_MENUS`（新增 `webhooks`），单用户与批量路由完整保存 `webhook_authorized`，启动自动幂等清洗存量普通用户 `allowed_menus` 中的 `backups` 死数据；
+  1. **模型与字段完整闭环**：`models.py` User 模型补齐 `webhook_authorized` 列及 `can_use_webhook()` 方法；同步 `ALL_MENUS`（新增 `webhooks`），数据库版本推进至 `_SCHEMA_VERSION = 1020` 并增加原生前置防御检查，单用户与批量路由完整保存 `webhook_authorized`，启动自动幂等清洗存量普通用户 `allowed_menus` 中的 `backups` 死数据；
   2. **批量配置备份授权漏存修复**：彻底修复 `admin_batch_user_permissions` 批量遗漏保存 `backup_authorized` 的 Bug；工单系统 `TICKET_MENU_OPTIONS` 增加 `webhooks`，并在导航栏为授权普通用户渲染入口；
   3. **Webhook 路由解耦与凭证脱敏**：解除 6 个写操作路由的 `is_admin` 硬门控，重构为统一校验；`templates/admin_webhooks.html` 表格中对普通用户输出掩码 `******`，编辑保存保留原密钥，杜绝敏感凭证泄露；
   4. **数据库索引增强与 N+1 消除**：为 `WebhookLog` 的 `created_at`、`event_type`、`is_success`、`webhook_id` 及 `ScheduledTaskExecutionLog.end_time/status` 建立索引；使用 `joinedload(WebhookLog.operator)` 彻底消除 500 条日志的 N+1 查询；修复空行 `colspan=9`。
