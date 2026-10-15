@@ -1285,6 +1285,12 @@ graph LR
   3. **Webhook 路由解耦与凭证脱敏**：解除 6 个写操作路由的 `is_admin` 硬门控，重构为统一校验；`templates/admin_webhooks.html` 表格中对普通用户输出掩码 `******`，编辑保存保留原密钥，杜绝敏感凭证泄露；
   4. **数据库索引增强与 N+1 消除**：为 `WebhookLog` 的 `created_at`、`event_type`、`is_success`、`webhook_id` 及 `ScheduledTaskExecutionLog.end_time/status` 建立索引；使用 `joinedload(WebhookLog.operator)` 彻底消除 500 条日志的 N+1 查询；修复空行 `colspan=9`。
 
+### 12.11 ADR-49：用户权限配置交互与天气模块精简去冗余及弹窗排版治理（V10.11.18 落地）
+- **决策方案与容器化环境统一规范**：
+  1. **天气权限去冗余归一**：单用户与批量权限配置弹窗移除「无天气访问权限」选项，仅保留「可查看实时天气」；权限完全由「天气」复选框控制，未勾选时后台自动归零 `menu_perms['weather'] = 0`，勾选时设为 `1`，实现交互认知与存储逻辑的自洽统一；
+  2. **弹窗排版与折行治理**：在页面 `extra_css` 及弹窗容器显式声明 `.modal { white-space: normal; }`，切断操作列 `white-space: nowrap` 的污染；弹窗提示框添加 `word-break: break-word;`，提示语优雅自动折行并紧密贴合提示框边界；
+  3. **弹窗自适应滚动适配**：单用户与批量弹窗升级为 `modal-dialog-scrollable` 并配置表单 flex 滚动容器，确保在任意分辨率屏幕下弹窗头部与底部操作按钮固定可见，内部自适应平滑滚动。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
