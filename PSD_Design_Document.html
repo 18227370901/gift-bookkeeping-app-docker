@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.20</span>·<span>生成日期: 2026-10-16</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~50 + 容器探针与字体适配）</span>
+<span>Docker 版</span>·<span>版本: V10.11.21</span>·<span>生成日期: 2026-10-16</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -1310,7 +1310,7 @@ graph LR
 
 <!-- ==================== 第 12 部分 ==================== -->
 <section id="part12">
-<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-50)</h2>
+<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-51)</h2>
 <p>本章节所有架构决策已于 2026-10-13 经过代码审计、接口联调与用户正式审查确认（固化为系统技术规范）。</p>
 
 <h3>12.1 ADR-39：天气日历/周视图/万年历数据自动联动与独立隔离</h3>
@@ -1380,6 +1380,20 @@ graph LR
 <tr><td>一键测试</td><td><code>POST /admin/service-config/test</code>（仅管理员 + CSRF），按组真实协议校验（Open-Meteo JSON 结构 / 节假日 <code>code==0</code>（模拟浏览器 UA 防 403）/ 企微 WS 握手 / 搜索端点解析）；基于表单当前值，未保存也可测。</td></tr>
 <tr><td>页面与交互</td><td>新增 <code>templates/admin_service_config.html</code>（6 组卡片、多端点列表、「＋ 添加端点」新增行自带「保存」「取消」（仅新增时显示）、重试参数、AI 总开关）；<code>routes_ext.py</code> 新增三路由（白名单+前缀校验+至少 1 条启用端点+节假日自动补全，天然支持单组提交）；<code>base.html</code> 菜单新增「外部接口配置」；提示为页面顶部居中 toast，按钮图标+中文，首行「上移」/末行「下移」自动置灰。</td></tr>
 <tr><td>Docker 环境说明</td><td>配置实时读库即存即生效（Gunicorn 多进程/后台巡检线程通用）；多 Worker 场景各进程共享同一 <code>system_settings</code> 表，任一进程保存后其他进程下次读取即时生效，无需重启容器。</td></tr>
+</table>
+</section>
+
+<!-- ==================== ADR-51 根目录文件架构重组（V10.11.21） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-51 根目录文件架构重组（V10.11.21 落地，仅结构·零业务逻辑变化，对齐传统版 ADR-51）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>根目录堆积 20 个 <code>.py</code> 文件（主入口 app.py 3569 行 + gunicorn.conf.py 部署配置 + 18 个业务模块），阅读入口不清晰；运行期产物散落：data/ 下 3 个节假日/天气/地理编码磁盘缓存 json、恢复操作自动生成的 <code>.bak</code> 备份与运行库同级，结构混乱。</td></tr>
+<tr><td>三分层包化迁移</td><td><code>git mv</code> 保留文件历史（18 个文件全部识别为 rename）：<code>services/</code>（13 模块：models/gift_utils/ai_service/web_search/webhook_utils/webdav_utils/weather_service/holiday_service/alert_service/dashboard_service/pdf_generator/service_config/_daemon_lock）、<code>routes/</code>（routes_ext/routes_ai/routes_weather/routes_alert）、<code>tools/</code>（generate_ssl_certs）；根目录仅剩 <code>app.py</code> 与 <code>gunicorn.conf.py</code>（Dockerfile CMD <code>gunicorn -c gunicorn.conf.py app:app</code> 引用不变）。</td></tr>
+<tr><td>logs/ 统一收纳</td><td>新增 <code>logs/</code>（.gitignore 整体忽略，仅本地留存）：节假日/天气/地理编码磁盘缓存由 data/ 迁入（路径常量已改，holiday 补 <code>os.makedirs('logs')</code>）；两处恢复前自动备份改指 logs/；Docker 运行日志走容器 stdout（<code>docker compose logs</code>）不入 logs/；<code>data/</code> 仅保留运行库与 attachments（<code>gift_data</code> 卷挂载点 /app/data 不变）。</td></tr>
+<tr><td>路径适配</td><td>55 处 import 改写（顶层+函数内延迟导入，<code>from services.xxx import</code> 包路径）；5 处 <code>__file__</code> 锚点上溯一级（<code>dirname(dirname())</code>——锁文件/db 三候选/附件目录/区划 js/完整性检查，指向路径与重组前逐字节一致）；<code>bin/ssl_certs.sh</code> 两处证书脚本路径改指 tools/。</td></tr>
+<tr><td>验证</td><td>29 文件 <code>py_compile</code> 全过；本地启动（同一入口 <code>python app.py</code>）后 <code>/health</code> 200、登录/看板/Webhook/外部接口配置/备份/AI 配置/天气/用户/审计日志等 10 页面全 200；<code>git diff -M</code> 全部识别为 rename，零业务逻辑改动。</td></tr>
+<tr><td>连带影响</td><td>APK 版目录结构后续同步（共享文件按路径映射同步）；PyInstaller frozen 分支逻辑（app.py 内 BUNDLE_DIR）不受影响；两版共享的 <code>bin/</code> 脚本未动。</td></tr>
 </table>
 </section>
 

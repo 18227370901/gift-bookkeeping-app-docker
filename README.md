@@ -12,6 +12,13 @@ AIGC:
 # 人情礼金记账系统 (Gift Bookkeeping App)
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🏗️ **V10.11.21 根目录文件架构重组（仅结构·零业务逻辑变化，对齐传统版）**：根目录 20 个 `.py` 精简为 **仅 2 个**——`app.py`（主入口，`gunicorn -c gunicorn.conf.py app:app` 启动命令不变）+ `gunicorn.conf.py`（Gunicorn 部署配置），其余 18 个模块 `git mv`（保留文件历史）迁入三个语义化包：
+>   - `services/`（13 个：models/gift_utils/ai_service/web_search/webhook_utils/webdav_utils/weather_service/holiday_service/alert_service/dashboard_service/pdf_generator/service_config/_daemon_lock）——业务与数据层；
+>   - `routes/`（4 个：routes_ext/routes_ai/routes_weather/routes_alert）——路由注册层；
+>   - `tools/`（1 个：generate_ssl_certs）——部署辅助；
+>   - **同步治理运行期产物**：新增 `logs/` 目录收纳**节假日/天气预报/地理编码磁盘缓存**（3 个 json 由 data/ 迁入，路径常量已改）与**数据库恢复前自动备份**（`.bak` 改指 logs/，不再与运行库同级）；Docker 运行日志走容器 stdout（`docker compose logs` 查看）不入 logs/；`data/` 仅保留运行库与用户附件（`gift_data` 卷挂载点 `/app/data` 不变）；`logs/` 整体 .gitignore（仅本地留存，不入库不上传）。
+>   - **路径适配（全部等价替换）**：55 处 import 改写（顶层+函数内延迟导入，含 `from services.xxx import` 包路径）；5 处 `__file__` 锚点上溯一级（`dirname(dirname())`——锁文件/db 三候选/附件目录/区划 js/完整性检查，指向路径与重组前完全一致）；`bin/ssl_certs.sh` 证书脚本路径改指 tools/。
+>   - **验证**：29 文件 py_compile 全过、本地启动冒烟（登录/看板/Webhook/外部接口配置/备份/AI 配置/天气/用户/审计日志等 10 页面 + /health 全部 200）；`git diff -M` 全部识别为 rename，无业务逻辑改动。**注**：APK 版目录结构后续同步。
 > - 🌟 **V10.11.20 外部接口服务配置（管理员可自定义全部内置接口地址：多端点 + 故障转移 + 一键测试，对齐传统版，业务代码 MD5 逐字一致）**：
 >   ① **统一收纳「内置默认调用地址但页面无配置入口」的外部服务**：新增「系统管理 > 外部接口配置」页（`/admin/service-config`），集中管理 6 组外部接口：
 >     - **天气·地理编码 / 天气·天气预报 / 天气·空气质量**（Open-Meteo 三端点默认值不变，`weather_service.py` 动态读取）；
@@ -1604,27 +1611,45 @@ NAME  ...  STATUS
 
 ```text
 gift_bookkeeping_app/
-├── app.py                      # Flask 核心路由、中间件、权限校验与主应用程序
-├── models.py                   # SQLAlchemy 数据模型 (用户/账本/宴席/备忘/回收站/日志/Webhook/AI/备份/工单等)
-├── gift_utils.py               # 自然语言记账多条复合分词、中文大写数字转换、对账衍生聚合工具库
-├── routes_ext.py               # 业务扩展路由 (宴席/对账/纪念日/回收站/广播/备份/工单/定时备份调度器)
-├── routes_ai.py                # [新增] AI 助手路由 (聊天/会话/配置/授权)
-├── ai_service.py               # [新增] AI 核心服务层 (多配置优先级/联网搜索/本地兜底)
-├── web_search.py               # [新增] 联网搜索模块 (DuckDuckGo)
-├── webhook_utils.py            # Webhook 多渠道推送、官方 WeCom aibot SDK 长连接与 @ 机器人捕获
-├── webdav_utils.py             # WebDAV 客户端、加密 zip 备份与还原管理
-├── gunicorn.conf.py            # [V10.10.16] Gunicorn 配置 (workers/threads/timeout/max_requests)
-├── _daemon_lock.py             # [V10.10.16] 跨进程守护线程 fcntl 单实例锁 (Windows 回退直通)
+├── app.py                      # [根级仅主入口] Flask 核心路由、中间件、权限校验与主应用程序
+├── gunicorn.conf.py            # [V10.10.16] Gunicorn 配置 (workers/threads/timeout/max_requests；Dockerfile CMD 引用)
+├── services/                   # [V10.11.21 新增] 业务逻辑与数据层包
+│   ├── models.py               # SQLAlchemy 数据模型 (用户/账本/宴席/备忘/回收站/日志/Webhook/AI/备份/工单等)
+│   ├── gift_utils.py           # 自然语言记账多条复合分词、中文大写数字转换、对账衍生聚合工具库
+│   ├── ai_service.py           # AI 核心服务层 (多配置优先级/联网搜索/本地兜底)
+│   ├── web_search.py           # 联网搜索模块 (DuckDuckGo)
+│   ├── webhook_utils.py        # Webhook 多渠道推送、官方 WeCom aibot SDK 长连接与 @ 机器人捕获
+│   ├── webdav_utils.py         # WebDAV 客户端、加密 zip 备份与还原管理
+│   ├── weather_service.py      # 天气查询服务（Open-Meteo 多端点故障转移）
+│   ├── holiday_service.py      # 法定节假日班/休数据服务（timor.tech）
+│   ├── alert_service.py        # 系统告警巡检与推送服务
+│   ├── dashboard_service.py    # 数据看板统计计算服务
+│   ├── pdf_generator.py        # PDF 对账单生成
+│   ├── service_config.py       # 外部接口服务配置管理（多端点+故障转移+一键测试）
+│   └── _daemon_lock.py         # 跨进程守护锁（企微长连接单实例等）
+├── routes/                     # [V10.11.21 新增] Flask 路由注册包
+│   ├── routes_ext.py           # 业务扩展路由 (宴席/对账/纪念日/回收站/广播/备份/工单/定时备份调度器)
+│   ├── routes_ai.py            # [新增] AI 助手路由 (聊天/会话/配置/授权)
+│   ├── routes_weather.py       # 天气页面与查询 API 路由
+│   └── routes_alert.py         # 告警推送配置/测试/日志/授权路由
+├── tools/                      # [V10.11.21 新增] 部署辅助脚本包
+│   └── generate_ssl_certs.py   # 自签名 SSL 证书快速生成脚本 (支持 --domain 写入 SNI 域名)
+├── logs/                       # [V10.11.21 新增] 运行期数据目录（.gitignore 整体忽略，仅存本地）
+│   ├── *_cache.json            # 节假日/天气预报/地理编码磁盘缓存（原 data/ 迁入）
+│   └── *.db.bak_时间戳          # 数据库恢复前自动备份（原与运行库同级）
 ├── requirements.txt            # 项目 Python 依赖库列表
-├── gift_bookkeeping.db         # SQLite 数据库文件 (支持 WAL 模式与并发读写)
+├── gift_bookkeeping.db         # SQLite 样例数据库（首次部署演示用；运行库位于 data/）
 ├── run.sh                      # Linux 后台服务管理与虚拟环境自动创建/启动脚本 (SNI 多项目 443 端口分流)
 ├── bin/                        # [V10.10.17b+V10.10.21] run.sh 模块目录：config/service/help 等（common.sh/db_select.sh 两版共享；config.local.sh 服务器专属配置不入库）
 ├── nginx_ssl.conf              # Nginx HTTPS SNI 反向代理占位符模板 (由 run.sh 自动渲染为项目专属配置)
-├── generate_ssl_certs.py       # 自签名 SSL 证书快速生成脚本 (支持 --domain 写入 SNI 域名)
-├── AI_ASSISTANT_DESIGN.md      # [新增] AI 助手与综合增强功能技术设计文档
-├── Project_Survey_Docker.md   # 系统架构设计规范与 38 项架构决策记录 (ADR-01 ~ ADR-38)
+├── Dockerfile                  # 多阶段构建镜像（builder 装依赖 / runner 运行，gunicorn 启动）
+├── docker-compose.yml          # Docker Compose 核心编排（gift_data 卷挂载 /app/data，健康检查探针）
+├── docker-compose.db.yml       # 独立 PostgreSQL 容器编排（按 DB_MODE 合成）
+├── nginx.conf                  # Nginx 反向代理示例配置
+├── PSD_Design_Document.md/.html  # PSD 系统设计与重构决策文档（双格式）
 ├── README.md                   # 系统使用说明与运维开发手册
 ├── static/                     # 静态资源目录 (PWA manifest/sw + vendor 本地化前端资源 Bootstrap/Font Awesome/Bootstrap Icons)
+├── data/                       # 运行数据目录（gitignore）：gift_bookkeeping.db 运行库 + attachments 用户附件
 └── templates/                  # Jinja2 HTML 模板目录
     ├── base.html               # 基础模板 (导航栏、菜单权限控制、AI/备份/工单入口)
     ├── index.html              # 礼金账本首页 (复合智能录入、数据列表、无权限提示卡片)

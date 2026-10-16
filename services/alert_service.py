@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 from flask import current_app
 
-from models import db, AlertPushConfig, AlertPushGrant, WebhookConfig, ScheduledTaskExecutionLog, User
+from services.models import db, AlertPushConfig, AlertPushGrant, WebhookConfig, ScheduledTaskExecutionLog, User
 
 # ===================== 常量 =====================
 # 告警类型 → 中文名（推送标题与日志分类共用）
@@ -183,7 +183,7 @@ def push_alert(alert_type, title, details, operator_id=None, skip_silence=False)
     """推送单条告警
     返回 (ok: bool, message: str)
     """
-    from webhook_utils import trigger_webhook_event
+    from services.webhook_utils import trigger_webhook_event
 
     cfg = get_alert_config()
     if not cfg.enabled and not skip_silence:
@@ -219,7 +219,7 @@ def send_test_alert(user):
         getattr(user, 'username', 'admin'),
         datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     try:
-        from webhook_utils import trigger_webhook_event
+        from services.webhook_utils import trigger_webhook_event
         trigger_webhook_event(
             webhooks, 'alert_test', title, details,
             force_channels=True, operator_id=getattr(user, 'id', None),
@@ -240,7 +240,7 @@ def check_weather_alerts(cfg):
     if not cities:
         return alerts, interface_errors
 
-    from weather_service import query_weather
+    from services.weather_service import query_weather
 
     for city in cities:
         try:
@@ -296,7 +296,8 @@ def check_weather_alerts(cfg):
 def check_data_integrity():
     """数据完整性检测：关键静态资源/文件存在性与非空检查（本项无外部网络依赖）"""
     issues = []
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # V10.11.21 结构重组：services/ 上溯一级回到项目根目录（static 等资源位于项目根）
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for rel in INTEGRITY_FILES:
         path = os.path.join(base_dir, rel)
         try:

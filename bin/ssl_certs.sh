@@ -5,7 +5,7 @@ ensure_ssl_certs() {
     if [ ! -f "$SSL_CERT" ] && [ ! -f "$SSL_KEY" ]; then
         echo_e "${GREEN}未检测到 SSL 证书文件，正在生成自签名证书 (域名: $SNI_DOMAIN)...${NC}"
         mkdir -p "$APP_DIR/ssl"
-        local cert_script="$APP_DIR/generate_ssl_certs.py"
+        local cert_script="$APP_DIR/tools/generate_ssl_certs.py"
         if command -v python3 > /dev/null 2>&1; then
             (cd "$APP_DIR" && python3 "$cert_script" --domain "$SNI_DOMAIN")
         else
@@ -14,7 +14,7 @@ ensure_ssl_certs() {
     elif should_overwrite "$SSL_CERT" "$SSL_FORCE_UPDATE" "SSL_FORCE_UPDATE"; then
         echo_e "${GREEN}确认更新，正在重新生成 SSL 自签名证书 (域名: $SNI_DOMAIN)...${NC}"
         mkdir -p "$APP_DIR/ssl"
-        local cert_script="$APP_DIR/generate_ssl_certs.py"
+        local cert_script="$APP_DIR/tools/generate_ssl_certs.py"
         if command -v python3 > /dev/null 2>&1; then
             (cd "$APP_DIR" && python3 "$cert_script" --domain "$SNI_DOMAIN")
         else
