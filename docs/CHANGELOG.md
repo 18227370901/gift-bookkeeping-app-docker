@@ -1,0 +1,1417 @@
+# 人情礼金记账系统 版本发布与全量变更日志 (Changelog)
+
+> 本文档收录了系统自诞生起从 V2 直至最新 V10.11.22 的全量版本演进、技术重构与历史缺陷修复档案。  
+> 快速上手与使用指引请参见项目主页 [README.md](../README.md)。
+
+---
+
+## 🌟 V10.11 系列全版本演化与架构升级记录
+
+> 💡 **版本与架构升级公告（最新）**：
+> - 📦 **V10.11.22 根目录文档与配置分层治理（docs/ 与 config/ 体系化收归，对齐传统版）**：
+>   ① **统一建立 docs/ 文档中心**：PSD_Design_Document.md 与单文件 3.46MB 的 PSD_Design_Document.html 移入 docs/；从 README.md 中抽离 V2 至 V10.11.21 全量历史版本变更记录与部署运维手册至 docs/CHANGELOG.md、docs/DEPLOYMENT.md、docs/SAMPLE_DATA.md 与 docs/ANDROID_BUILD.md，使根目录自述文件精简易读；
+>   ② **统一建立 config/ 配置中心**：
+ginx_ssl.conf 与 
+ginx.conf 模板文件迁入 config/ 目录；in/nginx_config.sh 升级双路径探测机制（优先查找 config/，兼容根目录回退），配置渲染与热重载零影响；docker-compose.yml 示例挂载注释同步更新；
+>   ③ **开箱样例库维护（方案 A）**：随仓库分发的 gift_bookkeeping.db 保持在根目录，零风险保障开箱即用演示；.dockerignore 严格排除确保不入镜像；
+>   ④ **构建镜像体积优化**：.dockerignore 增强排除 docs/ 与 config/nginx*.conf，避免文档与宿主机 Nginx 模板打入 Web 容器，保证镜像极致精简。
+> 💡 **版本与架构升级公告（最新）**：
+> - 🏗️ **V10.11.21 根目录文件架构重组（仅结构·零业务逻辑变化，对齐传统版）**：根目录 20 个 `.py` 精简为 **仅 2 个**——`app.py`（主入口，`gunicorn -c gunicorn.conf.py app:app` 启动命令不变）+ `gunicorn.conf.py`（Gunicorn 部署配置），其余 18 个模块 `git mv`（保留文件历史）迁入三个语义化包：
+>   - `services/`（13 个：models/gift_utils/ai_service/web_search/webhook_utils/webdav_utils/weather_service/holiday_service/alert_service/dashboard_service/pdf_generator/service_config/_daemon_lock）——业务与数据层；
+>   - `routes/`（4 个：routes_ext/routes_ai/routes_weather/routes_alert）——路由注册层；
+>   - `tools/`（1 个：generate_ssl_certs）——部署辅助；
+>   - **同步治理运行期产物**：新增 `logs/` 目录收纳**节假日/天气预报/地理编码磁盘缓存**（3 个 json 由 data/ 迁入，路径常量已改）与**数据库恢复前自动备份**（`.bak` 改指 logs/，不再与运行库同级）；Docker 运行日志走容器 stdout（`docker compose logs` 查看）不入 logs/；`data/` 仅保留运行库与用户附件（`gift_data` 卷挂载点 `/app/data` 不变）；`logs/` 整体 .gitignore（仅本地留存，不入库不上传）。
+>   - **路径适配（全部等价替换）**：55 处 import 改写（顶层+函数内延迟导入，含 `from services.xxx import` 包路径）；5 处 `__file__` 锚点上溯一级（`dirname(dirname())`——锁文件/db 三候选/附件目录/区划 js/完整性检查，指向路径与重组前完全一致）；`bin/ssl_certs.sh` 证书脚本路径改指 tools/。
+>   - **验证**：29 文件 py_compile 全过、本地启动冒烟（登录/看板/Webhook/外部接口配置/备份/AI 配置/天气/用户/审计日志等 10 页面 + /health 全部 200）；`git diff -M` 全部识别为 rename，无业务逻辑改动。**注**：APK 版目录结构后续同步。
+> - 🌟 **V10.11.20 外部接口服务配置（管理员可自定义全部内置接口地址：多端点 + 故障转移 + 一键测试，对齐传统版，业务代码 MD5 逐字一致）**：
+>   ① **统一收纳「内置默认调用地址但页面无配置入口」的外部服务**：新增「系统管理 > 外部接口配置」页（`/admin/service-config`），集中管理 6 组外部接口：
+>     - **天气·地理编码 / 天气·天气预报 / 天气·空气质量**（Open-Meteo 三端点默认值不变，`weather_service.py` 动态读取）；
+>     - **法定节假日班/休数据**（timor.tech，默认 `https://timor.tech/api/holiday/year/`，**`{年份}` 变量由系统自动补全**，管理员只需填到 `year/` 即可，`holiday_service.py` 请求时自动注入最新年份）；
+>     - **企微长连接**（默认 `wss://openws.work.weixin.qq.com`，`webhook_utils.py` 三处 `WSClientOptions` 按序自动探测可用地址）；
+>     - **AI 联网搜索**（默认 `https://duckduckgo.com` 走官方库调用，自定义地址按 DuckDuckGo 兼容 HTML 格式请求，`web_search.py`）。
+>   ② **统一多端点配置模型（6 组全部支持）**：有序端点列表（每行含地址、启用开关、上移/下移排序、删除、「＋ 添加端点」）+ 组级「请求超时（秒）」「重试次数（轮）」；**启用端点不可用时按序自动向后故障转移**，全部失败按重试轮数整轮重试后走各模块现有降级（天气/节假日离线兜底、搜索空结果、WS 重连）；AI 搜索组额外有「启用联网搜索」总开关（关闭后完全不做联网搜索）。
+>   ③ **一键测试**：每行端点「测试」按钮 + 每组「测试全部启用」按钮，**针对当前表单输入值（未保存也可测）**，按各组真实协议做结构校验（HTTP 型校验 JSON 字段、企微 WS 握手探测、搜索端点解析结果），行内即时反馈 ✓/✗ 与耗时、失败原因（403/超时/非 JSON/字段缺失等，如 timor.tech 反爬需模拟浏览器 UA）。
+>   ④ **保存方式双轨**：除顶部全局「保存配置」外，**新增端点行自带「保存」「取消」按钮（仅新增配置时显示）**——保存将该组当前值（含新增行）整体入库，成功后该行转为已保存行（按钮消失）；取消放弃该行不入库；已保存行仅保留测试/上移/下移/删除按钮。
+>   ⑤ **交互细节**：操作提示采用**页面顶部居中的轻量 toast**（成功绿/失败红，自动消失可关闭，已移除全部原生 alert/confirm 弹窗；「恢复默认值」为 Bootstrap 模态二次确认）；行内按钮均为**图标 + 中文**（测试/上移/下移/删除；新增行：保存/取消）；移动逻辑含**边界置灰**——首行「上移」、末行「下移」自动禁用，各类操作后即时刷新。
+>   ⑥ **配置存储与安全**：复用 `system_settings` 表新增 19 个 Key（`api_urls_*` / `ai_search_enabled`），实时读库即存即生效；**Docker 多 Worker 场景下各进程共享同一数据库，任一进程保存后其他进程下次读取即时生效，无需重启容器**；保存接口仅管理员 + CSRF + 白名单分组 + URL 前缀校验（http/https/wss）；「恢复默认值」一键重置为现状默认（行为零变化）；与 WebDAV 备份/恢复全局表策略天然兼容。
+> - 🌟 **V10.11.18 Webhook与系统告警全链路权限自洽 + 批量授权Bug修复 + 凭证安全脱敏与日志性能治理**：
+>   ① **Webhook 与系统告警权限全链路闭环自洽（彻底解决普通用户授权断裂）**：
+>     - **底层模型与迁移对齐**：`models.py` 的 `User` 模型正式补充 `webhook_authorized` 布尔字段并提供 `can_use_webhook()` 权限判断，`app.py` 新增启动自动迁移；同步 `ALL_MENUS` 数据权限字典与管理员菜单列表（全面收录 `webhooks`）；启动时自动幂等清洗存量普通用户 `allowed_menus` 中残留的 `backups` 死数据；
+>     - **权限配置界面双轨支持**：`templates/admin_users.html` 的单用户配置与批量配置区全面补充「Webhook通知」菜单勾选及「Webhook 与告警功能授权」复选框，彻底清除批量区已废弃的备份菜单选项；
+>     - **告警授权实时联动**：在 Webhook 页面通过 `AlertPushGrant` 为用户分配告警操作权限时，后台自动激活用户的 `webhook_authorized` 标记并追加 `webhooks` 菜单访问权，确保告警授权即时生效且绝不被底层路由中间件拦截。
+>   ② **批量配置备份授权漏存修复与工单申请流打通**：
+>     - **批量备份授权修复**：彻底修复 `admin_batch_user_permissions` 路由遗漏处理 `backup_authorized` 导致管理员批量勾选备份授权静默失效的 Bug；
+>     - **工单菜单项补齐**：`routes_ext.py` 的 `TICKET_MENU_OPTIONS` 增加 `('webhooks', 'Webhook通知')`，解决无权限用户直访被拦截重定向到权限申请页后「无 Webhook 模块可申请」的死循环痛点；
+>     - **侧边导航栏动态感知**：`templates/base.html` 顶部导航栏为非管理员但具备 Webhook 权限的用户动态渲染「Webhook通知」入口。
+>   ③ **Webhook 路由门控解耦与凭证安全脱敏保护**：
+>     - **写操作路由权限解耦**：彻底破除 6 个 Webhook 写操作路由（新增/编辑/启停/删除/测试/删日志）硬编码 `is_admin` 限制，重构为支持超管与普通授权用户的统一校验体系；
+>     - **推送渠道凭证前端脱敏**：`templates/admin_webhooks.html` 对普通用户输出的 `bot_secret` 与 `secret_token` 实施掩码脱敏（非超管输出 `******`）；编辑保存时识别掩码自动保留数据库真实密钥，杜绝普通用户审查源码窃取生产渠道密钥的严重隐患。
+>   ④ **日志表数据库索引增强与 N+1 查询风暴消除**：
+>     - **高频字段索引声明**：为 `WebhookLog` 的 `created_at`、`event_type`、`is_success`、`webhook_id` 以及 `ScheduledTaskExecutionLog` 的 `end_time`、`status` 字段建立索引，彻底解决高频分页与巡检查询退化为全表扫描的性能隐患；
+>     - **消除 N+1 关联查询**：Webhook 页面查询 500 条日志时采用 `db.joinedload(WebhookLog.operator)` 预加载，彻底消除模板循环渲染触发的数百次额外 SQL 查询；修正空日志行 `colspan=9` 对齐。
+>   ⑤ **用户权限配置交互与天气模块精简优化（ADR-49 落地）**：
+>     - **天气权限选项精简去冗余**：清理用户权限配置（单用户与批量）中天气模块的「无天气访问权限」冗余选项，统一由「天气」复选框进行二元开关控制（勾选即授予「可查看实时天气」，未勾选则权限归零且移出菜单列表），彻底消除复选框与下拉项冲突的双轨二义性；
+>     - **提示框样式与折行边界治理**：彻底解决用户管理表格操作列 `white-space: nowrap` 意外渗透至权限弹窗导致的文字不折行缺陷；`permModal` 与 `batchPermModal` 升级为 `modal-dialog-scrollable`，安全保护提示语（`无法修改或删除管理员创建的数据`）设置 `white-space: normal; word-break: break-word;` 优雅自动折行，严密贴合提示框边界，弹窗整体在各类屏幕尺寸下自适应滚动展示。
+> - 🌟 **V10.11.17 AI助手配置单卡片独立保存 + 表格列宽横向滚动防截断 + 天气与万年历全链路加固 + WebDAV模板修复（Docker版全面对齐）**：
+>   ① **AI 助手配置多卡片独立保存与单卡片操作台**：
+>     - **单卡片增量保存协议**：扩展 `/api/ai/config` 端点，支持 `{ config_index: idx, config: single_cfg }` 协议。每个 AI 模型供应商配置卡片底部增加独立的「保存」按钮，修改后可单独保存当前项，防止误改动或未完成编辑覆盖其他供应商配置；顶部保留「保存全部配置」满足批量持久化需求；
+>     - **DOM 状态精准同步**：保存单个卡片时自动执行 `syncCardDOM(idx)` 抽取即时填写的模型、密钥与 Base URL，即时更新卡片标题与启用状态徽章。
+>   ② **可拖拽列宽表格横向滚动总宽自适应与重置按钮防遮挡**：
+>     - **总宽动态计算与原生横向滚动**：`static/js/table-resizer.js` 新增 `syncTableWidth(table)`，拖拽拉伸列宽时自动累加各列像素并同步至 `table.style.width` 与 `minWidth`，当列宽被拉长时触发原生横向滚动条，解决 Webhook 等复杂表格横向滚动无法看全操作按钮的缺陷；
+>     - **重置按钮挂载位置解耦**：重构 `injectResetBtn`，将「重置列宽」按钮由表格内部右上角悬浮改为挂载至卡片标题栏右侧（`.card-header .colw-header-actions`）或独立操作条，彻底杜绝重置按钮遮挡最右侧「操作」列表头的排版问题；
+>     - **操作列保护策略**：`templates/base.html` 统一设置操作列表头 `min-width: 210px` 与 `overflow: visible; white-space: nowrap;`，确保各类操作按钮整齐展示不折行。
+>   ③ **天气服务多级缓存降级、省市区级联置灰联动与万年历修复**：
+>     - **天气多级缓存与离线合成保障**：`weather_service.py` 引入内存缓存（30 分钟 TTL）+ 磁盘永久留存 + `_synthesize_offline_forecast` 季节性离线合成预报，在外网接口波动、超时或容器网络受限时不抛 503 异常，彻底杜绝「天气服务暂时不可用，请稍后重试」；
+>     - **级联下拉框置灰联动**：修复 `templates/weather.html` 中省份切换为 `-- 选择省份 --` 时因 `Number('') === 0` 误命中北京导致城市不置灰的缺陷，未选择省份时城市与区县选择器强制自动 `disabled = true`；
+>     - **权威万年历 1900 年 1 月 Bug 修复**：移除日期切换中对废弃 DOM 节点的引用，彻底解决万年历切换与点击今天卡死在 1900 年 1 月的脚本中断问题。
+>   ④ **首页天气预报地点全口径记忆与无权限安全分流**：
+>     - 引导卡片的天气地点支持用户最后一次查询的地点，不论是「省市区级联（经纬度坐标）」还是「自由搜索（城市名）」，全口径持久化记忆；
+>     - 无天气页面菜单权限的用户强制分流显示管理员预设的地点，并显示「这是管理员预设的地址」明确说明，杜绝越权查询；
+>     - 优化首页引导大卡片三栏式布局，消除中间留白，整合今日黄历建除十二神吉相、本月人情收支看板与快捷胶囊。
+>   ⑤ **WebDAV 备份页面与数据看板恢复**：
+>     - `templates/admin_backups.html` 补全丢失的 `</script>` 与 `{% endblock %}` 标签，解决打开报 500 内部服务器错误的问题；
+>     - `templates/dashboard.html` 修复趋势图函数语法错误，恢复数据看板全部汇总与趋势图表。
+> - 🌟 **V10.11.16 天气预报/气象日历/权威万年历三大核心模块分离重构 + 首页引导横幅中间留白治理 + 数据看板脚本修复**：
+>   ① **天气页面三模块分离与排版治理（对标 mengya-local）**：
+>     - **顶级模块导航 Tab（三大业务域彻底分离）**：居中设计高雅胶囊药丸切换器，清晰划分三大核心面板：
+>       1) **15天天气预报 (`#moduleForecast`)**：聚焦气象实况，包含实况 Hero 大卡（温度、状况、体感、湿度、风力、AQI、阵风/气压/PM2.5/紫外线 4 宫格）、ECharts 15 天气温高低温走势双折线图、7/15/16 天可选的每日预报卡片网格、生活指数建议（穿衣/紫外线/洗车等）及多城对比；未查询时展示友好离线引导卡片；
+>       2) **气象日历 (`#moduleCalendar`)**：专属于预报数据融入日历维度的场景，提供月视图与周视图控制器、日历格子上叠加天气状况图标与高低温，点击某一天展开气象与历法双指标详情；
+>       3) **权威万年历 (`#moduleAlmanac`)**：100% 离线免流可用，支持 1900~2100 年份与月份自由切换、当月天数/节气/法定假日概览卡片、大月历网格（含公历大数字、农历月日、廿四节气绿标、节日紫红标、国家法定休/班角标）、每日建除十二神黄历吉日与宜忌条、在此日举办宴席一键直达；
+>     - **查询控制台升级（对标 mengya-local 智能分级查询）**：顶部标题随选定城市动态回显；右侧支持「省市区级联」与「自由搜索」双模式快速切换；默认点击进入页面 0 次网络请求，直接展示本地离线权威万年历；用户手动点击「查询天气」后再拉取外部数据。
+>   ② **首页引导大卡片中间留白优化**：重构 `templates/_home_banner.html` 为现代三栏式高雅布局，新增微晶玻璃卡片（中栏 5 列），整合今日黄历建除十二神吉相与宜忌条、本月人情收支微看板与四大快捷直达胶囊。
+>   ③ **数据分析看板脚本崩溃修复与 AI 配置端点兼容**：修复 `templates/dashboard.html` 语法错误；`routes_ai.py` 与 `ai_service.py` 优化为禁代理直连优先 Dual-Mode 解析。
+> - 🌟 **V10.11.15 AI助手新增API探活修复 + 系统告警推送与Webhook架构重构归一 + 数据分析看板/海报 Service 层抽取与投影优化 + 容器健康检查探针**：
+>   ① **AI 助手新增未保存配置模型列表获取与连接测试修复**：扩展 `/api/ai/config/models` 与 `/api/ai/config/test` 端点，支持 Dual-Mode 容错逻辑，打通新增草稿态即时获取模型列表与连接测试的全链路。
+>   ② **系统告警消息推送与 Webhook 通知模块架构解耦归一（ADR-40 落地）**：将原本寄生在 WebDAV 备份管理页 (`templates/admin_backups.html`) 的「告警消息推送」卡片彻底剥离，迁移至 Webhook 与机器人通知配置页 (`templates/admin_webhooks.html`)，划分为「通知渠道与机器人」与「系统告警消息推送」两大子面板；`routes_ext.py` 中 `menu_map` 将 8 个告警相关 API 端点从 `backups` 权限门控迁移为 `webhooks` 权限门控。
+>   ③ **Service 业务层抽取与投影查询性能优化 (P2-1 / P2-5)**：新建 `dashboard_service.py`，抽离数据看板与海报统计的核心计算逻辑，采用 `with_entities` 投影必要字段替代全表 ORM 模型实例化，大样本量下查询响应提速 5~10 倍。
+>   ④ **Docker 容器标准探针端点与 Compose 健康检查配置 (ADR-42 落地)**：`app.py` 新增 `GET /health` 与 `GET /healthz` 轻量健康检查端点（status: ok）；`Dockerfile` 与 `docker-compose.yml` 配置 `healthcheck` 探针（interval 30s / timeout 5s / retries 3 / start_period 15s），适配容器编排自动探活与负载均衡；引入 `fonts-wqy-microhei` 支持容器内 ReportLab PDF 中文字体渲染。
+> - 🌟 **V10.11.14 数据库结构校准（26张表）+ 全功能对齐 Docker 版本**：
+>   ① **全量功能对齐与容器化适配**：将传统版全部新增功能（数据分析看板、家庭多成员协作记账、批量导入与 OCR 识别、人情簿打印/海报/PDF对账单）完整迁移至 Docker 版，补齐 `openpyxl` 与 `reportlab` 依赖；
+>   ② **天气日历/周视图/万年历全链路数据自动联动**：周视图导航与切片补齐、月视图翻月自动联动、万年历视图隔离与当月概览；
+>   ③ **WebDAV 与 PostgreSQL 备份数据完整性修复**：`_PG_ALL_TABLES` 与 `_global_tables` 补齐 `family_groups`、`family_members`、`alert_push_configs`、`alert_push_grants` 4 张数据表，表总数校准为 26 张表。
+> - 🐛 **V10.11.13 五项缺陷修复（对齐传统版）**：① **选中日与展示范围联动**——`renderView` 单点收敛范围校验（列表/万年历一律清、月视图限当前月、周视图限今起 7 天），切视图/翻月/回到今天/子视图切换后详情面板与趋势图标记线不再残留旧日期；② **法定节假日滚动窗口**——磁盘缓存 [当前年-2, 当前年] 滚动（2027 年自动变 2025-2027）+ 失败冷却 1 小时（未发布年份不重复请求）；③ **宴席直达链路补齐**——天气日历详情面板补按钮（预报内显示）+ banquets 页 URL 参数接收（action=new 自动开弹窗 + date 校验预填 + 清参防刷新重弹），文档「40 天」修正为 16 天；④ **天气权限归一**——单/批量保存时 0 级自动剔除勾选（修复「勾选+无权限仍可访问」三层根因）；启动回填改一次性标记 + 存量「勾选×0」脏数据幂等清洗；⑤ 本版同步：weather.html/banquets.html/holiday_service.py 三共享文件 MD5 逐字一致（banquets.html 升级为共享文件），app.py 四处手工合并（保留无 dashboard/family 差异）。
+> - 🖼️ **V10.11.12 登录后背景横幅：当前时间/星期/农历/节气节日班休徽章/天气（对齐传统版）**：登录后页面顶部新增红金渐变背景横幅（白天红金/黑夜深红双主题，纯 CSS 零图片）——左侧时段问候 + 用户名、**时间大字走秒**（等宽数字）、公历日期星期、**农历全称**（复用 `lunar_utils.js` 权威数据本地计算零请求）、节气胶囊/节日徽章/班休徽章（班休由服务端直读 `holiday_service`，无权限用户也能获取）；右侧轻量天气块（城市名 + 来源徽章 + 当前温度 + 状况图标 + 今明高低温）。**天气城市三层分流（服务端判定）**：① 有天气页权限且用过「城市名自由输入」→ 自己记忆的城市；② 无权限/无记忆/级联模式 → **管理员**自由输入框查过的城市（`/api/weather/query` 成功时自动同步 `SystemSetting.admin_weather_city`，前端零改动）；③ 管理员从未查过 → **兜底成都**；无权限用户传的任何 city 参数一律服务端忽略（安全）；内存缓存 30 分钟 + `days=2` 轻量查询；失败仅隐藏天气区。接入点：`index.html` + `permission_tickets.html`（无账本权限用户登录落点）单源 include `_home_banner.html`，所有登录用户可见。本版改动 4 文件与传统版同步（routes_weather.py 与 _home_banner.html 两版 MD5 逐字一致）。
+> - 🛠️ **V10.11.11 全面优化修复与天气联动加固（Docker版同步）**：① **天气与万年历防抖动布局 (CLS=0)**——省市区三级级联由 `display:none` 动态显隐升级为稳定四列栅格与 `disabled` 状态受控切换，消除级联选择引起的布局跳动；② **万年历移动端精细适配**——新增 `@media (max-width: 767.98px)` 7 列紧凑网格排版，字体尺寸与格子间距自适应，移动设备端视觉平整美观；③ **人情宴席业务链路无缝打通**——万年历月视图与 40 天天气详情面板新增「在此日举办宴席」直达按钮，携带日期参数跳转 `/banquets?action=new&date=YYYY-MM-DD` 快速筹备；④ **法定节假日离线/弱网兜底**——`holiday_service.py` 内置 2024~2026 年国务院办公厅官方放假及调休补班权威字典（`BUILTIN_HOLIDAYS`），弱网或接口超时冷启动时零延迟无损降级并回写本地缓存；⑤ **文案与代码清理**——修正礼金明细页等处错别字「大薄」为「账簿」，精简 `weather_service.py` 重复常量。
+> - 🧧 **V10.11.8~10 天气增强 + 告警消息推送 + 万年历独立模块 + 法定节假日班/休角标（对齐传统版 V10.11.8/9/10 三代增量）**：① **天气页面全面增强（V10.11.8）**——查询交互 4 项修复（省/市/县任意一级即可查 + 下拉懒加载逐级展开；自由输入优先匹配本地行政区划库；两种查询方式按钮独立 loading + 请求序号防竞态；前端 30 秒超时 AbortController）；预报天数自定义（分段按钮 + 下拉 1~16 天）；日历视图（月/周子视图 + 点击日期联动详情与趋势图）；多城市对比（上限 3 个最高温同图叠加）；生活指数 6 项自研规则卡片；空气质量（Open-Meteo Air Quality API，PM2.5 按中国 24h 标准分级徽章，失败静默降级）；localStorage 全键按用户隔离 + 重置记忆按钮。② **告警消息推送（V10.11.8）**——`admin_backups` 页新增「告警消息推送」卡片：4 类触发条件（天气预警自研规则 / 接口异常 / 数据完整性 / 定时任务失败）、静默期防告警风暴、同类型合并推送、测试推送、推送日志筛选与 CSV 导出；后台告警巡检守护线程每 30 分钟自动巡检（`alert_service.py`），推送复用既有 Webhook 渠道（企微长连接/钉钉/飞书/pushplus/通用 URL）全支持；权限联调（`alert_push_grants` 按用户授权 3 项操作、告警 8 个 API 纳入 `menu_map` backups 门控、前端三态渲染、权限全回收自动停用推送）；`_SCHEMA_VERSION` 1017→**1019**（建告警两表；**跳过传统版 1018 家庭记账迁移——本版无 family 功能**）。③ **日历视图万年历化（V10.11.9）**——本地历法库 `static/js/lunar_utils.js`（零依赖零外网，1900-2100 农历压缩表 + 二十四节气 base32 表，由寿星天文历 sxtwl 全量生成，73,414 天 roundtrip 校验 0 不一致）；今日信息卡（公历大字 + 星期红 + 农历全称 + 节气胶囊 + 节日徽章）；月网格三层格子（公历 + 万年历小字：节日>节气>农历日优先级红字，初一显示月名，闰月带「闰」 + 天气层）；自由翻月（1900-2100）+「回到今天」；点击任意日期详情万年历化（农历全称/干支/生肖/节气/节日）；周视图补农历小字；周末列头标红 + 今日红框。④ **万年历独立模块 + 班休角标（V10.11.10）**——视图切换第三态「万年历」（列表/日历/万年历），**不依赖天气预报数据可独立使用**：今日大卡（含今日班/休徽章）+ 大月历网格 + 年/月双下拉（1900-2100）+ 前后翻月 + 回到今天 + 点击日期独立详情面板 + 视图记忆恢复；法定节假日班/休角标实时拉取 **timor.tech 聚合接口**（内容与国务院办公厅放假安排公报一致，免费无 Key 国内直连）：`holiday=true` 红色「休」角标 / `false` 灰色「班」角标（调休补班），双缓存（进程内存 + 磁盘 `data/holiday_cache.json` 重启免拉取）+ 网络双路径（禁代理直连优先 + 系统代理兜底）+ 模拟浏览器 UA 规避反爬 403 + 失败降级返回空 + 2007 年前无数据跳过。⑤ **AI 配置网络策略修复（V10.11.8，本版适配）**——`ai_service.py` 合入 `_chat_with_fallback`（OpenAI SDK `httpx.Client(trust_env=False)` 直连优先，连接类异常回落系统代理重试一次），覆盖配置测试（15s）与 AI 对话（30s）两条出网链（本版为精简版 AI 服务，无模型列表拉取/OCR，不涉及）；修复代理进程存活但出口不通时配置测试约 26 秒后报 Connection error 的问题。⑥ **同步方式**——7 个共享文件逐字复制（MD5 校验一致）：`weather_service.py` / `routes_weather.py` / `templates/weather.html` / `static/js/lunar_utils.js` / `holiday_service.py`（新增）/ `alert_service.py`（新增）/ `routes_alert.py`（新增）；5 个文件按本版特性手工合并：`models.py`（告警两模型）/ `app.py`（schema 1019 + 迁移 + 告警路由注册 + 巡检线程）/ `routes_ext.py`（`menu_map` 补 `api_holiday_year` + 8 个告警 endpoint）/ `ai_service.py`（精简版保留补网络修复）/ `templates/admin_backups.html`（告警卡片 + JS 区块合并）；49 项静态验证 ALL_PASS。
+> - 📊 **V10.11.7 表格列宽手动调整 + 天气查询功能上线（对齐传统版 V10.11.4/6/7 三代增量）**：① **天气查询（本版新增功能）**——数据源 Open-Meteo（免费无密钥）：实时天气 + **15 天预报**（实时含温度/体感/湿度/风速风向/阵风/气压/云量，每日含最高最低温/降水概率/日出日落/紫外线/累计降水）；**行政区划级联选择**（中国→省→市→区县，34 省/476 市/2875 区县，阿里云 DataV GeoAtlas 数据本地内置 `static/js/china-regions.js` 144KB 含行政中心坐标）——因 GeoNames 中文库缺中国区县级地名（「双流区」0 候选），级联选中后**按内置坐标直接查询**（零错配）；保留城市名自由输入；首页式布局（当前天气大卡片 + 15 天温度趋势双折线图（本地化 ECharts 5.5.0）+ 15 天卡片网格今天高亮）；记住上次查询方式与地区自动恢复；**网络策略**：Open-Meteo 请求「禁代理直连优先 + 系统代理兜底」双路径；② **天气权限管控（对齐传统版 V10.11.6）**——天气为受控菜单（0=无权限/1=可查看），`menu_map` 拦截器 + 导航条件渲染 + 用户管理单用户/批量权限配置 + 权限申请工单；`_do_startup_sync` 启动幂等回填既有普通用户 weather 权限（老用户不回退、新用户默认无权限）；Webhook 推送矩阵 `PAGE_NAMES`/`PAGE_EVENT_MATRIX` 补 weather 只读行；③ **全平台表格列宽拖拽调整（21 张主业务表）**——新增全局脚本 `static/js/table-resizer.js`（零依赖原生 JS），表头右缘 8px 分隔条 hover 高亮拖拽实时生效（`table-layout: fixed`），min/max 列宽约束（默认 60~480px），**双击自动适应内容宽**，**按「用户+表格」localStorage 持久化**（`gift_colw_{用户ID}_{表格ID}`），容器右上角自动注入「重置列宽」按钮，拖动禁文本选中，Pointer Events 触摸兼容，**<768px 自动降级**，黑夜/白天双主题高亮，截断单元格补 title 悬停提示。
+> - 🔄 **V10.10.29 独立 PG 生命周期闭环：stop 无条件释放 + start 自动重建（两版同步）**：修复传统版独立 PG 部署后 `./run.sh stop` 不释放 PG 容器的问题；本版代码仅涉及共享文件 `db_select.sh` 修正（本版 stop = compose down 删容器、start = compose up 自动重建，生命周期本就闭环）——**`DB_MODE` 环境变量直通部署改为无条件 `save_db_env`**（此前仅交互终端且非 independent 保存）：independent 直通部署后 stop 能正确识别模式，compose down 带上 `docker-compose.db.yml` 删除 pg 容器（此前直通部署后 stop 只删 web/nginx，pg 容器残留）；非交互（cron/CI）直通部署同样保存，后续 stop 与无参 restart 均可正确复用配置；传统版另修复三处缺陷（stop 释放逻辑嵌在端口检查分支内 / 仅 docker stop 不删容器 / start 不重建容器），详见变更历史章节；两版 `db_select.sh` MD5 逐字一致，沙盒 mock docker 26 项断言全部通过。
+> - 🐘 **V10.10.28 独立 PG 版本化数据卷 + 存量卷自动迁移（两版同步）**：① **PG 版本化数据卷命名**——此前独立 PG 使用固定卷名（传统版 `${PROJECT_NAME}_pg_data` / Docker 版 `gift_pg_data`），跨 PG 版本镜像切换时同一卷内数据布局冲突导致 initdb 失败（PG16→18 报 "in 18+" / PG18→16 报 "not empty"）；现改为版本化卷名 `${...}_pg_data_${PG_MAJOR}`（如 `gift_pg_data_16`），各 PG 版本数据天然隔离；② **`detect_pg_major` 三级探测**——`docker image inspect` 读镜像 PG_MAJOR env → 镜像 tag 数字解析 → 未知 default；③ **存量卷自动迁移**——新版本化卷不存在而旧固定卷存在时，读取旧卷 PG_VERSION 判断兼容性：同版本 `cp -a` 迁移（保留旧卷备份）、跨版本保留旧卷用新空卷初始化（附 pg_upgrade 指引）；④ **Docker 版 `detect_pg_data_dir` 升级**——从旧版名字通配符匹配升级为 `docker image inspect` 查镜像真实 PGDATA（与 V10.10.25 传统版同步）；⑤ **Docker 版 `PG_MAJOR` 持久化**——`service.sh` 将 PG_MAJOR 写入 `.temp/.db.env`，restart 不漂移；`docker-compose.db.yml` 卷名改插值 `gift_pg_data_${PG_MAJOR:-default}`。
+> - 🎯 **V10.10.27 两版首次部署默认数据库差异化（两版同步）**：传统版首次部署交互菜单**默认 SQLite**、Docker 版**默认共享 PG**——`bin/config.sh` 新增 `DB_MENU_DEFAULT`（传统版=1、Docker 版=2，可被环境变量/config.local.sh 覆盖），`db_select.sh`（共享文件）默认选项改读该变量，替代此前按内存阈值的智能推荐（旧逻辑两版行为相同）；**环境兜底**：Docker 版默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite（避免默认选项必然失败），非法值/未设置同样回退 SQLite；菜单项 1（SQLite）补上与其他项一致的 ⭐ 推荐标记；五场景模拟验证通过（传统→1 / Docker 有 PG→2 / Docker 无 PG→回退 1 / 非法值→回退 1 / 未设置→回退 1）。
+> - 🔒 **V10.10.26 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（两版同步）**：① **传统版独立 PG 补 `--restart unless-stopped`**——此前 `docker run` 无重启策略（默认 no），服务器重启/Docker 守护进程重启后独立 PG 容器不会自动恢复，现与 Docker 版 compose 策略一致；② **共享 PG 自动检测排除对侧单租户容器**——`detect_pg_environment` 排除 `gift_app-pg`（传统版）与 `gift_bookkeeping_pg`（Docker 版），防止同服务器双版本部署时交互菜单误推荐对侧独立 PG 容器为共享 PG（对侧 reconfig 时 `docker rm -f` 会摧毁本版正在共享的实例）；显式 `DB_PG_CONTAINER=<容器名>` 跨版本共享仍完全支持；③ **双版本 9 组合数据隔离矩阵确认**——账号（gift_user vs gift_docker_user）/库名（gift_bookkeeping vs gift_docker_db）/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离，任一模式组合零冲突（六场景模拟验证通过）。
+> - 🩺 **V10.10.25 共享 PG 容器状态误判 + 独立 PG 卷布局崩溃静默 + ALTER USER peer 认证 + 未知参数校验（两版同步）**：① **共享 PG 真实运行状态检查**——`docker ps` 会把崩溃循环（Restarting）的容器也列出被误判为"在运行"，改用 `docker inspect State.Status` 严格判定，非 running 直接展示容器日志与修复指引；② **`detect_pg_data_dir` 改查镜像真实 PGDATA**——此前按镜像名通配符猜路径，非标准命名镜像（如 `postgres:latest`）猜错导致 PG18+ 容器启动即崩溃（"in 18+ ... data in /var/lib/postgresql/data" 报错）；现用 `docker image inspect` 查询镜像 Config.Env 的 PGDATA（100% 可靠），未知镜像默认旧版路径；③ **独立 PG 容器启动后健康校验**——`docker run` 成功不代表容器存活，3 秒后校验 State.Status，崩溃则直接展示最后 15 行日志 + 卷/镜像不匹配解决方案（不再静默超时 30 秒后报误导性错误）；④ **`pg_sync_password` peer 认证优先**——`psql -U 用户` 在 Docker PG 内默认走 scram-sha-256 密码认证（非 trust），现 `docker exec -u postgres`（OS 级 peer 免密）优先 → socket 超级用户 → 容器 env 检测真实 POSTGRES_USER，三路兜底；⑤ **`detect_pg_superuser`**——从容器 env 检测真实超级用户名（此前固定 postgres，POSTGRES_USER 为其他名称时 CREATE USER 失败）；⑥ **未知参数校验**——`./run.sh restart --reconfiga` 拼错参数此前静默忽略照常重启，现报错「未知参数」+ exit 1。
+> - 🗄️ **V10.10.24 Docker 版与传统版数据隔离：PG 默认值差异化**：Docker 版 PG 默认值改为 `gift_docker_user` / `gift_docker_pass` / `gift_docker_db`（传统版保持 `gift_user` / `gift_pass` / `gift_bookkeeping`），同服务器双版本部署不再冲突；改动 6 个文件（config.sh、docker-compose.db.yml、service.sh、help.sh、db_setup.sh 注释、docker-compose.yml 注释）；同时确认全部容器重启策略均为 `unless-stopped`（无 always）。
+> - 🔧 **V10.10.23 `--reconfig` 参数替代 `DB_RESET=1` 环境变量（两版同步）**：用法改为后缀参数 `./run.sh restart --reconfig`（或 `./run.sh start --reconfig-db` 完整别名）；`$1` 子命令 + `$2` 可选参数解析；`DB_RESET=1` 环境变量保留兼容 cron/CI 场景；帮助文本、status 提示、错误消息全部同步更新。
+> - 🔧 **V10.10.22 PG 密码认证修复 + pyzipper 缺失修复 + 密码固定默认值（两版同步）**：① **PG 密码不再每次随机生成**——此前 `resolve_pg_conn_params()` 在 PG_PASSWORD 未指定时每次 `cat /dev/urandom` 生成新随机密码，导致重启/重选时密码变化、已有 PG 实例密码不匹配认证失败；现改为固定默认值 `gift_pass`（`bin/config.sh` 新增 `PG_PASSWORD_DEFAULT`，与 `ADMIN_PASS` 同模式，可在 `config.local.sh` 中覆盖）；② **ALTER USER 不再静默吞错**——新增 `pg_sync_password()` 函数（超级用户 socket → OS 级 peer 认证两路兜底），ALTER USER 失败时报错终止而非静默继续；③ **独立 PG 容器就绪后强制 ALTER USER 同步密码**——Docker 卷已存在时 `POSTGRES_PASSWORD` 环境变量被 PG 忽略（仅首次初始化读取），需 ALTER USER 兜底；④ **密码自动同步**——`db_select.sh` 新增 `_PG_PASSWORD_AT_LOAD` 捕获用户显式指定的 PG_PASSWORD，已有 .db.env 配置的重启场景检测到新密码时自动重执行 setup 同步至数据库；⑤ **pyzipper 依赖检查**——`python_env.sh` 核心依赖检查新增 pyzipper（此前仅查 flask 四件套，老部署已装时 pip install 整体跳过，pyzipper 永远不安装）；⑥ **pyzipper 检测改为实时函数**——`routes_ext.py` 中 `HAS_PYZIPPER` 模块级变量（import 时快照为 None 永不更新）改为 `_ensure_pyzipper()` 实时检测函数，修复 pyzipper 实际已安装也误报"未安装"；⑦ **Docker 版独立 PG 密码同步容器名修正**——`bin/service.sh` 此前误用 `${PROJECT_NAME}-pg`（与 `docker-compose.db.yml` 硬编码的 `gift_bookkeeping_pg` 不一致），`docker exec` 找不到容器导致独立 PG 密码同步从未生效；现修正容器名 + `pg_isready` 就绪轮询（最长 30 秒）替代固定 sleep + 同步成功后 restart web（旧密码启动的 web 容器需重启方能以新密码连接）。
+> - 🧩 **V10.10.21 run.sh 深度模块化拆分 + 配置单点化（两版同步）**：run.sh 瘦身为「模块加载 + 命令分发」编排层（Docker 版 263→34 行，传统版 399→31 行）；新增 `bin/config.sh`（全部可自定义变量单点定义：账密/端口/SNI/PG 默认值）、`bin/service.sh`（启停操作与访问信息展示）、`bin/help.sh`（帮助文本），传统版另增 `bin/python_env.sh`（Python 预检 + pip 镜像源兑底 + venv 依赖安装）；`db_setup.sh` 中 PG 默认值改为引用 config 变量；帮助文本与全部行为经「零 diff」验证逐字不变。**服务器专属持久配置新机制**：每台服务器的差异化配置（账密/SNI 域名/端口等）写入 `bin/config.local.sh`（已被 .gitignore 忽略，git pull 永不冲突），三层优先级：命令行环境变量 > `config.local.sh` > 内置默认值；曾直接改 run.sh 配置区的服务器，升级后请将定制值迁移至该文件（详见「Linux 服务器代码更新与冲突处理指南」）。
+> - 🗄️ **V10.10.20 传统版初次部署纯净化（对齐 Docker 版）**：传统版首次 `./run.sh start` 不再复制样例库，仅就绪 `data/` 目录，由应用自动创建**纯净空库 + 单一管理员**（`admin`/`admin123`），与 Docker 版行为完全一致；根目录样例库仅作开发/演示参考；存量部署零影响（幂等）。
+> - 🌐 **V10.10.20 Docker 版部署架构对齐 mengya-docker**：① 彻底移除 `.temp/docker-compose.db-override.yml` 动态 override 机制（根治"external 网络被清理后启动失败"——如萌芽旧网络 `mengya-docker_netpgv-network`），compose 文件无 `version` 字段（消除 obsolete 警告）；② 网络改为默认网络重命名固定名 `gift-docker_net`（服务自动入网，**永不声明 external**）；③ 独立 PG 模式新增静态 `docker-compose.db.yml` 按 `-f` 按需合成（萌芽 COMPOSE_FILE 同款机制），并按镜像智能匹配挂载路径（`pgvector:pg18` 等 18+ → `/var/lib/postgresql`，15/16/alpine → `/var/lib/postgresql/data`，防数据不落卷）；④ 共享 PG 模式由 `docker network connect` 把 PG 容器接入自有网络（幂等、不影响其原有网络），start 后兑底接入+重启 web、stop 先摘除再 down；DATABASE_URL 经 shell 环境变量插值注入 compose；共享文件（`db_select.sh`/`common.sh`/`app.py` 等）零改动。
+> - 🐘 **V10.10.20 PG 驱动与镜像策略修复（两版同步）**：① 新增 `psycopg[binary]>=3.1` 依赖——SQLAlchemy 2.0 对 `postgresql://` 默认使用 psycopg3 驱动，修复 PG 模式下 gunicorn worker 启动报 `No module named 'psycopg'` 崩溃（psycopg2-binary 保留，webhook_utils 原生连接继续使用）；② PG 镜像优先级链：`PG_IMAGE` 环境变量（用户自定义）→ 服务器本地已有 PG 镜像 → 无则**自动下载默认 `postgres:16-alpine`**（不再询问，失败降级 SQLite）；③ 独立 PG 模式把镜像选择与挂载路径持久化至 `.temp/.db.env`（restart 不漂移）；④ 传统版独立 PG 同步同策略 + 挂载路径按镜像智能匹配。
+> - 🔧 **V10.10.20 DB_RESET 重选菜单修复 + PG_IMAGE 示例细化（两版同步）**：修复 `DB_RESET=1 ./run.sh restart` 时交互菜单被跳过的问题——restart 场景下 `stop_service` 的 `load_db_env` 会把旧配置中的 `DB_MODE` 注入当前 shell，被误判为"环境变量直通"而静默沿用旧模式；现改为以模块加载时捕获的用户显式指定值为准（`_DB_MODE_AT_LOAD`），DB_RESET=1 重选时交互菜单正常弹出，用户显式 `DB_MODE` 直通与日常 restart 读配置行为均不变；帮助文本与交互菜单细化 `PG_IMAGE` 使用示例（优先级链 + 4 组场景示例 + 适用范围说明）。
+> - 🗃️ **V10.10.20 PG 连接参数全面自定义（两版同步）**：`PG_USER` / `PG_PASSWORD` / `PG_DB` / `PG_PORT` 环境变量可自定义数据库账号、密码、库名与端口，未指定时使用默认值（`gift_user` / `gift_pass` 固定值（V10.10.22 起，此前为随机生成） / `gift_bookkeeping` / 5432）；共享与独立 PG 模式的建号、建库、授权与 `DATABASE_URL` 拼接全部参数化（幂等建号：已存在时 `ALTER` 同步密码）；密码含单引号/空格直接拒绝、含 URL 特殊字符警告；Docker 版独立模式将连接参数与镜像/挂载路径一并持久化至 `.temp/.db.env`（restart 不漂移）；`PG_PORT` 语义——Docker 版仅共享模式生效（独立模式容器内固定 5432），传统版共享模式为宿主机连接端口（优先于容器映射自动检测）、独立模式为宿主机映射端口（默认从 15432 起自动扫描）。
+> - 🖥️ **V10.10.19 run.sh status 访问信息展示**：status 命令与启动成功提示一致输出访问地址（多域名列表）、后端本地直连、日志文件与当前数据库模式（含 DB_RESET=1 重选提示）；Docker 版 status 补带 PG override 文件；两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 数据库配置说明（V10.10.19b：帮助与提示中的示例命令统一规范显示为 ./run.sh）。
+> - 🌐 **V10.10.18 前端资源本地化 + 部署链路加固**：新增 `static/vendor/`（Bootstrap 5.3.0 / Font Awesome 6.4.0 / Bootstrap Icons 1.11.3，14 个文件与原 CDN 版本完全一致），base.html 4 处 + shared_ledger.html 2 处国外 CDN 引用改为本地 `url_for` 加载，国内服务器不再依赖 jsdelivr/cdnjs；传统版同步首次部署就绪 `data/` 运行库目录（V10.10.20 起不再复制样例库，初次部署为纯净空库 + 单一管理员）+ python3 环境预检 + pip 镜像源兑底（清华→阿里云→官方）。
+> - 📦 **V10.10.17b run.sh 模块化拆分**：将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件（common/common_db_select 共享文件两版 MD5 一致 + cleanup/ssl_certs/nginx_config/port_conflict/db_setup 各版独立），run.sh 仅保留配置区 + source + 启停函数 + case 分发；Docker 版 683→157 行，传统版 792→257 行；修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题。
+> - 🗄️ **V10.10.17 交互式数据库部署选择 + PostgreSQL 兼容**：`./run.sh start` 时交互式选择 SQLite / 共享 PG（复用已有容器自动建库建账号）/ 独立 PG（复用本地镜像启动专属容器），根据服务器环境智能推荐；Cron 安全设计（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面兼容 PG（schema_version 表替代 PRAGMA user_version，_get_db_conn() 统一连接，备份/恢复 JSON 导出导入替代文件复制）；共享文件两版 MD5 逐字一致。
+> - ⚡ **V10.10.16 Docker 版性能优化**：Gunicorn 4 sync workers → 1 worker + gthread 4 线程；5 组重型依赖（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper）改为延迟导入；守护线程跨进程 fcntl 单实例锁；init_database() 幂等快速跳过；Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2；GitHub Actions 自动构建 + ghcr.io/阿里云 ACR 双 Registry 免构建部署。内存从 350~535MB 降至 60~95MB（↓约 80%）。
+> - 🔑 **V10.10.15 企微长连接 bot_secret 密文解密修复**：监听线程原通过 raw SQL 读取 AES-256-GCM 密文 bot_secret 直接用于 SDK 认证，导致 WebSocket 连接始终失败；修复后解密明文认证成功，@机器人 可正常自动捕获群聊 ID。
+> - 🛡️ **V10.10.14 敏感公告隔离与企微长连接修复**：含管理员账号/密码的公告自动限定仅管理员可见且不推送外部；广播横幅与提示消息自动消失；企微长连接 chatid 清空生效、@机器人 自动捕获与测试读取均已修正至运行库。
+> - 🌗 **V10.10.13 黑夜/白天主题切换与输入框提示语美化**：新增全局双主题切换（基于 Bootstrap 5.3 `data-bs-theme`，localStorage 持久化，默认白天零回归），全站约 122 处输入框提示语统一美化（浅灰蓝、常规字重、聚焦淡出）。
+> - 🔔 **2.1 纪念日到期单次推送防重机制（周期锁架构）**：- 检查 if r.last_notified_target == target_cycle_str: continue，已成功推送过的周期直接跳过，杜绝 60 秒死循环；
+> - ☁️ **2.2 WebDAV 智能路径解析与递归自动建目录（MKCOL）**：- 智能识别坚果云等 WebDAV 根路径（如以 /dav 结尾），当未指定子目录时，自动挂载默认安全备份目录 /gift_backups/，防止根路径直写触发 404。
+> - 🔒 **2.3 容器依赖与敏感数据零明文加固**：2. **敏感凭据安全闭环**：WebDAV 账号密码、Webhook 密钥等高敏感数据全部强制以 AES-256-GCM 密文存储，日志自动脱敏掩码，保证生产环境数据安全。
+> - 🤖 **企业微信智能机器人官方 SDK 接入与套接字连接池加固**：集成腾讯官方 Python SDK `wecom-aibot-python-sdk`（`aibot` 模块），全面支持企业微信群机器人长连接直连（WebSocket `openws.work.weixin.qq.com`）；底层网络请求重构为 `requests.Session` 连接池与 SSL 容错通信，彻底根除 Windows 平台下 `[WinError 10013]` 套接字权限拒绝与偶发超时问题。
+> - 💬 **群聊 @机器人 自动捕获与双通道会话绑定**：群内成员 @机器人 时，后台常驻守护线程自动捕获 `chatid` 并同时穿透同步至绑定的标准 Webhook 通道，实现多通道会话共享。
+> - 👁️ **WebDAV 密码显隐切换与输入体验优化**：WebDAV 备份配置面板移除硬编码掩码占位符，新增眼睛图标（👁️）一键切换明文/密文查看，便于准确核对坚果云、群晖 NAS 等复杂应用授权码。
+> - 📅 **亲友纪念日全要素文案优化、实时可编辑与多轮定时调度**：
+>   - **消灭模糊提示**：推送文案全要素结构化展示亲友姓名、身份关系、真实事件类型、临近倒计时、公历日期、备忘与联系电话，彻底消除【其它】模糊文案。
+>   - **全量预览与自由编辑**：推送预览框重构为标准可编辑区域，支持有权限用户在推送前自由微调文案或添加个性化附言，并支持一键重置回模版内容。
+>   - **多通道与多轮定时调度**：支持按需勾选多个目标通知通道、自定义推送轮数（1~5次）与间隔时长（0~300秒），后台多线程定时循环稳健推送并记录日志。
+>   - **到期自动巡检主动推送**：后台每分钟巡检到达预警天数的纪念日，使用独立 `auto_reminder` 日志标识，确保每日准时向群聊或机器人主动预警。
+> - 🍷 **专属宴席大账本与台账多维治理**：
+>   - **自动汇聚与手动拉取**：从礼金账本按办席原因自动生成大账本，支持管理员一键从礼金账本拉取最新数据同步。
+>   - **来源标识穿透**：每张台账卡片清晰标明数据归属（例如：`由用户 张三 在礼金账本创建并同步` 或 `手动创建（创建人: admin）`）。
+>   - **防死循环同步与删除恢复**：修复台账删除后重新同步无反应的问题，支持在回收站中一键还原或彻底删除后重新拉取生成。
+>   - **专属分享免刷新与安全生命周期**：生成/更新分享链接弹窗停留无需刷新页面，支持选择有效期（1天、7天、30天、永久），更新时即时刷新链接，并支持随时一键安全删除分享链接。
+>   - **多维检索与批量删除**：支持按办席原因、席数、金额模糊搜索，支持单选、多选、全选批量移入回收站。
+> - ⚖️ **人情对账明细与自动拉取**：自动从礼金账本拉取最新往来数据，支持点击查看往来明细抽屉，支持关键词查询、多字段筛选及自定义分页（默认10条/页）。
+> - ♻️ **全系统统一跨模块回收站**：统一收纳礼金账本、专属宴席、人情对账、亲友纪念日等所有模块的软删除数据；明确标示删除数据所属原标签页；支持单条/批量还原与彻底物理删除；支持按模块筛选与分页；管理员可设置回收站数据保留天数，超期由后台自动清理。
+> - 📖 **礼金账本智能录入与精准导出**：
+>   - **收礼/送礼类型区分**：新增与编辑记录支持明确选择收礼或送礼，数据与人情对账及宴席大账本精准关联。
+>   - **复合语义智能拆分一键入库**：支持用分号（`；`、`;`）、换行、顿号等常见符号一次性录入多条人情往来（如：“昨天李四儿子满月微信随了600；收张三结婚礼金888”），系统自动分割识别并生成独立的收礼/送礼明细。
+>   - **多维 CSV 导出**：支持导出当前筛选结果数据或全量账本数据，确保导出内容与页面展现完全一致。
+> - 🛡️ **用户管理与菜单独立细粒度权限配置**：
+>   - **菜单权限独立分控**：针对“礼金账本、专属宴席、人情对账、纪念日备忘、操作日志、系统广播、WebDAV备份、Webhook机器人”等每个菜单页面独立配置权限下拉选框（`仅管理自身数据` / `仅查看他人数据` / `查看+修改他人数据` / `查看+修改+删除他人数据`），后端全接口严格鉴权。
+>   - **安全默认值**：普通注册用户默认仅拥有礼金账本基础权限（仅管理自身数据），其它菜单未经授权默认不可越权访问。
+>   - **注册模式控制**：管理员可一键切换全局注册模式（默认：`仅邀请链接注册`，支持开放自由注册）。
+>   - **凭证安全隔离与双重二次核验**：管理员账号凭证绝不向外暴露；管理员查看当前密码、密保答案或进行重置时，必须先验证旧密码或旧密保问题。
+> - 📢 **系统广播异步交互与登录推送**：广播上线/下线采用 AJAX 异步无感切换，操作提示语自动定时淡出，其他用户登录系统时即时弹出最新上线广播通知。
+
+---
+
+# 人情礼金记账系统 (Gift Bookkeeping App)
+
+一个基于 **Python Flask + SQLite/PostgreSQL + Bootstrap 5** 开发的简洁、高效、高可用的人情往来与礼金资产记账管理系统。支持多用户管理、多菜单独立细粒度权限控制、礼金收支记录、专属宴席大账本、人情往来对账、亲友纪念日智能提醒、全系统回收站、企业微信/钉钉/飞书 Webhook 机器人及 WebDAV 云端自动化备份。
+
+---
+
+
+---
+
+## 📜 早期版本历史变更记录 (V2 ~ V10.10.29)
+
+### V2 修复与优化（2026-09-10）
+
+#### Webhook 通知
+- 修复新增通道 Modal 缺少保存按钮的问题
+- 修复编辑按钮无响应问题
+- 推送日志新增"发起用户"列，记录操作发起人
+- Webhook CRUD 操作全部写入审计日志
+
+#### 权限管理
+- 权限申请页已申请/已有权限的菜单自动禁用勾选，防止重复申请
+
+#### WebDAV 备份
+- WebDAV 配置对普通用户隐藏敏感信息（仅管理员可编辑）
+- 授权用户可查看定时任务列表（只读）
+- 修复 WebDAV 上传到根目录 404 问题（递归创建子目录）
+- 新增"备份存储子目录"配置项，默认 gift_backups
+- 恢复数据库后自动释放连接池，确保数据即时生效
+- 本地上传分拆为"数据库恢复"和"附件恢复"两个独立功能
+
+#### 定时任务
+- 定时任务从仅支持数据库备份扩展为三种类型：数据库备份/文件备份/自定义脚本
+- 任务 Modal 新增类型选择下拉框，按类型动态显示配置区域
+
+### V3 修复与优化（2026-09-10）
+
+#### 权限工单
+- 新增工单撤销功能：管理员可撤销已批准的权限工单，自动回收已授予的菜单权限
+
+#### WebDAV 备份增强
+- 新增 WebDAV 备份文件删除功能（支持单文件/批量删除）
+- 加密密码回显：备份配置区显示"已设置/未设置"徽章，无需输入即可查看状态
+- 定时任务支持加密备份：创建定时任务时可勾选加密选项
+- 定时任务新增创建人列和执行历史查看
+- 多用户 WebDAV 配置隔离：普通用户可编辑自己的私有 WebDAV 配置
+- 备份文件名增加用户标识，列表显示创建者，恢复/删除按权限控制
+- 修复恢复备份时 500 错误（增加异常处理）
+
+#### Webhook 管理
+- Webhook 新增/编辑表单改为 AJAX 提交，校验失败在 Modal 内就地显示错误，不再关闭弹窗
+
+#### 用户管理
+- 用户管理页权限配置 Modal 新增 AI 授权 checkbox
+- 批量权限配置 Modal 新增 AI 授权 checkbox
+
+#### 附件备份
+- 附件上传后自动同步到 WebDAV `attachments/` 子目录（失败不阻断本地保存）
+
+### V4 修复与优化（2026-09-11）
+
+#### WebDAV 安全恢复机制（核心修复）
+- 修复恢复备份后全站 500 Internal Server Error 的严重问题
+- 恢复流程改为安全替换：先释放连接池 → 下载到临时文件 → 完整性校验 → 替换数据库 → 清理 WAL/SHM → 重新执行迁移 SQL
+- `init_database()` 通过延迟导入调用，避免循环导入问题
+
+#### 加密 zip 恢复修复
+- 修复 `download_backup` 函数参数映射条件写反导致 `quote_from_bytes() expected bytes` 错误
+- 新增 `decrypt_encrypted_zip()` 和 `download_and_decrypt_backup()` 函数支持 AES-256 加密 zip 解密
+- 前端 .zip 文件恢复时弹窗输入加密密码
+
+#### WebDAV 文件删除/下载修复
+- `delete_webdav_backup` 和 `download_backup` 改用 `_resolve_target_dir_url`，修复 URL 缺少 `backup_subdir` 子目录路径导致"远端文件不存在"
+
+#### 附件上传修复
+- 附件上传直接放到 WebDAV 备份根目录，去掉 `attachments/` 子目录前缀，修复 409 Conflict 错误
+- `upload_file_to_webdav` 增加自动创建远端子目录逻辑（MKCOL）
+
+### V5/V6/V7 修复与优化（2026-09-11）
+
+#### Webhook 保存与前端优化
+- 保存按钮不再校验企业微信凭证，凭证校验由"测试"按钮独立承担
+- 前端增加 loading 状态、必填字段校验和成功提示
+- 清理重复的 JS 函数定义
+
+#### WebDAV 备份安全隔离
+- **加密密码不回显明文**：密码框改为动态 placeholder，新增"清除加密密码"checkbox 联动
+- **WebDAV 配置隔离**：移除普通用户自动复制管理员配置的逻辑，普通用户首次访问创建空白私有配置
+- **备份越权修复**：普通用户备份/下载使用仅包含自己数据的临时隔离库，管理员使用完整库
+- 前端普通用户 WebDAV 配置区增加"请填写您自己的 WebDAV 服务器信息"提示横幅
+- 备份列表 checkbox 按权限控制，普通用户只能操作自己创建的备份文件
+
+#### 菜单权限循环跳转修复
+- 移除 `menu_map` 中 `'index': 'ledger'` 映射，首页增加独立权限检查
+- 管理员访问首页正常显示，无权限用户被引导至权限申请页
+
+#### 备份页面布局优化
+- 定时任务卡片从左栏移到右栏顶部，与备份列表同栏，逻辑更紧凑
+- 定时任务表格从 8 列精简为 4 列（任务名称+状态、类型+Cron、上次执行+创建人、操作+历史）
+- 备份授权按钮从纯图标改为图标+文字（"授权备份"/"撤销备份"、"授权任务"/"撤销任务"）
+- 撤销操作增加二次确认弹窗
+- 授权卡片增加"授权状态与「用户管理」页面实时同步"说明
+- 备份列表时间列从 GMT 转为本地时间显示
+
+### V8 修复与优化（2026-09-11）
+
+#### 权限工单页面增强
+- 新增列表排序功能：支持按"提交时间"等字段升序/降序排序，表头可点击切换
+- 筛选功能扩展：补充"已撤销"状态筛选选项
+- 新增工单删除功能：仅管理员可删除工单（带二次确认弹窗）
+- 新增分页功能：默认 10 条/页，支持自定义每页条数（5/10/20/50/100）
+- 页面排版优化：列表卡片顶部增加"共 N 条 / 当前页"统计信息
+
+#### Webhook 测试优化
+- 修复测试按钮"无反应"问题：根因为后端超时 12s 过长 + 前端无超时提示
+- 后端测试超时从 12s 缩短至 5s
+- 前端增加 AbortController 10s 超时保护
+- 测试结果改用 toast 提示（替代原生 alert）：成功绿色、失败红色，含状态码与错误信息
+- 修复 admin_webhooks.html 中两处重复 JS 代码块导致的语法错误
+
+#### WebDAV 备份页面增强
+- **加密密码回显**：仅当未勾选"清除已保存的加密密码"时回显明文密码；勾选则置空
+- **定时任务按钮置灰**：非创建者且非管理员的用户，编辑/删除/启停按钮 disabled
+- **备份范围隔离**（方案 B）：普通用户备份文件仅含 3 张业务表（gift_records/banquets/anniversary_reminders），19 张全局敏感表（users/backup_configs/webhook_configs 等）被 DROP，恢复时 `init_database()` 自动补建
+- **一键引用管理员配置**：普通用户可一键复制管理员的 WebDAV 服务器地址/账号/子目录（密码不返回），支持"一键更新"获取最新配置
+- **本地备份/附件卡片不隐藏**：普通用户可备份/恢复自己创建的数据和配置，仅系统全局配置不入库
+- **WebDAV 备份列表权限隔离**：普通用户只能操作自己创建的备份文件，管理员创建的备份恢复按钮 disabled
+
+### V9 修复与优化（2026-09-11）
+
+#### 核心修复：普通用户恢复 .db 备份导致全站崩溃
+- **根因**：普通用户备份是"过滤库"（19 张全局表被 DROP、仅含本人 3 张业务表），但恢复流程却用该文件**文件级替换**整个主库 → `users` 表等核心表丢失 → 全站 500
+- **方案**：普通用户恢复改为**数据级合并**（`merge_user_scoped_backup()`，ATTACH DATABASE 跨库合并，只恢复本人三张业务表数据），管理员保持文件级替换
+- 覆盖两个恢复入口：本地 .db 上传恢复 + WebDAV 云端恢复，均含完整性预校验
+
+#### 连带发现并修复的两个隐藏 Bug
+- **database is locked**：合并函数原顺序 `DETACH → commit`，SQLite 不允许 DETACH 存在未提交事务的数据库；调整为 `commit → DETACH`，并加 busy_timeout 与连接释放
+- **WAL 备份丢数据**：`build_user_scoped_backup_db()` 原用 `shutil.copy2` 复制主库，WAL 模式下最新数据在 `-wal` 文件未落盘，备份是过时快照；改用 SQLite 在线备份 API（`Connection.backup()`）获得一致性快照
+
+#### 一键引用升级为"别称 + 服务端密文复制"
+- `BackupConfig` 新增 `config_alias`（别称）与 `adopted_from_admin`（引用标记）字段
+- 管理员配置 WebDAV 时可设置**配置别称**（推荐填写，如"坚果云家庭备份盘"）
+- 普通用户「一键采用管理员配置」全程只看到**别称**——地址、账号、密码一律不返回前端，密码由服务端密文直传
+- 引用后页面仅显示别称状态卡片 + 「一键更新」/「停用引用，自行配置」按钮；停用引用需二次确认
+- 普通用户手动保存自己的配置时自动脱离引用状态
+
+### V10 修复与优化（2026-09-14）
+
+#### Webhook 推送修复
+- 修复测试成功后 toast 被立即刷新销毁不可见的问题（改为延迟 2 秒刷新）
+- 修复 6 处 `trigger_webhook_event` 调用缺少 `webhooks` 参数导致推送静默失败
+- 补充对账同步路由、审计日志删除/清空/批量删除路由的 webhook 推送
+- 页面推送矩阵与 PAGE_NAMES 补充 `permission_tickets`（权限工单）选项
+
+#### 审计日志可配置记录
+- 新增 13 模块可配置记录：管理员可在审计日志页面勾选需要记录的模块
+- `log_action` 函数按模块过滤，未勾选模块的操作不写入审计日志
+- 新增 `POST /admin/audit-log-config` 保存配置路由
+
+#### WebDAV 备份页面布局优化
+- 备份页面整体布局重排：从左右两栏改为四行布局（WebDAV 配置→定时任务→云端备份→本地备份+附件并排）
+- 普通用户本地备份卡片增加差异化提示横幅，下载按钮文案改为"下载我的数据备份"
+- 修复合并函数空库导致数据被清空的隐患（DELETE 前 COUNT 检查保护）
+
+#### 权限工单增强
+- 新增关键词搜索：支持按申请人用户名、申请理由模糊搜索
+- 新增申请模块筛选下拉框：可按特定模块筛选工单
+- 扩展排序列：新增按申请人、申请理由排序
+- 新增多选批量删除：管理员可勾选多条工单一键删除
+- ID 列改为分页行序号，不受删除影响
+- 修复排序时 JS 丢失筛选/搜索参数的问题
+
+### V10.1 Webhook 推送系统全面重构（2026-09-14）
+
+#### 推送配置 UI 重构为"页面×事件"矩阵
+- 原三段式配置（触发事件 + 扩展事件 + 页面矩阵）合并为 Tab 内嵌三面板：基础事件开关 / 推送配置矩阵 / 消息模板
+- 矩阵 15 行（页面）× 12 列（事件类型），每格勾选 = "该页面该事件是否推送"
+- 不适用的事件列显示"—"，只有适用组合才出现勾选框
+- 消息模板 Tab 支持按"页面×事件"维度自定义推送内容，支持 7 个占位符
+
+#### 推送覆盖补全
+- 补充宴席同步、宴席批量移出明细、回收站手动过期清理的推送
+- 补充定时任务保存/删除/启用禁用的推送
+
+#### 提示词优化与自定义模板
+- 新增 12 种场景化默认提示词（按事件类型），支持占位符自动填充
+- 自定义模板渲染优先级：页面×事件级 > 事件级 > 系统默认
+- 敏感页面（AI/安全/Webhook/备份）按事件类型细化脱敏描述
+
+#### WebDAV 定时任务查看权限修复
+- 解耦"查看开关"与"备份数据权限"的强绑定：查看仅由 `allow_view_others_tasks` 开关控制，编辑/删除由创建者隔离控制
+
+#### 编辑回显 Bug 修复
+- 修复 `allPageKeys` 硬编码 14 项缺少 `permission_tickets` 导致编辑回显不完整的 bug
+- 矩阵和模板改为后端动态注入，前端不再硬编码
+- 新增 `fillEditMatrix()`/`fillEditTemplates()` 函数从 JSON 自动回填
+
+### V10.2 WebDAV 权限细化与 Webhook 模板修复（2026-09-15）
+
+#### WebDAV 定时任务权限细化
+- 新增「允许编辑他人任务」「允许删除他人任务」两个全局开关，与原「允许查看他人任务」形成查看/编辑/删除三维度独立控制
+- User 模型新增 `can_view_others_scheduled_tasks`/`can_edit_others_scheduled_tasks`/`can_delete_others_scheduled_tasks` 方法
+- 4 处定时任务路由（保存/删除/启停/执行历史）权限校验更新为细粒度判断
+- 新增 AJAX 路由 `admin_save_task_permissions` 供前端开关即时保存
+
+#### 备份授权模块排版优化
+- 原「备份功能授权」卡片拆分为「WebDAV 备份授权」和「定时任务授权与权限」两张独立卡片
+- 备份授权卡片紧邻 WebDAV 配置区，定时任务授权卡片紧邻定时任务列表
+- 定时任务授权卡片顶部新增 3 列全局开关（查看/编辑/删除他人任务），AJAX 即时保存
+- 定时任务列表按钮权限细化：编辑和删除按钮各自独立判断，无权限逐个置灰
+
+#### Webhook 自定义模板渲染修复
+- 修复自定义消息模板命中后详情被置空导致推送显示"无"的问题
+- 自定义模板现在仅覆盖标题，详情保留原始内容（敏感页面仍脱敏）
+
+#### 推送事件类型分类修正
+- 单条还原：`status_change` → `restore`（对应矩阵"还原"列）
+- 批量还原：`status_change` → `restore`（同上）
+- 清空回收站：`batch_delete` → `clear`（对应矩阵"清空"列）
+
+#### 补充缺失推送
+- `admin_toggle_task_auth`（定时任务授权切换）补充 `status_change` 类型 Webhook 推送
+
+### V10.3 推送全覆盖与用户级监控（2026-09-15）
+
+#### 普通用户 WebDAV 配置体验对齐
+- 普通用户 WebDAV 表单新增密码回显、查看密码眼睛图标、测试连接按钮、加密密码配置区
+- 地址和账号输入框添加 `required` 属性，后端新增空值校验防止保存空配置
+- 新增 `toggleClearEncryptPwdUser()` / `btnTestWebdavUser` JS 函数
+
+#### 推送事件类型分类修正
+- 礼金账本"全部删除"：`batch_delete` → `clear`（清空≠批量删除）
+- 审计日志"清空"：`security` → `clear`（清空操作应归 clear 类）
+- 宴席移出明细：无推送 → 新增 `update` 类型推送
+
+#### 全面补充缺失推送（18 处）
+- PAGE_EVENT_MATRIX 补充 4 个页面：admin_broadcasts(+delete/status_change)、admin_webhooks(+clear)、admin_users(+batch_delete)、admin_backups(+clear)
+- app.py 补充 6 处：批量删除用户、批量配置权限、重置密保、系统安全配置、审计日志配置、注册模式变更
+- routes_ext.py 补充 12 处：广播状态切换/删除、宴席分享配置/删除、推送日志删除/批量删除/清空、WebDAV备份删除、上传恢复(普通用户+管理员)、回收站策略、定时任务权限、采用管理员配置
+
+#### 用户级 Webhook 监控过滤
+- WebhookConfig 新增 `monitor_user_ids`/`monitor_event_types` 字段（JSON 数组）
+- `trigger_webhook_event` 在事件开关+页面过滤之后新增用户 ID 和事件类型双重过滤
+- 新增/编辑 Modal 新增第 4 个 Tab「监控范围」，含用户多选列表和事件类型多选
+- 空 = 不限制（推送全部）；非空 = 仅推送匹配的操作
+- 数据库迁移新增 2 条 ALTER TABLE
+
+### V10.4 权限粒度优化与 Webhook 监控修复（2026-09-16）
+
+#### WebDAV 保存路由空值校验修复
+- 移除 `admin_save_webdav_config` 后端空值校验（允许普通用户保存空配置以"停用引用、自行配置"）
+- 移除普通用户 WebDAV 表单 `webdav_url`、`webdav_username`、`webdav_password` 的 `required` 属性
+
+#### 权限级别 1 语义修正
+- 权限级别 1 从"全只读"修正为"自身全权 + 仅查看他人数据"
+- `can_user_edit_entity`：级别 1 对自身实体可编辑，他人实体需级别 >= 2
+- `can_user_delete_entity`：级别 1 对自身实体可删除（perm != 2），他人实体需级别 >= 3
+- `add_record` / `import_csv`：移除级别 1 拦截
+- `batch_delete_records`：`in (1, 2)` → `in (2,)`（级别 1 可删除自身记录）
+- routes_ext.py 17 处拦截点修正（回收站 3 处、宴席 8 处、纪念日 5 处、对账 1 处无需改）
+- 模板 12 处修正：移除 `== 1` 仅查看模式标签和按钮限制，`can_view_others` → `can_view_others_for('ledger')`
+- admin_users.html 权限下拉选项标签更新为"自身全权 + 仅查看他人数据"
+
+#### Webhook 监控过滤修复
+- app.py 14 处 `trigger_webhook_event` 调用补充 `operator_id=current_user.id`
+- routes_ai.py 3 处 `trigger_webhook_event` 调用补充 `operator_id=current_user.id`
+- 修复前 `_monitor_matches` 因 `operator_id` 为 None 跳过用户过滤，导致监控配置形同虚设
+- 1 处合理缺失（`check_and_trigger_due_reminders` 后台定时任务，无 current_user 上下文）
+
+### V10.5 Webhook 推送系统增强（2026-09-16）
+
+#### 监控范围增加管理员用户
+- `routes_ext.py` 两处 `all_users` 查询从 `filter_by(is_admin=False)` 改为包含全部用户（管理员排前）
+- `admin_webhooks.html` 监控用户列表显示管理员标识"（管理员）"
+
+#### 基础事件与监控范围页面增加全选/清空按钮
+- Tab1 基础事件开关：新增全选/清空按钮（`eventSelectAll`/`eventClearAll`）
+- Tab4 监控范围：监控用户和监控事件类型分别新增全选/清空按钮（4 个 JS 函数）
+- 与 Tab2 推送配置矩阵的全选/清空按钮保持一致
+
+#### Webhook 推送全覆盖审计与补全（14 处）
+- **app.py 7 处**：login（成功+失败）、register、forgot_password、logout、admin_user_credentials、export_csv
+- **routes_ext.py 6 处**：toggle_share_ledger、banquet_export_excel、admin_upload_attachment、admin_test_webdav、admin_download_local_backup、admin_restore_webdav_backup（普通用户数据级合并路径）
+- **routes_ai.py 2 处**：api_ai_session_create、api_ai_session_rename
+- **不补充 2 处**：admin_test_webhook（循环推送风险）、api_ai_chat（高频调用噪音）
+
+### V10.6 Webhook 推送修复与查看凭证卡死修复（2026-09-17）
+
+#### 用户管理-查看凭证卡死修复
+- 根因：`admin_users.html` 的 `fetchAndRenderCredentials()` JS 引用不存在的元素 `credVerifySection`，抛 `TypeError` 导致 loading 永不消失
+- 修复：补充管理员二次验证界面（原密码/密保输入 + 验证按钮），凭证展示正常
+
+#### Webhook 推送不生效修复（PAGE_EVENT_MATRIX 补全）
+- 根因：启用中通道的 `notify_pages` 页面矩阵缺项，`_page_matches` 过滤掉本应推送的事件
+- 修复：`webhook_utils.py` 补全矩阵——ledger/admin_users/admin_logs 增加 `security`、admin_backups 增加 `security`+`restore`、ai_config 增加 `status_change`；数据库通道 `notify_pages` 同步更新
+- 覆盖问题清单：人情对账同步、用户管理启用/重置密码/重置密保/查看凭证、审计日志删除、AI 授权开关、Webhook 新增/编辑、WebDAV 下载备份/上传恢复、导出数据 CSV
+
+#### 浏览器逐项验证结果（webhook_logs 基线 max_id=41）
+- 验证通过项（均有成功推送记录）：查看凭证、人情对账同步、用户管理重置密码/重置密保/禁用/查看凭证/启用、审计日志单选删除/批量删除、AI 授权授权/取消授权、Webhook 新增/编辑通道、WebDAV 下载备份、导出 CSV
+- 验证数据已清理：临时通道 #4 已删除、验证推送日志（id=42~48）已删除，基线恢复 max_id=41
+- 待用户自行验证：WebDAV 上传覆盖恢复（代码已确认含推送）
+
+#### 服务进程规范化（11443 端口双实例 → 单实例）
+- 现象：PID 12304（系统 Python）与 PID 41372（TeleAgent 运行时）同时 LISTENING 11443
+- 处理：杀掉两个 `app.py` 旧实例，统一用系统 Python 后台启动单实例（HTTP 200、监听唯一）
+- 重启规范见 `AI_ASSISTANT_DESIGN.md` 第二十章 20.4（先杀旧实例 → 确认无监听 → `Start-Process -WindowStyle Hidden` 启动 → 验证监听与页面）
+
+### V10.7 凭证验证跳转修复与备份恢复安全加固（2026-09-17）
+
+#### 问题1：管理员查看凭证验证失败后跳转首页
+- 根因：`admin_user_credentials` 接口验证失败时返回 HTTP 401，`base.html` 全局 Fetch 拦截器把任何 401 当作"登录失效"强制跳转 `/login`，已登录用户被重定向到首页
+- 修复：后端将"未验证通过"的 HTTP 状态码由 401 改为 200（JSON `code` 仍为 401），前端按 `res.code` 判断不受影响；全局拦截器增加 `need_verify` 豁免双保险
+- 涉及文件：`app.py`（2604行）、`templates/base.html`（232-251行）
+
+#### 问题2：普通用户上传他人/异常 db 导致系统崩溃（500）
+- 根因1：`_is_full_restore` 判定允许 `can_view_others_for('ledger')` 的普通用户走文件级替换主库路径，上传结构不一致的 .db 覆盖主库后 users 等全局表丢失 → 全站 500
+- 根因2：本地上传入口无文件归属/命名校验，任意 .db 均可上传
+- 修复：
+  - 收紧文件级替换判定为仅 `is_admin`（本地 + WebDAV 两处同步改），普通用户一律走数据级合并
+  - 本地上传增加文件命名规则校验 + 归属校验（兼容 `YYYYMMDD_HHMMSS_用户名_db_backup.db` 与 `gift_bookkeeping_backup_YYYYMMDD_HHMMSS.db` 两种格式）
+  - `merge_user_scoped_backup` 加固：完整库拦截（含 users 表拒绝）、结构兼容性校验（缺 user_id 列报错）、列对齐取交集（防止 schema 差异 INSERT 异常）、SELECT 前置 user_id 过滤
+- 涉及文件：`routes_ext.py`（`merge_user_scoped_backup` 113-188行、`admin_upload_local_backup` 3966-4099行、`admin_restore_webdav_backup` 4237-4253行）
+
+#### 数据库恢复
+- 修复过程中发现主库已因问题2 漏洞损坏（malformed database schema），用自动备份 `gift_bookkeeping.db.bak_1789623762` 恢复（22 张表、6 个用户、业务数据完整）
+- 损坏库副本保留为 `gift_bookkeeping.db.corrupted_20260917` 供分析
+
+#### 浏览器验证结果
+- 问题1：错误密码 → 停留在 Modal 显示"验证失败"不跳首页 ✅；正确密码 → 正常显示凭证 ✅
+- 问题2场景1（任意命名 test.db）→ 命名规则拒绝 ✅
+- 问题2场景2（他人文件名 zhangsan）→ 归属校验拒绝 ✅
+- 问题2场景3（自己文件名但含完整库）→ 完整库拦截拒绝 ✅
+- 问题2场景4（本人正常过滤备份）→ 合并成功 ✅
+- 问题2场景5（下载→上传闭环）→ 合并成功 ✅
+- 全站无崩溃、其他用户数据不受影响 ✅
+
+### V10.9 Webhook 推送全覆盖与监控范围逻辑修复（2026-09-18）
+
+#### 缺失推送补充（4 处）
+- 系统广播-标记单条已读 `/api/broadcast/mark_read/<id>`：补充 `status_change` / `admin_broadcasts` 推送
+- 系统广播-全部标记已读 `/api/broadcast/mark_all_read`：补充 `status_change` / `admin_broadcasts` 推送
+- Webhook-测试通道 `/admin/webhooks/test/<id>`：补充 `system` / `admin_webhooks` 推送
+- Webhook-企微回调绑定 chatid `/api/wecom/callback`：补充 `update` / `admin_webhooks` 推送
+
+#### 推送参数修复（3 处）
+- 纪念日推送 `/api/reminders/trigger_push`：补传 `page_key='reminders'`（原缺失导致页面级过滤失效）
+- 自定义推送 `/api/reminders/custom_push`：从自建 payload 直发重构为走 `trigger_webhook_event` 统一管道（原绕过导致监控过滤/页面过滤/消息模板全部不生效）
+- WebDAV 备份 `/admin/backups/trigger` 失败分支：补充 `security` / `admin_backups` 推送（原仅成功时推送）
+
+#### 监控范围逻辑修复
+- **原逻辑**：不勾选用户/事件 = 不限制 = 全部放行
+- **新逻辑**：不勾选用户/事件 = 不推送；必须至少勾选一个用户和一个事件类型
+- 数据迁移：启动时自动将现有 Webhook 空监控范围预填为全选，保证不受影响
+- 新建 Webhook 默认全选用户+全选事件
+- 页面提示文案更新为"不勾选 = 不推送"
+
+#### 涉及文件
+- `routes_ext.py`、`webhook_utils.py`、`app.py`、`templates/admin_webhooks.html`、`AI_ASSISTANT_DESIGN.md`、`README.md`
+
+#### V10.9.1 补丁
+- 修复 `notify_pages` 矩阵遗漏：`batch_delete` 大类补 `admin_webhooks` 页面（导致批量删除推送日志被页面级过滤拦截）
+
+### V10.10 多项目共用 443 端口 SNI 分流改造（2026-09-18）
+
+#### 改造目标
+- 多项目（如本系统与「萌芽」平台）部署在同一台服务器时，共用宿主机 443 端口对外提供 HTTPS，依靠 SNI（server_name 域名）区分流量，每个项目一份独立 Nginx 配置文件。
+
+#### 变更内容
+- `run.sh`：
+  - `NGINX_PORT` 默认值 15001 → **443**
+  - 新增变量（均支持环境变量覆盖）：`PROJECT_NAME`（默认 gift_app，决定 Nginx 配置文件名与 upstream 名，防止多项目重名冲突）、`SNI_DOMAIN`（默认 localhost，写入 server_name 与自签证书 CN/SAN）、`SSL_CERT`/`SSL_KEY`（默认 $APP_DIR/ssl/server.crt|key，可指向正式证书）、`SNI_DEFAULT_SERVER`（默认 1，本项目作为 443 端口兑底 default_server；多项目共端口时只应有一个项目设为 1）
+  - `setup_nginx_config()` 重写：改为渲染占位符模板输出 `$NGINX_CONF_DIR/$PROJECT_NAME.conf`；SNI_DOMAIN 为空时告警中止启动；生成文件头部自动加"自动生成，勿手工修改"标识；自动禁用旧版 `gift_app_native.conf`；启动成功提示改为 `https://$SNI_DOMAIN/`（非 443 端口时附加端口号）
+  - `ensure_ssl_certs()` 传 `--domain $SNI_DOMAIN`，并在 APP_DIR 下固定执行，确保证书输出路径不随调用目录漂移
+- `nginx_ssl.conf`：改造为占位符模板（`__UPSTREAM_NAME__` / `__BACKEND_PORT__` / `__NGINX_PORT__` / `__SNI_DOMAIN__` / `__SSL_CERT__` / `__SSL_KEY__`），由 run.sh 渲染，不再手工维护；`proxy_set_header Host` 去掉 `:$server_port`（443 为标准端口，避免后端生成带 :443 的 URL）
+- `generate_ssl_certs.py`：新增 `--domain`（写入证书 CN/SAN，支持域名或 IP）与 `--days` 参数；SAN 自动区分 DNS/IP 条目类型且不产生重复条目；不传参数行为与原版一致
+
+#### 多项目接入示例
+```bash
+# 项目一（本系统，作为 443 兑底）
+PROJECT_NAME=gift_app SNI_DOMAIN=gift.example.com SNI_DEFAULT_SERVER=1 ./run.sh start
+
+# 项目二（萌芽平台）
+PROJECT_NAME=mengyao SNI_DOMAIN=mengyao.example.com SNI_DEFAULT_SERVER=0 ./run.sh start
+```
+
+#### 涉及文件
+- `run.sh`、`nginx_ssl.conf`、`generate_ssl_certs.py`、`README.md`
+
+### V10.10.1 人情对账状态标签方向修复（2026-09-20）
+
+#### 问题描述
+- 人情对账页面「人情状态」标签与实际差额方向完全相反：`net_balance = 收礼 - 随礼`，当 net > 0（收 > 送，我方需回礼）时错误显示为「待还礼」，net < 0（送 > 收，对方欠我方）时错误显示为「待补礼」。数值计算（差额列）本身正确，仅标签语义与符号映射错位。
+
+#### 修复内容
+- `gift_utils.py`：对调状态标签与差额符号映射——net > 0 → 待补礼（红色 danger，我方需回）；net < 0 → 待还礼（绿色 success，尚欠我方），status_desc 同步修正
+- `routes_ext.py`：对调筛选条件符号（need_return → net < 0；need_pay → net > 0）与排序方向（need_return_first 升序负数排前；need_pay_first 降序正数排前）
+- `templates/reconciliation.html`：对调徽章显示条件（net < 0 显示绿色待还礼，net > 0 显示红色待补礼）与下拉筛选文案
+- `Project_Survey.md`：同步修正状态定义文档
+
+#### 验证用例
+- 柏楚安（收 200 / 送 300 / 差额 -100）→ 待还礼（尚欠我方）✅
+- 反向场景（收 300 / 送 200 / 差额 +100）→ 待补礼（我方需回）✅
+
+#### 涉及文件
+- `gift_utils.py`、`routes_ext.py`、`templates/reconciliation.html`、`Project_Survey.md`
+
+### V10.10.2 样例数据体系扩充与两版统一（2026-09-20）
+
+#### 变更内容
+- 礼金记账明细从 104 条扩充至 **151 条**：新增随礼（send）42 条、收礼（receive）6 条，与原收礼数据形成完整的人情对账双向往来闭环
+- 亲友纪念日备忘从 4 条扩充至 **6 条**：新增岳母六十五寿辰、结婚十周年纪念日
+- **两版样例库完全统一**：传统版与 Docker Compose 版根目录 `gift_bookkeeping.db` 字节级一致（MD5 校验），开箱演示体验完全相同
+- 新增随礼覆盖婚宴、寿宴、满月酒、周岁宴、升学宴、乔迁、开业、白事、生日等全部典型场景，可直接体验人情对账「待补礼 / 待还礼」状态流转
+
+#### 数据安全
+- 全部姓名、电话、地址均为虚构演示数据，无任何真实个人信息（电话采用 138/139 号段虚拟测试号码）
+- 首次启动时 `init_database()` 自动补齐 AI 会话、权限工单等 V10.10 新表，样例库零配置开箱即用
+
+### V10.10.3 run.sh 证书与 Nginx 配置覆盖保护（2026-09-20）
+
+#### 问题背景
+- 原版 `run.sh` 每次 `start`/`restart` 都无条件重新生成自签证书并覆盖渲染 Nginx 配置文件，导致用户自行替换的正式证书（`SSL_CERT`/`SSL_KEY` 指向外部文件时同样受影响）或手工定制过的证书内容被静默覆盖丢失。
+
+#### 变更内容
+- **SSL 证书**：`ensure_ssl_certs()` 重构为三分支——证书不存在时直接创建（不询问）；已存在时先询问 `y/n` 是否更新，输入 `n` 保留现有证书、输入 `y` 才重新生成覆盖
+- **Nginx 配置**：`setup_nginx_config()` 同样保护——已存在 `$PROJECT_NAME.conf` 时先询问再决定是否重新渲染覆盖；文件不存在时直接渲染创建
+- **新增覆盖策略函数 `should_overwrite()`**：交互式终端弹 `y/n` 询问（默认 `n` 保留，回车即安全）；用 `[ -t 0 ]` 检测非交互环境（cron/CI/管道），自动保留旧文件不卡死，并提示可用环境变量强制更新
+- **新增环境变量**：`SSL_FORCE_UPDATE=1`（强制更新证书不询问）、`NGINX_CONF_FORCE_UPDATE=1`（强制覆盖渲染 Nginx 配置不询问）；均设 `0` 则强制保留，供自动化场景显式指定行为
+- 用法帮助信息同步补充两个新环境变量的说明与示例
+
+#### 非交互式执行兼容
+- cron 定时重启、CI 管道等无终端环境：`read` 检测到 stdin 非终端时**不等待输入**，直接自动保留旧文件并给出提示，脚本正常继续执行不卡死
+- 需要 cron 场景强制更新时显式加 `SSL_FORCE_UPDATE=1 NGINX_CONF_FORCE_UPDATE=1 ./run.sh restart`
+
+#### 验证结论
+- `bash -n` 语法校验通过（传统版与 Docker 版均 LF 换行）
+- 功能测试全部通过：逻辑测试 6/6、传统版端到端测试 14/14（证书不存在→生成、已存在非交互→保留、`SSL_FORCE_UPDATE=1`→强制更新、Nginx conf 保留/强制渲染+占位符零残留）、Docker 版验证 7/7（含两版 `should_overwrite` 函数逐字一致性校验）
+- 交互式 `y/n` 询问分支与强制更新共用同一段生成/渲染代码，已由强制更新场景覆盖验证
+
+#### 涉及文件
+- `run.sh`（传统版与 Docker 版同步修改，`should_overwrite` 函数两版逐字一致）
+
+### V10.10.4 f-string 兼容修复、Nginx 路径默认值调整与 run.sh POSIX 兼容化（2026-09-21）
+
+#### 问题背景
+1. **Docker 版启动报错 `SyntaxError: f-string: expecting '}'`**：`routes_ext.py` 第 4441 行 WebDAV 备份删除推送消息中，f-string 外层用单引号、表达式内也用单引号（`f'...{', '.join(filenames)}...'`）。Python 3.12（PEP 701）允许此写法，但 Docker 镜像 `python:3.11-slim` 不支持，导致 gunicorn worker 全部退出、容器无法启动。
+2. **Nginx 配置目录默认路径不匹配实际部署**：`run.sh` 中 `NGINX_CONF_DIR` 默认值为 `/etc/nginx/conf.d`，但实际服务器部署路径为 `/opt/service/nginx/conf.d`。
+3. **`sh run.sh status` 报多项语法错误**：脚本含 bash 独有语法（`${BASH_SOURCE[0]}`、`((wait_time++))`、`echo -e`、`source`、`read -r -p`），用 `sh`/`dash` 执行时报 `Bad substitution`、`() unexpected`、`[[: not found` 等。
+
+#### 变更内容
+- **f-string 引号修复**：`routes_ext.py:4441` 外层单引号改双引号 `f"...{', '.join(filenames)}..."`，表达式内保持单引号，消息内容不变；两版逐字一致
+- **Nginx 默认路径调整**：`NGINX_CONF_DIR` 默认值从 `/etc/nginx/conf.d` 改为 `/opt/service/nginx/conf.d`；目录不存在时提示用户手动创建（不自动 mkdir、不跳过、不删除任何东西）；添加注释说明其他用户可通过环境变量覆盖为 `/etc/nginx/conf.d`
+- **run.sh POSIX 兼容化**（7 项改动，两版同步）：
+  - `#!/bin/bash` → `#!/bin/sh`
+  - 移除 bash 自愈逻辑（`if [ -z "$BASH_VERSION" ]; then exec bash...`）
+  - `${BASH_SOURCE[0]:-$0}` → `$0`
+  - 新增 `echo_e()` 函数（`printf '%b\n'`），替换全文所有 `echo -e`
+  - `read -r -p "提示语" answer` → `printf '提示语' >&2; read -r answer`
+  - `((wait_time++))` → `wait_time=$((wait_time + 1))`（传统版）
+  - `source $VENV_DIR/bin/activate` → `. $VENV_DIR/bin/activate`（传统版）
+
+#### 验证结论
+- Python AST 编译通过（两版 routes_ext.py）
+- `bash -n` + `dash -n` 语法校验通过（两版 run.sh）
+- `dash run.sh status` 功能测试通过：无任何 `Bad substitution`/`() unexpected`/`[[: not found` 报错
+- 传统版 Flask 服务重启验证通过（PID 55448，端口 11443，admin/admin123 登录正常）
+- 全文 `echo -e` 清零扫描确认（仅注释中残留）
+- bashism 残留扫描确认：`${BASH_SOURCE}`、`((`、`source `、`read -r -p` 全部清除（仅 `$((wait_time + 1))` POSIX 标准算术展开）
+
+#### 涉及文件
+- `routes_ext.py`（传统版与 Docker 版同步修改，第 4441 行逐字一致）
+- `run.sh`（传统版与 Docker 版同步修改，`echo_e` 函数两版逐字一致）
+
+### V10.10.5 管理员重置密保双密保输入框修复（2026-09-21）
+
+#### 问题背景
+管理员在用户管理页面点击「重置密保」时，模态框只提供单个密保问题输入框，无法看到和重置第 2 个密保问题；管理员安全验证区也只展示原密保问题 1，管理员不知道问题 2 内容无法用问题 2 验证。后端 `admin_reset_user_security` 路由已支持双密保字段获取，但前端从未提交 `security_question_2`/`security_answer_2`，导致密保 2 原值无法更新。
+
+#### 变更内容
+- **前端 `admin_users.html`（两版同步修改）**：
+  - 重置密保模态框：新密保输入区从单组改为双组（问题 1/答案 1 + 问题 2/答案 2），问题 2 非必填
+  - 重置密保模态框：管理员安全验证区从单原密保展示改为双原密保展示（问题 1 + 问题 2），新增 `old_security_answer_2` 验证输入框
+  - 重置密码模态框：管理员安全验证区同步修改，展示双原密保问题 + 双验证输入框
+  - 默认值回填修正：问题 1 使用 `security_question_1`（兼容旧 `security_question`），问题 2 使用 `security_question_2`
+- **后端 `app.py`（两版同步修改）**：
+  - 新增校验：密保问题 2 与答案 2 必须成对出现（两个都填或两个都空）
+  - 新增校验：两个新密保问题不能相同
+  - 成功提示优化：显示新问题 1 文本，有问题 2 时一并显示，无问题 2 时提示「密保 2 保留原设置」
+  - 管理员验证逻辑：答对任一密保即可通过验证
+
+#### 验证结论
+- Python AST 编译通过（两版 app.py）
+- 两版文件 MD5 一致性校验通过
+- Flask 服务重启成功（PID 39836，端口 11443）
+- 浏览器端到端验证：普通用户双密保重置（仅密保 1 / 同时两组密保）均成功，管理员模态框双原密保问题展示正确
+- 测试数据已恢复
+
+#### 涉及文件
+- `templates/admin_users.html`（传统版与 Docker 版同步修改）
+- `app.py`（传统版与 Docker 版同步修改）
+
+### V10.10.6 密保问题下拉菜单与个人安全设置页面（2026-09-21）
+
+#### 问题背景
+1. 管理员重置密保时，密保问题为自由文本输入框，缺乏规范约束，用户需手动输入问题文本，体验不佳且容易输入不一致。
+2. 管理员查看凭证时，安全验证区只展示 1 个密保问题，用户不知道密保问题 2 的内容无法用密保 2 答案验证。
+3. 普通用户登录后无法自助修改自身密码或密保问题，只能通过管理员重置或 URL 直接访问 `/change-password`，且无修改密保的入口。
+4. 注册页密保问题为固定 6 选 1 下拉框（两组各 6 个不重复选项），不支持自定义问题。
+
+#### 变更内容
+- **优化 1：重置密保下拉菜单（`admin_users.html`，两版同步修改）**
+  - 重置密保模态框的两组密保问题输入从自由文本框改为下拉菜单 + 自定义输入复合控件
+  - 下拉菜单统一包含 12 个预置密保问题 + 1 个"自定义问题..."选项
+  - 选择预置问题时自动写入隐藏 input 并隐藏自定义输入框；选择自定义时显示输入框供用户输入
+  - 页面加载时根据当前密保问题值自动初始化下拉框选中状态（预置问题选中对应选项，自定义问题选中"自定义"并显示输入框）
+- **优化 2：查看凭证双密保验证（`admin_users.html`，两版同步修改）**
+  - 查看凭证安全验证区从只展示 1 个密保问题改为展示 2 个密保问题 + 2 个答案输入框
+  - JS `fetchAndRenderCredentials` 增加 `ans2Verify` 参数，`submitAdminVerifyCred` 读取两个答案输入框
+  - 后端 `admin_user_credentials` 路由已支持 `verify_security_answer_2` 参数（无需修改）
+- **新增 3：普通用户个人安全设置页面（两版同步新增）**
+  - 新建 `templates/profile_security.html`：卡片 A 修改密码 + 卡片 B 修改密保，修改密保需先验证身份（旧密码 / 旧密保 1 / 旧密保 2，答对任一即可）
+  - 新增 `app.py` 路由 `/profile/security`（GET 渲染页面 + POST 处理密保修改：身份验证 → 成对校验 → 重复校验 → `set_security_answers` → 审计日志 → Webhook 推送）
+  - `templates/base.html` 导航栏用户下拉菜单新增"个人安全设置"入口
+  - 密保问题使用与重置密保相同的下拉菜单 + 自定义输入复合控件（12 个预置 + 自定义）
+  - 普通用户修改密保后管理员查看凭证页面同步显示最新数据
+- **注册页自定义密保选项（`register.html`，两版同步修改）**
+  - 两组密保问题下拉框统一扩展为 12 个预置问题 + "自定义问题..."选项
+  - 选择自定义时显示输入框供用户输入自定义问题
+  - JS 校验逻辑适配新的 select + hidden input 复合控件
+
+#### 验证结论
+- Python AST 编译通过（两版 app.py）
+- 两版 5 个文件 MD5 一致性校验全部通过（app.py、admin_users.html、base.html、register.html、profile_security.html）
+- Flask 服务重启成功（PID 54768，端口 11443）
+- 浏览器端到端验证：
+  - 导航栏"个人安全设置"入口正确显示，点击跳转 `/profile/security`
+  - 个人安全设置页面修改密码卡片和修改密保卡片正常渲染
+  - 修改密保：旧密码身份验证通过，下拉菜单选择预置问题 + 输入答案，提交后 flash 成功，当前密保信息更新
+  - 重置密保模态框：下拉菜单 + 自定义复合控件正确渲染，自动回显当前密保问题
+  - 查看凭证模态框：双密保问题 + 双答案输入框正确展示，密码验证通过后凭证显示最新数据
+  - 测试数据已恢复到测试前状态
+
+#### 涉及文件
+- `templates/admin_users.html`（两版同步修改）
+- `templates/profile_security.html`（两版同步新增）
+- `templates/base.html`（两版同步修改）
+- `templates/register.html`（两版同步修改）
+- `app.py`（两版同步修改）
+
+### V10.10.7 下拉菜单切换修复、修改密码强制注销与页面排版优化（2026-09-21）
+
+#### 问题背景
+1. 重置密保时，密保问题下拉菜单从自定义切换为内置问题后，再切回自定义，自定义输入框消失不见。且选择自定义问题时只有问题输入框没有答案输入框——此问题在管理员重置密保和普通用户修改密保两处均存在。
+2. 普通用户在个人安全设置页面修改密码成功后，页面提示重新登录，但没有实际强制注销用户当前会话，用户仍处于登录状态。
+3. 普通用户个人安全设置页面两个卡片同时展开，信息量大、页面冗长，需要重新排版美化。
+
+#### 变更内容
+- **修复 1&4：下拉菜单切换 Bug（`profile_security.html` + `admin_users.html`，两版同步修改）**
+  - 根因：JS 函数 `onSecurityQuestionSelectChange` 通过 `selectEl.parentElement.querySelector(...)` 查找隐藏 input，依赖精确的 DOM 父子层级关系，且 `hiddenInput.focus()` 在移动端可能引起布局跳变
+  - 修复：给每个密保问题组容器添加 `data-sq-group` 属性，自定义输入框外加 `sq-custom-wrapper` 容器，通过 `closest('[data-sq-group]')` 查找容器再按 name 精确查找元素，移除 `focus()` 调用
+  - DOMContentLoaded 初始化同步改用 `closest('[data-sq-group]')` 查找
+- **修复 2：修改密码未强制注销（`app.py`，两版同步修改）**
+  - 根因：`change_password` 路由在密码修改成功后只 `redirect(url_for('login'))`，未调用 `logout_user()`，用户 session 仍然有效
+  - 修复：在 `db.session.commit()` 之后、`log_action` 之前添加 `logout_user()` 调用
+- **优化 3：个人安全设置页面排版重构（`profile_security.html`，两版同步修改）**
+  - 使用 Bootstrap accordion 折叠面板替代两个同时展开的卡片
+  - "修改登录密码"和"修改密保问题"分为两个可折叠面板，互斥展开（同一时间只展开一个）
+  - 面板标题旁显示当前密保问题1摘要信息，收起时也能看到概况
+
+#### 验证结论
+- Python AST 编译通过（两版 app.py）
+- 两版 3 个文件 MD5 一致性校验全部通过（app.py、admin_users.html、profile_security.html）
+- Flask 服务重启成功（PID 33716，端口 11443）
+- 浏览器端到端验证：
+  - 个人安全设置页面折叠面板正常工作，两个面板默认收起，点击展开后互斥收起另一个
+  - 下拉菜单切换：自定义→预置→自定义，自定义输入框和答案输入框始终正确显示/隐藏
+  - 管理员重置密保模态框下拉菜单切换同样正常
+  - 修改密码后成功跳转到登录页并显示提示，用户被强制注销，需用新密码重新登录
+  - 测试数据已恢复到测试前状态
+
+#### 涉及文件
+- `templates/profile_security.html`（两版同步修改：折叠面板 + 下拉 Bug 修复）
+- `templates/admin_users.html`（两版同步修改：下拉 Bug 修复）
+- `app.py`（两版同步修改：`change_password` 路由增加 `logout_user()`）
+
+### V10.10.8 AI助手一键测试功能与run.sh双版本共存端口检测（2026-09-21）
+
+#### 问题背景
+1. 管理员在 AI 助手配置页面配置 API Key、Base URL、Model 后只能保存，无法验证配置是否可用，需要实际去 AI 助手聊天页面发消息才能发现配置错误。
+2. 传统版与 Docker 版 run.sh 中存在 SNI 改造前的遗留互斥逻辑（启动时自动禁用对方 Nginx 配置），导致两版无法在同一台服务器上同时运行。SNI 模式下两版应各自独立配置、共存运行，只需后端端口不冲突即可。
+
+#### 变更内容
+- **新增功能：AI 配置一键测试（`ai_service.py` + `routes_ai.py` + `admin_ai_config.html`，两版同步修改）**
+  - 后端 `ai_service.py` 新增 `test_ai_config()` 函数：发送极简测试消息（"请回复'测试成功'四个字"），验证连通性、鉴权、接口返回，超时 15 秒快速反馈，自动归类常见错误（API Key 无效、连接失败、模型不存在、额度不足等）
+  - 后端 `routes_ai.py` 新增 `POST /api/ai/config/test` 路由：支持两种模式——按 `config_index` 测试已保存配置、或直接传 `api_key/base_url/model` 测试未保存配置
+  - 前端 `admin_ai_config.html` 每个配置卡片新增"测试"按钮：点击后按钮变为 spinner 加载状态，结果以 Bootstrap alert 展示在配置卡片底部（绿色成功/红色失败+具体原因），支持手动关闭
+- **优化：run.sh 双版本共存端口检测（两版 `run.sh` 分别修改）**
+  - 移除 `setup_nginx_config()` 中的跨版本互斥逻辑（传统版不再禁用 Docker 版 conf，Docker 版不再禁用传统版 conf）
+  - 新增 `check_port_conflict()` 函数：启动前检测后端端口是否被占用，被占用时交互式提示三选一（1.修改端口重新启动 2.停用另一个服务的 Nginx 配置 3.中止启动），非交互环境直接中止并提示换端口
+  - 传统版检测 `$PORT`（默认 11443），Docker 版检测 `$HOST_PORT`（默认 15000）
+  - `setup_nginx_config()` 新增 `SNI_DEFAULT_SERVER` 冲突自动降级：检测到已有其他项目 conf 设为 default_server 时，本项目自动改为非兜底模式
+
+#### 验证结论
+- Python AST 编译通过（两版 `ai_service.py`、`routes_ai.py`）
+- 两版 3 个共享文件 MD5 一致性校验全部通过（`ai_service.py`、`routes_ai.py`、`admin_ai_config.html`）
+- Flask 服务重启成功（PID 39436，端口 11443）
+- 浏览器端到端验证：
+  - 小茉莉配置（agnes-3.0-flash）：点击测试 → 绿色成功提示，延迟 9443ms，AI 回复"测试成功"
+  - 小海棠配置（agnes-2.5-flash）：点击测试 → 红色失败提示，"API 返回空内容"，接口连通正常但返回为空
+  - 测试按钮 loading 状态和恢复正常，结果 alert 支持手动关闭
+
+#### 涉及文件
+- `ai_service.py`（两版同步修改：新增 `test_ai_config()` 函数）
+- `routes_ai.py`（两版同步修改：新增 `POST /api/ai/config/test` 路由）
+- `templates/admin_ai_config.html`（两版同步修改：新增测试按钮 + JS 函数 + 结果展示）
+- `run.sh`（传统版：移除互斥逻辑 + 新增 `check_port_conflict()` + `default_server` 降级）
+- `run.sh`（Docker 版：同上，检测 `$HOST_PORT` 而非 `$PORT`）
+
+### V10.10.8 补丁：init_database() 管理员用户名冲突修复（2026-09-22）
+
+#### 问题背景
+传统版在服务器上启动时报错 `UNIQUE constraint failed: users.username`，导致服务无法启动。Docker 版也可能存在同样隐患。
+
+#### 根因
+`init_database()` 中每次启动都会将管理员用户名同步为环境变量 `ADMIN_USER` 的值（L896 `admin.username = initial_user`）。如果数据库中已有另一个普通用户使用了相同用户名，UPDATE 操作会触发 UNIQUE 约束冲突，导致 `db.session.commit()` 抛出异常，服务启动失败。
+
+#### 修复
+- 修改 `else` 分支：先检查 `admin.username != initial_user`，不同时再查数据库是否已有其他用户占用该用户名
+- 被占用则跳过用户名修改，只更新密码和状态，并打印警告日志
+- 日志中显示实际管理员用户名而非环境变量值
+
+#### 涉及文件
+- `app.py`（两版同步修改：`init_database()` 管理员同步逻辑增加用户名冲突检测）
+
+### V10.10.8 补丁2：移除 `__main__` 冗余管理员初始化（2026-09-22）
+
+#### 问题背景
+补丁1修复了 `init_database()` 中的用户名冲突，但 `__main__` 入口块仍残留 `--admin-user`/`--admin-pass` 参数和重复的管理员创建/更新逻辑。该冗余代码与 `init_database()`（模块级 L912 自动执行）功能重叠，可能导致双管理员或用户名冲突隐患。
+
+#### 修复
+- 移除 `__main__` 块中的 `init_database()` 重复调用（模块级已自动执行）
+- 移除 `--admin-user` / `--admin-pass` 命令行参数及其对应的管理员创建/更新逻辑
+- 添加注释说明管理员初始化统一由 `init_database()` 负责
+
+#### 涉及文件
+- `app.py`（两版同步修改：`__main__` 块移除冗余管理员初始化，-16 行）
+
+### V10.10.8 补丁3：合入 V5 修复 — sqlite3.backup() 原子恢复 + orphan index 自动修复（2026-09-22）
+
+#### 问题背景
+`feature/ai-assistant-v5` 分支有一个独有提交（V5 修复），包含两项重要修复未合入 main 和 Docker 版：
+1. 管理员恢复备份时使用 `shutil.copy2()` 文件级替换，WAL/SHM 残留导致 schema 不一致，可能引发全站 500
+2. `init_database()` 缺少 orphan index 自动修复，恢复旧版备份后可能 malformed database schema
+
+#### 修复内容
+- **`routes_ext.py`**：两处管理员恢复路由（`admin_upload_local_backup` + `admin_restore_webdav_backup`）从 `shutil.copy2` 改为 `sqlite3.backup()` 原子操作，8 步安全恢复流程（dispose → 临时文件 → integrity_check → 备份 → sqlite3.backup 原子替换 → 清理 WAL/SHM → init_database 迁移）
+- **`app.py`**：`init_database()` 在 `db.create_all()` 前新增 orphan index 检测与清理（`PRAGMA writable_schema=1` 查找 `sqlite_autoindex_%` 孤儿索引并 DROP）
+
+#### 验证结果
+- 两版 AST 编译通过
+- 两版 app.py MD5 一致、routes_ext.py MD5 一致
+- Flask 服务重启成功（PID 54028，端口 11443），`/login` 页面 HTTP 200 正常响应
+
+#### 涉及文件
+- `app.py`（两版同步修改：`init_database()` 新增 orphan index 修复）
+- `routes_ext.py`（两版同步修改：两处管理员恢复路由改用 `sqlite3.backup()` 原子操作）
+
+### V10.10.9：SNI_DOMAIN 多域名支持 — 一个项目绑定多个域名（2026-09-22）
+
+#### 新增功能
+`SNI_DOMAIN` 环境变量现支持**空格分隔的多个域名**，第一个域名写入证书 CN，全部域名写入证书 SAN 与 Nginx `server_name`。
+
+#### 使用方式
+```bash
+# 单域名（向后兼容，无变化）
+SNI_DOMAIN=gift-docker.example.com ./run.sh start
+
+# 多域名：空格分隔，第一个为证书 CN，全部写入 SAN 与 server_name
+SNI_DOMAIN="gift-docker.example.com gift-docker2.example.com" ./run.sh start
+```
+
+#### 修改内容
+- `generate_ssl_certs.py`（两版同步）：`--domain` 参数支持空格分隔多域名解析，第一个域名写入 CN，全部域名去重后写入 SAN（OpenSSL 与 cryptography 双路径均支持）
+- `run.sh`（两版同步）：注释更新说明多域名用法；访问地址提示取第一个域名；帮助文本新增多域名示例
+
+#### 涉及文件
+- `generate_ssl_certs.py`（两版同步修改：多域名 SAN 支持）
+- `run.sh`（两版同步修改：注释、日志、访问地址、帮助文本）
+
+### V10.10.10：run.sh 自动清理 Docker 构建缓存（2026-09-22）
+
+#### 问题背景
+`docker compose up -d --build` 每次构建都会产生构建缓存层和悬空镜像（dangling images），长期累积会占用大量磁盘空间。此前 `run.sh` 的 `cleanup_cache()` 只清理 Git 垃圾和 Python 缓存，完全未涉及 Docker 构建缓存清理。
+
+#### 修复内容
+- **`cleanup_cache()`** 新增两项 Docker 清理（仅 Docker 版）：
+  - `docker image prune -f`：清理悬空镜像（`<none>:<none>` 标签的残留层，不影响正在使用的镜像）
+  - `docker builder prune -f`：清理 Docker 构建缓存（`--build` 产生的中间层缓存，不影响正在运行的容器）
+- **`stop_service()`** 新增 `cleanup_cache()` 调用：停止容器后自动清理上一次构建的残留层
+
+#### 触发时机
+| 命令 | 清理时机 | 说明 |
+|------|----------|------|
+| `start` | 构建前 | 清理旧缓存，再构建新镜像 |
+| `stop` | 容器停止后 | 容器已停，清理残留层 |
+| `restart` | 停止时 + 启动前 | 双重清理（stop + start 各一次） |
+
+#### 安全性
+- 不加 `--all` 标志，不清理其他项目的未使用镜像
+- 只清理悬空镜像和构建缓存，不影响正在运行的容器
+- `-f` 跳过交互确认，兼容 cron 非交互场景
+
+#### 涉及文件
+- `run.sh`（仅 Docker 版）：`cleanup_cache()` 新增 Docker 清理逻辑 + `stop_service()` 新增清理调用
+
+### V10.10.11：run.sh 缓存清理增强 — 多 SNI 输出、restart 去重与清理前后体积对比（2026-09-23）
+
+#### 问题背景
+1. **多 SNI 域名访问地址只显示第一个**：配置多个 SNI 域名时，启动成功后的提示仅输出第一个域名（`primary_domain="${SNI_DOMAIN%% *}"`），其余域名不可见。
+2. **restart 重复清理缓存**：`restart` 内部先调 `stop_service()`（含 `cleanup_cache()`）再调 `start_service()`（含 `cleanup_cache()`），导致缓存清理执行两次，浪费时间与 I/O。
+3. **清理效果不可见**：`cleanup_cache()` 执行 Docker 清理后只有一句"清理完成"，用户无法直观感知清理了多少缓存。
+
+#### 变更内容
+- **多 SNI 域名全部展示**（`start_service()`）：
+  - 删除 `local primary_domain="${SNI_DOMAIN%% *}"` 截取逻辑
+  - 改为 `for _sni_domain in $SNI_DOMAIN` 遍历全部域名，逐个输出 HTTPS 访问地址
+  - 端口逻辑保持（443 不带端口，非 443 附加 `:端口`）
+- **restart 缓存清理去重**（`stop_service()` + `restart_service()`）：
+  - `stop_service()` 新增 `skip_clean` 参数：传 `skip_clean` 时跳过 `cleanup_cache()`
+  - `restart_service()` 调用 `stop_service skip_clean`，由 `start_service()` 统一在构建前清理一次
+  - 效果：`restart` 从清理 2 次降为 1 次，`start`/`stop` 行为不变
+- **清理前后体积对比**（`cleanup_cache()`）：
+  - 清理前记录 `docker system df --format '{{.Type}}:{{.Size}}'` 的 Images 与 Build Cache 行
+  - 清理后再次统计，输出 `[清理前]` 与 `[清理后]` 两行占用对比
+  - `docker system df` 不可用时静默跳过，不影响原有流程
+
+#### 验证结论
+- `bash -n` + `dash -n` POSIX 语法校验通过
+- 多域名模拟验证：443 端口 3 域名全部输出、非 443 端口带端口输出、单域名正常
+- 清理逻辑模拟验证：`[清理前]`/`[清理后]` 体积对比输出正常
+- 触发时机不变：`start` 构建前清理、`stop` 停止后清理、`restart` 仅启动前清理一次
+
+#### 涉及文件
+- `run.sh`（仅 Docker 版）：`start_service()` 多域名输出 + `stop_service()`/`restart_service()` 去重 + `cleanup_cache()` 体积对比
+
+### V10.10.12：样例库敏感数据彻底清理与 Git 历史重写（2026-09-24，传统版 + Docker 版同步）
+
+#### 问题背景
+随仓库分发的根目录样例库 `gift_bookkeeping.db`（历史遗留自早期运行库路径）中残留了部分真实配置数据：真实 WebDAV 完整地址与密码密文、Webhook 签名凭据密文、真实注册邀请码、`ghca` 用户标识及其密保问题与早期密码哈希等。克隆部署时（`data/` 目录不存在，`app.py` 回退使用根目录 db），WebDAV 与 Webhook 配置页输入框会回填显示这些真实数据。（注：该回退使用样例库的机制已于 V10.10.20 移除，初次部署一律使用 `data/` 目录下的纯净空库）
+
+#### 修复内容（传统版与 Docker 版样例库字节级一致）
+- **字段级清理**：真实用户 `ghca` 重命名为 `demo_user_frozen` 并冻结（`is_active=0`，登录拦截），密码/密保哈希与密文全部替换为样例值；凭据/令牌/密文清空（WebDAV 应用密码、Webhook `secret_token`/`bot_secret`、`admin` 有效会话令牌）；6 条真实注册邀请码删除
+- **演示体验保留**：151 条样例礼金、4 场宴席、6 条纪念日、样例分享外链口令（`123456`/`666888`，以默认密钥重新加密写入）等开箱功能不变
+- **文件级抹除**：`VACUUM` 重建数据库文件，清除被删数据的磁盘残留页
+- **Git 历史重写**：`git filter-repo` 从全部历史（传统版 25 个提交、Docker 版 10 个提交）彻底移除旧版 db 后 force push；**全部历史 commit hash 已变更**，旧克隆副本请重新克隆
+- **防线文档化**：推送前校验规则（9 项）沉淀至本文档"样例库维护约定"小节，规则与工具解耦，更换任何开发/协作工具均可按文档执行推送前核查
+- APK 版仓库经检查从未追踪过 db 文件，无泄露，无需处理
+
+#### 涉及文件
+- `gift_bookkeeping.db`（样例库数据清理 + Git 历史移除）
+- `README.md`（样例说明、样例库维护 9 项规则文档化）
+
+### V10.10.13：全局输入框提示语美化与黑夜/白天主题切换（2026-09-24，传统版 + Docker 版同步）
+
+#### 新增功能
+- **输入框提示语（placeholder）全局美化**：在 `base.html` 全局样式中新增 placeholder 美化规则——浅灰蓝配色、常规字重（替代视觉偏粗）、0.875em 字号、半透明淡出（聚焦时进一步淡化），一处改动覆盖全部 20 个含输入框的页面共约 122 处占位提示；仅改视觉样式，不改任何 placeholder 文案与输入功能逻辑
+- **黑夜/白天双主题切换**：
+  - 基于 Bootstrap 5.3 原生 `data-bs-theme` 属性实现，导航栏右侧新增月亮/太阳圆形切换按钮，登录、注册、找回密码等未登录页面同样可用
+  - 默认白天模式，切换后写入 `localStorage('gift_theme')` 持久化，刷新/重启服务后保持；`<head>` 首帧读取避免页面闪烁
+  - 全局硬编码色变量化：`base.html` 定义 6 个 CSS 变量（页面底色/卡片底色/卡片头/边框/footer/占位提示色），白天模式取值与原版完全一致，零视觉回归
+  - 暗色模式自动适配全部 Bootstrap 组件（表格/弹窗/下拉/表单/徽章），并统一覆盖 `bg-white`、`bg-light`、`text-dark`、`text-muted`、`table-light` 表头等浅色工具类
+  - 特殊页面同步适配：AI 助手聊天页（24 处硬编码色变量化）、AI 助手配置页（卡片边框/头部变量化）、免登录分享外链页（独立页内置主题变量 + 右上角悬浮切换按钮 + 暗色覆盖）
+
+#### 涉及文件（两套仓库同步修改，MD5 逐字一致）
+- `templates/base.html`（主题 CSS 变量、placeholder 美化、暗色覆盖规则、主题切换按钮与 JS、meta theme-color 动态化）
+- `templates/ai_assistant.html`（聊天界面硬编码色变量化 + 局部主题变量）
+- `templates/admin_ai_config.html`（AI 配置卡片硬编码色变量化）
+- `templates/shared_ledger.html`（外链页主题变量 + 悬浮切换按钮 + 暗色覆盖）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录与前端规格同步）
+
+### V10.10.14：敏感公告隔离与企微长连接 chatid 三项修复（2026-09-24，传统版 + Docker 版同步）
+
+#### 修复一：含管理员/密码的公开公告仅管理员可见
+- **根因**：样例库/运行库中「安全提醒」广播（含默认管理员账号 admin 与初始密码 admin123）范围为全员可见（`scope='all'`），普通用户登录即可看到
+- **修复**：
+  - 运行库 / 传统版/Docker 版样例库三处该广播 `scope` 修正为 `admin`（普通用户登录不再展示）；两版样例库保持 MD5 字节级一致
+  - 发布入口加固：`routes_ext.py` 发布广播时检测内容敏感关键词（管理员账号/初始密码/admin123/默认账号等），命中后**强制 `scope='admin'`** 并提示
+  - 推送防护：`scope='admin'` 的广播**不再触发 Webhook 推送**，防止敏感内容流出到群聊
+
+#### 修复二：推送消息框（广播横幅/Flash 提示）无法自动消失
+- **根因**：`base.html` 中自动消失脚本误写在带 `src` 的 `<script>` 标签内部——浏览器规范规定带 `src` 的 script 内嵌代码被忽略，导致该段脚本从未执行，所有消息框都需手动点击关闭
+- **修复**：自动消失脚本拆出为独立 `<script>` 块；Flash 提示 3.5 秒自动消失，广播横幅 8 秒自动淡出（保留手动关闭与标为已读）
+
+#### 修复三：企微长连接机器人 chatid 三项异常
+- **根因 1（清空无效）**：编辑保存时 `chatid` 为空会从旧 `webhook_url` 回填旧值 → 移除空值回填逻辑，清空即真正清空（列表显示"待自动捕获或手动绑定"）
+- **根因 2（@机器人不自动捕获）**：监听线程捕获群 ID 后写库硬编码相对路径 `"gift_bookkeeping.db"`，实际写入根目录样例库而非运行库 `data/gift_bookkeeping.db` → 统一改为 `_resolve_db_file()` 自动解析（3 处：监听写库/测试/发送）
+- **根因 3（测试报错目标会话无效）**：测试/发送函数从错误数据库读取残留 chatid → 修正后读取当前会话/自动捕获的 chatid
+
+#### 涉及文件（两套仓库同步，MD5 逐字一致）
+- `routes_ext.py`（广播敏感词强制 admin scope + admin 不推送；长连接保存去空值回填）
+- `webhook_utils.py`（3 处硬编码库路径 → `_resolve_db_file()`）
+- `templates/base.html`（自动消失脚本拆出独立 script 块 + 广播横幅 8 秒自动淡出）
+- `gift_bookkeeping.db`（运行库 + 两版样例库：id=2 广播 scope → admin）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
+### V10.10.15：企微长连接监听线程 bot_secret 密文未解密修复（2026-09-28，传统版 + Docker 版同步）
+
+#### 问题背景
+V10.10.14 修复了长连接监听线程写库硬编码路径问题后，用户在企微群内 @机器人 仍无法自动捕获群聊 ID (chatid)。
+
+#### 根因
+`webhook_utils.py` 的 `_wecom_listener_worker()` 通过 raw `sqlite3.connect()` 读取 `bot_secret` 字段，但该字段在数据库中是 **AES-256-GCM 密文存储**（`models.py` 的 `bot_secret` 是 property，通过 `decrypt_credential()` 自动解密；raw SQL 读取的是密文）。监听线程将密文直接传给 `WSClientOptions(secret=密文)`，企微 WebSocket 认证始终失败（errcode 853000 invalid bot_id or secret），连接从未建立，群内 @机器人 消息无法到达回调函数，chatid 永远不会被捕获。
+
+#### 修复
+- `webhook_utils.py` 导入 `decrypt_credential`，监听线程读取 `bot_secret` 后调用 `decrypt_credential(bot_secret, fallback_plain=True)` 解密为明文再传给 SDK
+- 前台验证确认：解密后 WebSocket 认证成功（`Authentication successful`），心跳正常收发
+
+#### 验证结论
+- 前台 SDK 验证：WebSocket `Authentication successful`，心跳收发正常
+- **真实企微群 @机器人 实测通过**：群内 @机器人后数秒内自动捕获群聊 chatid，`webhook_url` 自动更新为 `wecom://bot/{bot_id}?chatid={捕获的群聊ID}`，`receive_chatid` 推送日志记录成功（含"成功自动捕获群聊会话并绑定到通道"），Webhook 页面通道列表同步显示捕获的会话 ID
+- 全链路闭环确认：监听线程（解密认证）→ WebSocket 消息接收 → chatid 提取 → 写入运行库 → 页面回显，全部正常
+
+#### 涉及文件（两套仓库同步，MD5 逐字一致）
+- `webhook_utils.py`（导入 `decrypt_credential` + 监听线程解密 `bot_secret`）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
+### V10.10.16：Docker 版性能优化与镜像免构建部署（2026-09-28，仅 Docker 版；`gift-docker-optimize` 分支已于 2026-09-29 合并回 main）
+
+#### 问题背景
+Docker 版运行后内存占用达 350~535MB、CPU 持续偏高，与同服务器其他容器（12~165MiB 量级）差距过大。
+
+#### 根因
+1. **Gunicorn 4 sync workers 无共享**：每个 worker 独立加载全套 Python 运行时（~140-175MB×4）
+2. **5 组重型依赖启动即加载**：openai SDK（~40-55MB）、duckduckgo_search（~12-20MB）、cryptography AESGCM（~12-18MB）、aibot SDK 含 aiohttp+websockets（~10-16MB）、pyzipper（~3MB），平时使用频率极低却常驻内存
+3. **3 个守护线程被 4 个 worker 重复启动 = 12 份轮询**：纪念日巡检、备份调度、企微长连接监听均 4 倍重复
+4. **init_database() 被 4 进程各执行一次**：60+ 条迁移 SQL 并发竞争 SQLite 写锁
+
+#### 修复（四层组合拳）
+1. **进程层**：`gunicorn.conf.py` — workers=1 + gthread 4 线程 + timeout=60 + max_requests 周期回收
+2. **依赖层**：`ai_service.py`/`web_search.py`/`models.py`/`webhook_utils.py`/`webdav_utils.py` — 5 组重型依赖移至首次实际调用时才加载（try/except 降级语义不变）
+3. **运行层**：Dockerfile 多阶段构建 + `MALLOC_ARENA_MAX=2` glibc 内存池碎片优化
+4. **保险层**：`_daemon_lock.py` fcntl 跨进程文件锁 — 多 Worker 环境下守护线程仅一份执行（Windows 无 fcntl 直通回退）
+5. **幂等层**：`init_database()` 用 `PRAGMA user_version` 标记检测，结构已最新则跳过完整迁移（首次/升级仍全量执行）
+6. **分发层**：`.github/workflows/docker-publish.yml` — GitHub Actions 自动构建多架构镜像，推送 ghcr.io（默认）+ 阿里云 ACR（配置 secrets 启用）；`run.sh` 新增 `APP_IMAGE` 环境变量，非空时拉取预构建镜像服务器零构建
+
+#### 效果
+- 常态内存：350~535MB → **60~95MB（↓约 80%）**
+- 并发能力：4 sync = 4 并发 → 1×gthread 4 = 4 并发（持平），threads 可调 8
+- 后台轮询：12 份 → **3 份**（单进程 1 份干活）
+- 镜像分发：服务器 `git pull` + `APP_IMAGE=... ./run.sh restart`，零现场构建
+- 所有 161 个路由/13 大功能模块零改动
+
+#### 涉及文件（仅 Docker 版，传统版不同步）
+- `gunicorn.conf.py`（新建：Gunicorn 配置文件）
+- `_daemon_lock.py`（新建：跨进程守护线程锁）
+- `Dockerfile`（多阶段构建 + MALLOC_ARENA_MAX + CMD 改用配置文件）
+- `docker-compose.yml`（image 模式 + GUNICORN_WORKERS 透传）
+- `run.sh`（APP_IMAGE 镜像免构建分支 + GUNICORN_WORKERS 导出）
+- `.github/workflows/docker-publish.yml`（新建：双 Registry CI/CD）
+- `app.py`（init_database 幂等跳过 + _SCHEMA_VERSION/_is_db_schema_current/_mark_db_schema_current/_do_startup_sync）
+- `ai_service.py`（openai 延迟导入）
+- `web_search.py`（DDGS 延迟导入）
+- `models.py`（AESGCM 延迟导入）
+- `webhook_utils.py`（aibot SDK 延迟导入 + fcntl 锁）
+- `webdav_utils.py`（pyzipper 延迟导入）
+- `routes_ext.py`（fcntl 锁）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
+### V10.10.17：交互式数据库部署选择 + PostgreSQL 兼容（2026-09-28，传统版 + Docker 版同步）
+
+#### 新增功能
+首次 `./run.sh start` 时交互式选择数据库部署方式，根据服务器环境智能推荐：
+
+| 模式 | 说明 | 推荐场景 |
+|---|---|---|
+| SQLite 本地文件 | 零依赖，内存最低 | 内存 <400MB / 单机轻量 |
+| 共享 PostgreSQL | 复用已有 PG 容器，自动创建应用专属库+账号 | 服务器已有 PG 容器运行中 |
+| 独立 PostgreSQL | 复用本地 PG 镜像启动专属容器 | 无 PG 但内存 ≥700MB |
+
+#### Cron 安全设计
+- **DB_MODE 环境变量直通**：`DB_MODE=sqlite ./run.sh start` 跳过一切交互
+- **.temp/.db.env 配置持久化**：首次选择后自动保存，后续 restart 自动读取不询问
+- **非交互自动降级**：cron/管道环境无 TTY 时默认 SQLite + 打印提示
+- **DB_RESET=1 强制重配**：删除旧配置重新交互选择
+
+#### PG 兼容改造（共享文件两版 MD5 一致）
+- `app.py`：init_database() PG 守卫 + schema_version 表替代 PRAGMA user_version
+- `webhook_utils.py`：_get_db_conn() 统一连接（PG 用 psycopg2 / SQLite 用 sqlite3）+ 占位符适配
+- `routes_ext.py`：备份/恢复 PG 分支（JSON 导出导入替代文件复制 + .sql 格式）
+- `docker-compose.yml`：DATABASE_URL 环境变量透传（仅 Docker 版）
+- `run.sh`：交互式数据库选择（两版分别实现；Docker 版按 DB_MODE 构造 `-f` compose 文件组合 + DATABASE_URL 环境变量插值，传统版直接环境变量透传）
+
+#### 涉及文件
+- `app.py` / `webhook_utils.py` / `routes_ext.py` / `models.py` / `_daemon_lock.py`（两版同步，MD5 一致）
+- `docker-compose.yml` / `run.sh`（仅 Docker 版）
+- `run.sh`（仅传统版）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.17b：run.sh 模块化拆分（2026-09-28，传统版 + Docker 版同步）
+
+#### 变更内容
+将 run.sh 中的函数按职责拆分到 `bin/` 目录下 7 个独立 `.sh` 文件，run.sh 仅保留配置区 + source + 启停函数 + case 分发。
+
+| bin/ 文件 | 职责 | 两版共享 |
+|---|---|---|
+| `common.sh` | 颜色变量 + echo_e() + should_overwrite() | ✅ MD5 一致 |
+| `db_select.sh` | 交互式 DB 选择主逻辑 + .db.env 读写 + detect_pg | ✅ MD5 一致 |
+| `cleanup.sh` | 缓存清理（Docker版含 Docker 构建缓存） | 各版独立 |
+| `ssl_certs.sh` | SSL 证书生成（传统版优 venv python3） | 各版独立 |
+| `nginx_config.sh` | Nginx SNI 渲染（Docker版用 HOST_PORT，传统版用 PORT） | 各版独立 |
+| `port_conflict.sh` | 端口冲突检测（传统版含 PID 自检+check_status） | 各版独立 |
+| `db_setup.sh` | DB 模式配置（Docker版：静态 docker-compose.db.yml 合成 + docker network connect 接网，传统版：环境变量） | 各版独立 |
+
+#### 效果
+- Docker 版 run.sh：683 行 → **157 行**（↓77%）
+- 传统版 run.sh：792 行 → **257 行**（↓68%）
+- 修正传统版 `select_db_mode` 误置于 `clean` 分支的遗留问题（移至 `start_service` 内）
+- 📌 V10.10.21 深化拆分：配置区 → `bin/config.sh`、启停函数 → `bin/service.sh`、帮助文本 → `bin/help.sh`（传统版另增 `bin/python_env.sh`），run.sh 仅剩「模块加载 + 命令分发」约 31~34 行，详见顶部 V10.10.21 公告
+
+#### 涉及文件
+- `run.sh`（两版重写）
+- `bin/common.sh` / `bin/db_select.sh`（两版共享，MD5 一致）
+- `bin/cleanup.sh` / `bin/ssl_certs.sh` / `bin/nginx_config.sh` / `bin/port_conflict.sh` / `bin/db_setup.sh`（两版各自独立）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.18：前端资源本地化 + 部署链路加固（2026-09-29，传统版 + Docker 版同步）
+
+#### 背景
+1. 前端三件套（Bootstrap 5.3.0 / Font Awesome 6.4.0 / Bootstrap Icons 1.11.3）原先全部经 jsdelivr/cdnjs 国外 CDN 加载（base.html 4 处 + shared_ledger.html 2 处），国内服务器环境页面样式/图标/交互直接失效
+2. 传统版全新 clone 后无 data/ 目录时，运行库直接落在 git 跟踪的样例库上（运行数据污染工作区、git pull 覆盖丢数据，与 V10.10.12 事故同源）
+3. 传统版 pip 仅有清华源单一来源无回退（源同步滞后时新 SDK 安装失败），部署前无系统环境预检
+
+#### 方案 A：前端资源本地化（两版同步，共享文件 MD5 一致）
+- 新增 `static/vendor/`（14 个文件，共 1.67MB），版本与原 CDN 引用完全一致（经 npmmirror 官方 npm 镜像获取，零视觉变化）：
+  - `vendor/bootstrap/5.3.0/`：bootstrap.min.css + bootstrap.bundle.min.js
+  - `vendor/font-awesome/6.4.0/`：all.min.css + webfonts 字体 8 个（woff2/ttf）
+  - `vendor/bootstrap-icons/1.11.3/font/`：bootstrap-icons.min.css + woff2/woff
+- `templates/base.html`（4 处）与 `templates/shared_ledger.html`（2 处）改为 `url_for('static', ...)` 本地引用，两版逐字一致
+- Docker 镜像 `COPY . /app/` 自动包含 vendor 目录（.dockerignore 未排除 static/），容器内同样零外网依赖
+
+#### 方案 B：传统版首次部署纯净化运行库（V10.10.20 升级为不复制样例库）
+- `bin/db_setup.sh` 的 `ensure_sqlite_runtime_db()`：首次启动仅创建 `data/` 目录、**不再复制样例库**，由应用首次启动自动创建**纯净空库 + 单一管理员**（与 Docker 版行为一致），根目录样例库不再参与运行
+- `run.sh` start_service 在 SQLite 模式下调用（`DATABASE_URL` 为空判定；PG 模式自动跳过）；幂等设计，存量部署零影响
+- Docker 版不适用原因：容器内 `/app/data/` 由命名卷挂载、样例库被 .dockerignore 排除，首次启动 init_database() 自动建库，天然隔离
+
+#### 方案 C：环境预检 + pip 镜像源兜底（仅传统版）
+- `run.sh` 新增 `preflight_check()`：python3 缺失 / 存在但无法执行（如系统占位存根）/ 版本低于 3.8 三级拦截，另对 python3-venv、lsof 缺失给出安装提示
+- `run.sh` 新增 `pip_install_fb()`：清华源 → 阿里云 → 官方源逐一切换，任一成功即返回；末源失败输出汇总提示
+
+#### 验证结论
+- 浏览器实测（传统版 11443）：vendor CSS/JS/字体全部 200 本地加载，无任何 CDN 请求，Bootstrap 样式与字体图标渲染正常
+- 沙盒验证 14 项全部通过：全新部署复制（运行库与样例库 MD5 一致）/幂等不改/无样例库降级提示/模式守卫三分支/预检失败与成功双路径/镜像源成功与三源全失败兑底
+- `run.sh` 与 `bin/db_setup.sh` bash -n 语法检查通过
+
+#### 涉及文件
+- `static/vendor/**`（14 个文件）/ `templates/base.html` / `templates/shared_ledger.html`（两版同步，MD5 逐字一致）
+- `run.sh` / `bin/db_setup.sh`（仅传统版）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.19：run.sh status 访问信息展示 + 数据库配置帮助（2026-09-29，传统版 + Docker 版同步）
+
+#### 变更内容（Docker 版）
+`./run.sh status` 在 `docker compose ps` 基础上，有容器运行时附带访问信息与数据库模式：
+
+```
+Docker 容器集群运行状态:
+NAME  ...  STATUS
+   容器内监听端口: 11443
+   宿主机映射端口: 15000
+   HTTPS 访问地址: https://gift-docker.example.com (由 Nginx 反向代理至 127.0.0.1:15000)
+   数据库模式: sqlite (配置于 .temp/.db.env，DB_RESET=1 ./run.sh start 可重新选择)
+```
+
+- 抽取 `print_access_info()` 共用函数：start 成功提示与 status 巡检共用，start 输出零变化
+- status 补带 PG override 文件：共享/独立 PG 模式下 PG 容器状态一并显示（V10.10.20 起 override 机制演进为静态 docker-compose.db.yml 按 -f 合成，独立 PG 容器状态同样可见）
+- 新增 `print_db_mode_info()`：展示持久化数据库模式；空/损坏配置提示重选；**不展示 DATABASE_URL，避免泄露数据库密码**
+- 两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 数据库配置说明
+
+#### 验证结论
+- 沙盒验证 20 项全部通过（含 Docker override 纳入 compose ps、多域名显示、密码不泄露）
+- `bash -n` 两版语法检查通过
+
+#### 涉及文件
+- `run.sh`（两版各自独立改造）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.19b：帮助示例与提示信息命令名规范化（2026-09-29，传统版 + Docker 版同步）
+
+#### 变更内容
+- 两版 run.sh 帮助文本与 status 数据库模式提示中的示例命令，由 `./$0` 统一规范为 `./$(basename "$0")`：无论以 `./run.sh`、`sh run.sh` 还是绝对路径调用，示例均稳定显示为 `./run.sh start`（此前以 `./run.sh` 方式调用会渲染成 `././run.sh`）
+- 修正传统版 status 端口占用分支提示的历史笔误：`./service.sh stop` → `./run.sh stop`
+- `用法: $0 {...}` 首行保留原样，如实反映实际调用方式
+
+#### 验证结论
+- `bash -n` 两版语法检查通过；Docker 版帮助文本用 docker 存根忠实渲染实测，示例行正确显示 `./run.sh start`
+
+#### 涉及文件
+- `run.sh`（两版同步改造）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.20：PostgreSQL 部署链路全面强化 + 部署架构对齐 mengya-docker（2026-09-30，传统版 + Docker 版同步，多主题系列提交）
+
+#### 变更内容（两版同步部分）
+- **psycopg3 驱动修复**：requirements.txt 新增 `psycopg[binary]>=3.1`——SQLAlchemy 2.0 对 `postgresql://` 默认使用 psycopg3 驱动，修复 PG 模式下 gunicorn worker 启动报 `No module named 'psycopg'` 崩溃（psycopg2-binary 保留，webhook_utils 原生连接继续使用）
+- **独立 PG 镜像策略**：优先级链 `PG_IMAGE`（用户自定义）→ 服务器本地已有 PG 镜像 → 自动下载默认 `postgres:16-alpine`（不再询问，下载失败降级 SQLite）；挂载路径按镜像智能匹配（PostgreSQL 18+/pgvector:pg18 → `/var/lib/postgresql`，15/16/alpine → `/var/lib/postgresql/data`，防数据不落卷）；镜像与挂载路径持久化至 `.temp/.db.env`（restart 不漂移）
+- **PG 连接参数全面自定义**：`PG_USER`/`PG_PASSWORD`/`PG_DB`/`PG_PORT` 环境变量自定义账号/密码/库名/端口（默认 gift_user / gift_pass 固定值（V10.10.22 起，此前为随机生成）/ gift_bookkeeping / 5432）；共享与独立模式的建号、建库、授权与 `DATABASE_URL` 拼接全部参数化（幂等建号：已存在用户时 `ALTER` 同步密码保留数据）；密码含单引号/空格直接拒绝、URL 特殊字符警告；Docker 版 `PG_PORT` 仅共享模式生效（独立模式容器内固定 5432）；`docker-compose.db.yml` 的 POSTGRES_DB/USER/PASSWORD 改为环境变量插值
+- **DB_RESET 重选菜单修复**：修复 `DB_RESET=1 ./run.sh restart` 时交互菜单被跳过——restart 场景下 stop_service 的 `load_db_env` 会把旧 `DB_MODE` 注入当前 shell 被误判为"环境变量直通"；现以模块加载时捕获的用户显式指定值为准（`_DB_MODE_AT_LOAD`）
+- **共享 PG 幂等建号**：已有 gift_user 时 `ALTER USER` 同步密码（保留数据），避免 `CREATE USER` 已存在导致连接失败
+- **迁移与引擎健壮性**：修复 V10.9 迁移 touched/changed 变量未初始化导致纯净空库 `UnboundLocalError`；PG 引擎连接超时保护 + 启动阶段日志标记（数据库连接/迁移完成/gunicorn 启动可见）
+
+#### 变更内容（仅 Docker 版：部署架构对齐 mengya-docker）
+- 彻底移除 `.temp/docker-compose.db-override.yml` 动态 override 机制（根治"external 网络被清理后启动失败"），compose 文件无 `version` 字段（消除 obsolete 警告）
+- 网络改为默认网络重命名固定名 `gift-docker_net`（服务自动入网，**永不声明 external**）
+- 独立 PG 模式新增静态 `docker-compose.db.yml` 按 `-f` 参数按需合成，挂载路径按镜像智能匹配
+- 共享 PG 模式由 `docker network connect` 把 PG 容器接入自有网络（幂等，不影响其原有网络），start 后兑底接入+重启 web、stop 先摘除再 down；`DATABASE_URL` 经 shell 环境变量插值注入 compose
+- 传统版同期进行初次部署纯净化（不再复制样例库，纯净空库+单一管理员）
+
+#### 涉及文件
+- `requirements.txt` / `app.py` / `bin/db_select.sh` / `bin/db_setup.sh`（V10.10.21 拆分前为 run.sh）/ `docker-compose.yml` / `docker-compose.db.yml`
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
+### V10.10.21：run.sh 深度模块化拆分 + 配置单点化（2026-09-30，传统版 + Docker 版同步）
+
+#### 变更内容
+- run.sh 瘦身为「模块加载 + 命令分发」编排层：Docker 版 263→34 行，传统版 399→31 行
+- 新增 `bin/config.sh`（全部可自定义变量单点定义：账密/端口/SNI/PG 默认值）、`bin/service.sh`（启停操作与访问信息展示 + print_access_info/print_db_mode_info/compose_files_for_mode）、`bin/help.sh`（帮助文本）；传统版另增 `bin/python_env.sh`（Python 预检 + pip 镜像源兑底 + venv 依赖安装）
+- `bin/db_setup.sh` 中 PG 默认值改为引用 config 变量；`docker-compose.yml` 网络名 gift-docker_net 保持硬编码不动
+- **服务器专属持久配置机制**：每台服务器的差异化配置（账密/SNI 域名/端口等）写入 `bin/config.local.sh`（.gitignore 忽略，git pull 永不冲突）；三层优先级：命令行环境变量 > `config.local.sh` > 内置默认值；曾直接改 run.sh 配置区的服务器，升级后请将定制值迁移至该文件
+
+#### 验证结论
+- 两版 23 个脚本 bash -n 通过；两版 help 输出零 diff；共享文件（common.sh/db_select.sh）两版 MD5 一致；config.local.sh 覆盖机制验证（local 生效、命令行环境变量优先）
+
+#### 涉及文件
+- `run.sh`（两版重写）+ `bin/config.sh` / `bin/service.sh` / `bin/help.sh`；`bin/python_env.sh`（仅传统版）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（本变更记录同步）
+
+### V10.10.22：PG 密码认证与 pyzipper 综合修复（2026-09-30，传统版 + Docker 版同步，两轮提交）
+
+#### 问题背景
+1. WebDAV 备份页面提示「未安装 pyzipper 库，加密功能不可用」——SQLite / 共享 PG / 独立 PG 模式均出现
+2. 独立 PG / 共享 PG 模式页面报错 Internal Server Error，日志为 psycopg `password authentication failed for user "gift_user"`，webhook 监听线程同样异常；且从报错看，先以共享 PG 生成过 PG 实例及用户随机密码，后续独立 PG 启动又生成新随机密码导致认证失败
+3. 用户诉求：已存在数据库实例与用户时，重启应自动更新密码为用户设置的最新密码；且不希望每次随机生成密码
+
+#### 根因
+1. `routes_ext.py` import 时捕获 `HAS_PYZIPPER` 模块级变量快照（初值 `None` 永不更新）→ 页面 `has_pyzipper` 恒为 falsy，pyzipper 实际已安装也误报「未安装」
+2. `resolve_pg_conn_params()` 每次随机生成 16 位密码——重启/重选时密码变化，已有 PG 实例密码不匹配；共享 PG 的 `ALTER USER` 曾静默吞错；独立 PG Docker 卷已存在时 `POSTGRES_PASSWORD` 环境变量被 PG 忽略（仅首次初始化读取）；restart 直接读 `.db.env` 旧 `DATABASE_URL` 不同步新密码
+3. Docker 版独立 PG 密码同步容器名错误：`bin/service.sh` 用 `${PROJECT_NAME}-pg`，实际 `docker-compose.db.yml` 硬编码 `gift_bookkeeping_pg` → `docker exec` 找不到容器，密码同步从未生效
+4. `python_env.sh` 核心依赖检查仅查 flask 四件套——老部署已装时 `pip install -r requirements.txt` 整体跳过，后加入的 pyzipper/cryptography/psycopg 永远不被安装
+
+#### 修复
+- **PG 密码固定默认值**：`bin/config.sh` 新增 `PG_PASSWORD_DEFAULT`（默认 `gift_pass`，与 ADMIN_PASS 同模式，可在 config.local.sh 或环境变量覆盖），`resolve_pg_conn_params()` 不再随机生成；密码校验规则不变（单引号/空格拒绝、URL 特殊字符警告）
+- **可靠 ALTER USER**：新增 `pg_sync_password()`（超级用户 socket → OS 级 peer 认证两路兑底），失败报错终止不再静默吞错
+- **独立 PG 就绪后强制同步**：容器就绪后 `ALTER USER` 兕底（卷已存在场景密码与 DATABASE_URL 保持一致）；**容器名修正为 `gift_bookkeeping_pg`**（此前误用 `${PROJECT_NAME}-pg` 从未生效）+ `pg_isready` 就绪轮询（最长 30 秒）替代固定 sleep + 同步成功后 restart web（旧密码启动的 web 容器需重启方能以新密码连接）
+- **密码自动同步**：`bin/db_select.sh` 新增 `_PG_PASSWORD_AT_LOAD` 捕获用户显式指定的 `PG_PASSWORD`，已有 `.db.env` 配置的重启场景检测到新密码时自动重执行 setup 同步至数据库——已存在用户时直接更新密码为用户设置的最新值
+- **pyzipper 双修**：`python_env.sh` 核心依赖检查新增 pyzipper（此前仅查 flask 四件套，老部署已装时 pip install 整体跳过，pyzipper 永远不安装）；`routes_ext.py` 改用 `_ensure_pyzipper()` 实时检测函数（首次访问触发导入后缓存），删除 import 快照——修复 pyzipper 实际已安装也误报「未安装」
+
+#### 验证结论
+- 沙盒验证 23 项全部通过：`resolve_pg_conn_params` 四场景两版（默认固定值/环境变量优先/单引号拒绝/URL 特殊字符警告放行）、两版函数体逐字一致、service.sh 与 docker-compose.db.yml 容器名闭环、`pg_isready` 轮询与 restart web 就位、`routes_ext.py` 两版 MD5 一致、help.sh 密码说明与 `PG_PASSWORD_DEFAULT` 存在性
+- pyzipper 行为实测：模块加载快照 `None`（修复前误报）→ `_ensure_pyzipper()` 返回 `True`（本机 pyzipper 实装，修复后正确）；渲染条件 `not has_pyzipper` 两条路径逐一验证
+- bash -n 两版全部脚本 + py_compile 两版 `routes_ext.py` 通过
+
+#### 涉及文件
+- `bin/config.sh` / `bin/db_setup.sh` / `bin/db_select.sh` / `bin/help.sh`（两版）；`bin/service.sh`（仅 Docker 版）；`bin/python_env.sh`（仅传统版）；`routes_ext.py`（两版共享，MD5 一致）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.23：--reconfig 参数替代 DB_RESET=1 环境变量（2026-09-30，传统版 + Docker 版同步）
+
+#### 变更内容
+- `run.sh` 新增后缀参数解析：`$1` 子命令 + `$2` 可选 `--reconfig`/`--reconfig-db`，识别后内部设 `DB_RESET=1` 供 `select_db_mode()` 使用
+- 用法：`./run.sh restart --reconfig`（重选数据库模式后重启）、`./run.sh start --reconfig-db`（完整别名）
+- `DB_RESET=1` 环境变量保留兼容（cron/CI 场景），两层入口互不冲突
+- 帮助文本（help.sh）用法首行、status/错误提示消息（service.sh、db_setup.sh）全部同步更新
+
+#### 验证结论
+- 两版 23 个脚本 bash -n 通过；帮助文本渲染实测含全部 `--reconfig` 示例行
+
+#### 涉及文件
+- `run.sh`、`bin/help.sh`、`bin/service.sh`（两版）；`bin/db_setup.sh`（Docker 版）；`bin/db_select.sh`（两版共享，注释更新）
+
+### V10.10.24：Docker 版与传统版数据隔离——PG 默认值差异化（2026-09-30，仅 Docker 版）
+
+#### 变更内容
+- Docker 版 PG 默认值差异化（传统版保持不变）：
+
+| 配置项 | Docker 版 | 传统版 |
+|--------|-----------|--------|
+| PG_USER_DEFAULT | `gift_docker_user` | `gift_user` |
+| PG_PASSWORD_DEFAULT | `gift_docker_pass` | `gift_pass` |
+| PG_DB_DEFAULT | `gift_docker_db` | `gift_bookkeeping` |
+
+- 同步更新 6 个文件：`bin/config.sh`、`docker-compose.db.yml`（POSTGRES_DB/USER 插值默认值）、`bin/service.sh`（pg_isready 兜底）、`bin/help.sh`、`bin/db_setup.sh` 注释、`docker-compose.yml` 注释
+
+#### 验证结论
+- 确认全部容器重启策略均为 `unless-stopped`（web/pg/注释段 nginx 三处），无 `always`
+- 帮助文本渲染实测默认值差异化描述正确
+
+### V10.10.25：共享 PG 容器状态误判 + 独立 PG 卷布局崩溃静默 + ALTER USER peer 认证 + 未知参数校验（2026-09-30，传统版 + Docker 版同步）
+
+#### 问题背景
+1. 选择共享 PG 报 PG18+ 数据目录错误（"in 18+ ... PostgreSQL data in /var/lib/postgresql/data"）
+2. `sh run.sh restart --reconfiga` 拼错参数也能正常重启
+3. 共享/独立 PG 来回切换后报鉴权错误：ALTER USER 密码同步失败、CREATE USER 失败
+
+#### 根因
+1. `detect_pg_data_dir()` 按镜像名通配符猜路径，非标准命名镜像猜错 → PG18+ 容器挂载路径与卷数据布局不匹配 → 容器启动即崩溃；且容器崩溃后脚本静默等 pg_isready 超时 30 秒，报出一堆误导性 ALTER USER/连接错误
+2. 共享 PG 用 `docker ps` 校验，会把崩溃循环（Restarting）的容器误判为"在运行" → docker exec 必然失败
+3. `psql -U <用户>` 在 Docker PG 内默认走 scram-sha-256 密码认证（非 trust），传入任意超级用户名都可能因密码不匹配连不上；且固定用 `PG_SUPERUSER=postgres`，容器 POSTGRES_USER 为其他名称时 CREATE USER 失败
+4. `case "$2"` 只匹配已知参数，不匹配时静默忽略
+
+#### 修复
+- **`detect_pg_data_dir` 查镜像真实 PGDATA**：`docker image inspect` 读 Config.Env 的 PGDATA（官方 postgres 及衍生镜像均内置），18+ 风格（版本化子目录）挂载父目录、旧版（/data）挂载自身、非标准路径直接挂载 PGDATA；名字模式仅兜底，未知镜像默认旧版路径
+- **独立 PG 容器启动后健康校验**：docker run 后 3 秒检查 State.Status，非 running 直接展示 docker logs 最后 15 行 + 卷/镜像不匹配的两条解决方案（PG_IMAGE 匹配旧数据版本 / 删卷重建），降级 SQLite
+- **共享 PG 真实运行状态检查**：`docker inspect State.Status` 严格判定，非 running 展示容器日志与修复指引
+- **`pg_sync_password` peer 认证优先**：`docker exec -u postgres`（OS 级免密绕过 pg_hba.conf）→ socket + 超级用户 → 容器 env 检测 POSTGRES_USER，三路兜底
+- **`detect_pg_superuser`**：从容器 env 检测真实超级用户名；共享 PG 全部 psql 操作统一 `-u postgres` + 检测的超级用户名
+- **未知参数校验**：`$2` 不在 `--reconfig|--reconfig-db` 时报错 + exit 1
+
+#### 验证结论
+- 未知参数两版实测均报错退出（EXIT_CODE=1）
+- 传统版 docker run 增加 `--restart unless-stopped` 前后语义核对：docker stop 后 unless-stopped 保持停止（正确），start 重建容器（正确）
+
+#### 涉及文件
+- `run.sh`（两版）；`bin/db_setup.sh`（两版各自独立，pg_sync_password/detect_pg_superuser/detect_pg_data_dir/健康校验/状态检查）
+
+### V10.10.26：独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（2026-09-30，传统版 + Docker 版同步）
+
+#### 变更内容
+- **传统版独立 PG 补 `--restart unless-stopped`**：此前 `docker run` 无重启策略（默认 no），服务器重启/Docker 守护进程重启后容器不自动恢复；现与 Docker 版 compose 策略一致
+- **共享 PG 自动检测排除对侧单租户容器**：`detect_pg_environment`（共享文件）排除 `gift_app-pg`（传统版）与 `gift_bookkeeping_pg`（Docker 版），防止同服务器双版本部署时交互菜单误推荐对侧独立 PG 容器为共享 PG——对侧 reconfig 时 `docker rm -f` 会摧毁本版正在共享的实例；显式 `DB_PG_CONTAINER` 跨版本共享仍完全支持
+- **双版本 9 组合数据隔离矩阵确认**（3×3 全组合）：账号/库名/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离
+
+| # | 传统版 | Docker 版 | 隔离机制 |
+|---|--------|-----------|---------|
+| 1 | SQLite | SQLite | 宿主机 data/ vs gift_data 命名卷 |
+| 2 | SQLite | 共享 PG | 不同实例空间 |
+| 3 | SQLite | 独立 PG | gift_data 卷 vs gift_bookkeeping_pg 容器 + gift_pg_data 卷 |
+| 4 | 共享 PG | SQLite | 同 #2 |
+| 5 | 共享 PG（容器X） | 共享 PG（同一X） | 同实例内不同账号 + 不同库 |
+| 6 | 共享 PG | 独立 PG | 不同实例 |
+| 7 | 独立 PG | SQLite | 同 #3 |
+| 8 | 独立 PG | 共享 PG（共享对侧容器） | 账号/库不同无数据冲突；检测排除防误选 |
+| 9 | 独立 PG | 独立 PG | 容器名/卷/端口全隔离 |
+
+#### 验证结论
+- 检测排除逻辑六场景模拟：仅传统独立 PG/仅 Docker 独立 PG/双版本并存 → 检测为空（不误推荐）；外部共享 PG + 两版独立 PG → 正确推荐外部容器；近似名（gift-app-pg2）不误伤
+- 共享文件 10/10 MD5 一致；重启策略全景确认（compose web/pg + 传统 docker run 均 unless-stopped）
+
+#### 涉及文件
+- `bin/db_setup.sh`（传统版，docker run 加 --restart）；`bin/db_select.sh`（两版共享，detect_pg_environment 排除逻辑）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.27：两版首次部署默认数据库差异化（2026-09-30，传统版 + Docker 版同步）
+
+#### 变更内容
+- **传统版首次部署交互菜单默认 SQLite（选项 1）**、**Docker 版默认共享 PG（选项 2）**：
+  - `bin/config.sh` 新增 `DB_MENU_DEFAULT` 变量：传统版 `"${DB_MENU_DEFAULT:-1}"`、Docker 版 `"${DB_MENU_DEFAULT:-2}"`；可被命令行环境变量或 `config.local.sh` 覆盖
+  - `bin/db_select.sh`（两版共享，MD5 一致）默认选项改读 `DB_MENU_DEFAULT`，替代此前按内存阈值的智能推荐逻辑（旧逻辑两版行为相同：≥400MB 推共享 PG、≥700MB 推独立 PG）
+- **环境兜底**：默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite（避免默认选项必然失败）；`DB_MENU_DEFAULT` 为非法值或未设置时同样回退 SQLite
+- **菜单项 1（SQLite）** 补上与其他选项一致的 ⭐ 推荐标记（此前仅选项 2/3 有标记）
+- 非交互环境（cron/管道）默认行为不变，仍为 SQLite（`DB_MODE` 环境变量可直通）
+
+#### 验证结论
+- 五场景模拟：传统版→默认 1；Docker 版有运行 PG→默认 2；Docker 版无运行 PG→回退 1；非法值（=5）→回退 1；未设置→回退 1
+- 两版 `config.sh` 独立进程实测：传统 `DB_MENU_DEFAULT=1`、Docker `DB_MENU_DEFAULT=2`
+- `db_select.sh` 两版 MD5 一致；bash -n 全部通过
+
+#### 涉及文件
+- `bin/config.sh`（两版各自，DB_MENU_DEFAULT 差异化）；`bin/db_select.sh`（两版共享，默认选项读取与兜底逻辑）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.28：独立 PG 版本化数据卷 + 存量卷自动迁移（2026-09-30，传统版 + Docker 版同步）
+
+#### 背景问题
+独立 PG 模式此前使用固定卷名（传统版 `${PROJECT_NAME}_pg_data`、Docker 版 compose 卷 `gift_pg_data`）。当用户切换 PG 镜像版本（如 postgres:16-alpine ↔ pgvector/pgvector:pg18）时，同一卷内残留旧版本数据与新镜像存储布局不匹配：
+- PG16→PG18：旧卷数据在 `/var/lib/postgresql/data`（卷根），PG18+ 镜像 PGDATA 为 `/var/lib/postgresql`（数据在 `18/docker/` 子目录），挂载后报 "in 18+ ... data in /var/lib/postgresql/data"
+- PG18→PG16：旧卷数据在 `18/docker/` 子目录，PG16 镜像 PGDATA 为 `/var/lib/postgresql/data`，挂载后卷根非空，initdb 报 "directory exists but is not empty"
+
+#### 变更内容
+- **PG 版本化数据卷命名**：卷名改为 `${PROJECT_NAME}_pg_data_${PG_MAJOR}`（传统版）/ `gift_pg_data_${PG_MAJOR}`（Docker 版 compose 插值），各 PG 版本数据天然隔离，跨版本切换不再冲突
+- **`detect_pg_major()` 三级探测**：① `docker image inspect` 读镜像 Config.Env 的 `PG_MAJOR`（官方 postgres 及衍生镜像如 pgvector 均内置）→ ② 镜像 tag 数字解析（如 `postgres:16-alpine` → 16、`pgvector:pg18` → 18）→ ③ 未知 → `default`
+- **存量卷自动迁移**（传统版 `migrate_legacy_pg_volume` / Docker 版 `migrate_compose_pg_volume`）：
+  - 新版本化卷已存在 → 无需迁移（二次部署）
+  - 旧固定卷不存在 → 全新部署，无需迁移
+  - 旧卷存在且 PG_VERSION 与当前 PG_MAJOR 一致 → `cp -a` 迁移数据（保留旧卷备份）
+  - 旧卷存在但版本不兼容或为空 → 保留旧卷不删除，使用新空卷初始化（附 pg_upgrade 指引）
+  - Docker 版通过 `docker volume ls` 查找 compose 项目前缀的实际卷名，从旧卷名提取前缀创建新版本化卷
+- **Docker 版 `detect_pg_data_dir` 升级**：从旧版名字通配符匹配（`*18*` / `*16*` 等）升级为 `docker image inspect` 查镜像真实 PGDATA（与 V10.10.25 传统版同步，100% 可靠）
+- **Docker 版 `PG_MAJOR` 持久化**：`bin/service.sh` 将 PG_MAJOR 写入 `.temp/.db.env`，restart 时 load_db_env 自动加载，compose 卷名插值不漂移
+- **`docker-compose.db.yml` 卷名改插值**：`gift_pg_data` → `gift_pg_data_${PG_MAJOR:-default}`（服务级 volume mount 与顶层 volumes 声明同步）
+
+#### 验证结论
+- 23 脚本 bash -n 语法检查全部通过
+- 10 个共享文件 MD5 全部一致（common.sh / db_select.sh / app.py / models.py 等）
+- `detect_pg_major` tag 解析 13 种镜像名正确（postgres:16-alpine→16 / pgvector:pg18→18 / latest→default 等）
+- 版本化卷名生成 4 种 PG_MAJOR 正确（16 / 18 / 14 / default）
+- 存量迁移决策矩阵 8 场景覆盖（同版本兼容迁移 × 2 / 跨版本保留 × 2 / 全新部署 / 二次部署 / 空卷 / 脚本升级）
+- `docker-compose.db.yml` YAML 有效性验证通过
+
+#### 涉及文件
+- `bin/db_setup.sh`（两版各自独立：新增 detect_pg_major / migrate 函数 / setup_independent_pg 版本化卷名 + Docker 版 detect_pg_data_dir 升级）
+- `docker-compose.db.yml`（Docker 版：卷名改插值 `gift_pg_data_${PG_MAJOR:-default}`）
+- `bin/service.sh`（Docker 版：PG_MAJOR 加入持久化参数列表）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.10.29：独立 PG 生命周期闭环——stop 无条件释放 + start 自动重建（2026-10-01，传统版 + Docker 版同步）
+
+#### 背景问题
+用户报告传统版以独立 PG 方式部署后，`./run.sh stop` 不会自动释放 PG 容器。核实发现一处两版共有缺陷与三处传统版独立缺陷：
+- **两版共有：`DB_MODE=independent` 环境变量直通部署不保存 `.db.env`**——`db_select.sh` 第 ① 分支仅交互终端且非 independent 才 `save_db_env`；本版直通部署后 stop 时 `compose_files_for_mode` 读不出 independent 模式，`compose down` 不带 `docker-compose.db.yml`，pg 容器（`gift_bookkeeping_pg`）残留运行
+- **传统版独立：stop 释放逻辑嵌在端口检查成功分支内**（端口被占时整体跳过）、**仅 `docker stop` 不删容器**（Exited 残留，与 Docker 版 compose down 行为不一致）、**start 从不重建已释放的 PG 容器**（本版靠 `compose up -d` 自动重建，传统版无对应逻辑）
+
+#### 本版变更内容
+- **`db_select.sh`（两版共享，MD5 逐字一致）**：第 ① 分支（DB_MODE 环境变量直通）改为无条件 `save_db_env`——本版受益点：independent 直通部署后 stop 能正确识别模式，`compose down` 带上 `docker-compose.db.yml` 删除 pg 容器；非交互（cron/CI）直通部署同样保存，后续 stop 与无参 restart 均可正确复用配置
+- Docker 版 stop（`compose down`：容器删除、数据卷保留）与 start（`compose up -d` 自动重建 pg 容器）生命周期本就闭环，`bin/service.sh` 无需改动；传统版配套修复详见传统版 README V10.10.29 章节（stop 无条件 `docker rm -f` + start 重建闭环 + `.db.env` 持久化扩展）
+
+#### 验证结论
+- 23 脚本 bash -n 语法检查全部通过
+- 共享文件 `db_select.sh` 两版 MD5 逐字一致
+- Git Bash 沙盒 mock docker 26 项断言全部通过（覆盖传统版闭环 12 场景：stop 释放/端口被占仍释放/幂等重建/降级中止/持久化剥旧字段等）
+
+#### 涉及文件
+- `bin/db_select.sh`（两版共享：直通部署无条件 save_db_env，MD5 一致）
+- `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`（两版同步）
+
+### V10.11.8~10：天气增强 + 告警推送 + 万年历独立模块 + 班休服务（2026-10-10，传统版 + Docker 版同步）
+
+#### 背景与范围
+传统版 V10.11.8（天气页面全面增强 + 告警消息推送 + AI 配置网络修复）、V10.11.9（日历视图万年历化）、V10.11.10（万年历独立模块 + 法定节假日班/休角标）三连更后，本版一次性同步全部三代增量（上一版基线为 V10.11.7）。
+
+#### 本版变更内容
+- **共享文件直接复制（7 个，两版 MD5 逐字一致）**：`weather_service.py`、`routes_weather.py`、`templates/weather.html`、`static/js/lunar_utils.js`、`holiday_service.py`（新增）、`alert_service.py`（新增）、`routes_alert.py`（新增）。
+- **本版特性手工合并（5 个）**：
+  - `models.py`——追加 `AlertPushConfig` / `AlertPushGrant` 告警两模型（本版无 FamilyMember，保持功能子集特性）；
+  - `app.py`——`_SCHEMA_VERSION` 1017→**1019**（跳过传统版 1018 家庭记账迁移，迁移注释说明本版差异；1019 建告警两表 `alert_push_configs` / `alert_push_grants`）+ 末尾告警路由注册与巡检线程启动；
+  - `routes_ext.py`——`menu_map` 补 `api_holiday_year`（weather 门控）+ 8 个 `admin_alerts_*` endpoint（backups 门控）；
+  - `ai_service.py`——保持精简版（无 fetch_model_list / OCR），合入 `_chat_with_fallback` + `_call_openai` / `test_ai_config` 网络双路径修复；
+  - `templates/admin_backups.html`——合并告警卡片 HTML 区块（149 行）与告警 JS 区块（154 行），WebDAV 原功能不变。
+
+#### 验证结论
+- 49 项静态验证 ALL_PASS：py_compile 9 个 py 文件全部通过；7 个共享文件两版 MD5 一致；`admin_backups.html` / `weather.html` div / script / style 标签配对平衡；`webhook_utils` 符号兼容（`trigger_webhook_event` 存在）；`menu_map` 9 条目齐全；`app.py` / `models.py` / `ai_service.py` 特性检查通过（含本版子集特性保留确认：无 FamilyMember、无 fetch_model_list/OCR）。
+
+#### 涉及文件
+- 上述 12 个代码文件 + `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`
+
+### V10.11.12：登录后背景横幅（2026-10-10，传统版 + Docker 版同步）
+
+#### 本版变更内容
+- **共享文件直接复制（2 个，两版 MD5 逐字一致）**：`routes_weather.py`（新增 `/api/home/weather` 三层分流接口 + 30 分钟缓存 + admin 城市自动同步 + 班休徽章直读）、`templates/_home_banner.html`（新增横幅独立块）。
+- **同锚点插入 include（2 个）**：`templates/index.html` 与 `templates/permission_tickets.html` 在 content 块开头插入 `{% include '_home_banner.html' %}`（两版此位置结构同构；本版 index.html 仍为旧版 UI 子集，未同步传统版 V10.11.1 按钮重构，为既有状态非本版范围）。
+
+#### 验证结论
+- 10 项静态验证 ALL_PASS：py_compile；2 个共享文件 MD5 一致；双页面 include 就位；`/api/home/weather`/admin_weather_city/成都兑底等关键点齐全；Docker 版 `models.SystemSetting` 与 `holiday_service.get_year_holidays` 依赖均存在（模块同名，无需合并）。
+
+#### 涉及文件
+- `routes_weather.py` / `templates/_home_banner.html` / `templates/index.html` / `templates/permission_tickets.html` + `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`
+
+### V10.11.13：五项缺陷修复（2026-10-10，传统版 + Docker 版同步）
+
+#### 本版变更内容
+- **共享文件直接复制（3 个，两版 MD5 逐字一致）**：`templates/weather.html`（选中日范围联动 + 详情面板宴席按钮）、`templates/banquets.html`（URL 参数接收，升级为共享文件——此前两版仅 1 行历史样式差异）、`holiday_service.py`（滚动窗口 + 失败冷却）。
+- **手工合并（1 个）**：`app.py`——单用户/批量两路由保存归一（0 级剔除勾选）+ 启动回填一次性标记 + 存量脏数据幂等清洗；保留本版无 dashboard/family 菜单差异；批量 ALL_MENUS 本版已含 weather 无需补。
+
+#### 验证结论
+- py_compile 通过；3 共享文件 MD5 一致；归一/标记/清洗关键点齐全；语义回归由传统版 17 场景验证覆盖（同函数逻辑）；本版菜单差异（无 dashboard/family）不受影响。
+
+#### 涉及文件
+- 上述 4 个代码文件 + `README.md` / `PSD_Design_Document.md` / `PSD_Design_Document.html`
+

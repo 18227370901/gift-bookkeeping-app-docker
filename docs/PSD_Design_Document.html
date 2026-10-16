@@ -1310,7 +1310,7 @@ graph LR
 
 <!-- ==================== 第 12 部分 ==================== -->
 <section id="part12">
-<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-51)</h2>
+<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-52)</h2>
 <p>本章节所有架构决策已于 2026-10-13 经过代码审计、接口联调与用户正式审查确认（固化为系统技术规范）。</p>
 
 <h3>12.1 ADR-39：天气日历/周视图/万年历数据自动联动与独立隔离</h3>
@@ -1396,6 +1396,22 @@ graph LR
 <tr><td>连带影响</td><td>APK 版目录结构后续同步（共享文件按路径映射同步）；PyInstaller frozen 分支逻辑（app.py 内 BUNDLE_DIR）不受影响；两版共享的 <code>bin/</code> 脚本未动。</td></tr>
 </table>
 </section>
+
+<!-- ==================== ADR-52 根目录文档与配置分层治理（V10.11.22） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-52 根目录文档与配置分层治理（V10.11.22 落地，仅结构·零业务逻辑变化，对齐传统版 ADR-52）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>根目录堆积 126KB HTML 设计文档、109KB Markdown 设计文档、206KB 包含千行历史日志的 README，且 Nginx 模板混杂在根目录，导致代码仓库首页视觉焦点分散、阅读体验差；缺少标准化的 <code>docs/</code> 文档归档目录与 <code>config/</code> 配置中心。</td></tr>
+<tr><td>docs/ 统一文档中心</td><td><code>PSD_Design_Document.md</code> 与单文件离线 HTML <code>PSD_Design_Document.html</code> 移入 <code>docs/</code> 目录；从 <code>README.md</code> 抽离全量版本变更记录至 <code>docs/CHANGELOG.md</code>；深度 Docker 运维部署、样例数据规则与 Android 打包分别分流至 <code>docs/DEPLOYMENT.md</code>、<code>docs/SAMPLE_DATA.md</code>、<code>docs/ANDROID_BUILD.md</code>；根目录 <code>README.md</code> 精简为项目简介、快速启动、9 大核心业务功能与架构索引（~150 行 / 6KB，体积缩减 97%）。</td></tr>
+<tr><td>config/ 配置中心</td><td><code>nginx_ssl.conf</code> 与 <code>nginx.conf</code> 模板迁入 <code>config/</code> 目录；<code>bin/nginx_config.sh</code> 改造为优先查找 <code>$APP_DIR/config/nginx_ssl.conf</code> 并自动向下兼容回退 <code>$APP_DIR/nginx_ssl.conf</code>，确保 <code>./run.sh start/restart</code> 渲染 Nginx 配置 100% 平滑兼容；<code>docker-compose.yml</code> 示例卷挂载注释同步修正。</td></tr>
+<tr><td>开箱样例库维护</td><td>保留根目录 <code>gift_bookkeeping.db</code>（方案 A 确认），确保开箱即用演示及跨仓库多形态数据一致性（零风险策略）；<code>.dockerignore</code> 严格排除确保不入镜像。</td></tr>
+<tr><td>镜像体积优化与本地防护</td><td><code>.dockerignore</code> 增强排除 <code>docs/</code> 与 <code>config/nginx*.conf</code>，避免文档与宿主机 Nginx 模板打入 Web 容器；<code>.gitignore</code> 强化对 <code>config/config.local.sh</code> 与 <code>config/*.local.*</code> 等本地敏感配置的防提交保护。</td></tr>
+<tr><td>验证</td><td>29 个 Python 模块 <code>py_compile</code> 全过；Shell 脚本 <code>sh -n run.sh bin/*.sh</code> 语法与模板定位检测 100% 通过；docker-compose 配置格式解析无异常。</td></tr>
+<tr><td>连带影响</td><td>全库 Python 核心业务逻辑与数据模型零修改；Shell 脚本双路径兼容；所有文档相对路径交叉引用保持闭环。</td></tr>
+</table>
+</section>
+
 
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">

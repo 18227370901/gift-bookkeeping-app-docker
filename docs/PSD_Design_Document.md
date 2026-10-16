@@ -1311,6 +1311,19 @@ graph LR
   4. **验证（编译+启动冒烟）**：29 文件 `py_compile` 全过；本地启动（与容器同一入口 `python app.py`）后 `/health` 200、登录/看板/Webhook/外部接口配置/备份/AI 配置/天气/用户/审计日志等 10 页面全 200；`git diff -M` 全部识别为 rename，无业务逻辑改动。
   5. **连带影响**：APK 版目录结构后续同步（三版共享文件约定改为按路径映射同步：传统版 `services/web_search.py` ↔ 两版 `web_search.py`）；PyInstaller frozen 分支逻辑（app.py 内 BUNDLE_DIR）不受影响；两版此前共享的 `bin/` 脚本未动。
 
+
+### 12.14 ADR-52：根目录文档与配置分层治理（V10.11.22 落地，仅结构·零业务逻辑变化，对齐传统版 ADR-52）
+- **背景与根因**：
+  1. 根目录堆积 126KB HTML 设计文档、109KB Markdown 设计文档、206KB 包含千行历史日志的 README，且 Nginx 模板混杂在根目录，导致 Docker 代码仓库首页视觉焦点分散、阅读体验差；
+  2. 缺少标准化的 `docs/` 文档归档目录与 `config/` 配置中心，历史变更与架构设计无独立存储，不利于长期维护。
+- **决策方案与实施结果**：
+  1. **docs/ 统一文档中心归档与模块化拆分**：`PSD_Design_Document.md` 与单文件离线 HTML `PSD_Design_Document.html` 移入 `docs/` 目录；从 `README.md` 抽离全量版本变更记录至 `docs/CHANGELOG.md`；深度 Docker 运维部署、样例数据规则与 Android 打包分别分流至 `docs/DEPLOYMENT.md`、`docs/SAMPLE_DATA.md`、`docs/ANDROID_BUILD.md`；根目录 `README.md` 精简为项目简介、快速启动、9 大核心业务功能与架构索引（~150 行 / 6KB，体积缩减 97%）。
+  2. **config/ 配置模板收敛与双路径适配**：`nginx_ssl.conf` 与 `nginx.conf` 模板迁入 `config/` 目录；`bin/nginx_config.sh` 改造为优先查找 `$APP_DIR/config/nginx_ssl.conf` 并自动向下兼容回退 `$APP_DIR/nginx_ssl.conf`，确保 `./run.sh start/restart` 渲染 Nginx 配置 100% 平滑兼容；`docker-compose.yml` 示例卷挂载注释同步修正。
+  3. **开箱样例库维护（方案 A 确认）**：保留根目录 `gift_bookkeeping.db`，确保开箱即用演示及跨仓库多形态数据一致性（零风险策略）；`.dockerignore` 严格排除确保不入镜像。
+  4. **构建镜像体积优化与本地敏感配置防护**：`.dockerignore` 增强排除 `docs/` 与 `config/nginx*.conf`，避免文档与宿主机 Nginx 模板打入 Web 容器；`.gitignore` 强化对 `config/config.local.sh` 与 `config/*.local.*` 等本地敏感配置的防提交保护。
+  5. **验证（编译+Docker语法+Shell全链路）**：Python 模块 py_compile 全过；Shell 脚本 `sh -n run.sh bin/*.sh` 语法与模板定位检测 100% 通过；docker-compose 配置格式解析无异常。
+- **连带影响**：全库 Python 核心业务逻辑与数据模型零修改；Shell 脚本双路径兼容；所有文档相对路径交叉引用保持闭环。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
