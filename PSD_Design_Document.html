@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.17</span>·<span>生成日期: 2026-10-13</span>·<span>审计范围: 68 文件 / ~32,000 行代码（全量对齐传统版 + ADR-39~47 + 容器探针与字体适配）</span>
+<span>Docker 版</span>·<span>版本: V10.11.20</span>·<span>生成日期: 2026-10-16</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~50 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -1310,7 +1310,7 @@ graph LR
 
 <!-- ==================== 第 12 部分 ==================== -->
 <section id="part12">
-<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-47)</h2>
+<h2>第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-50)</h2>
 <p>本章节所有架构决策已于 2026-10-13 经过代码审计、接口联调与用户正式审查确认（固化为系统技术规范）。</p>
 
 <h3>12.1 ADR-39：天气日历/周视图/万年历数据自动联动与独立隔离</h3>
@@ -1367,6 +1367,20 @@ graph LR
 <li>补全 admin_backups.html 丢失标签；修复 dashboard.html 趋势图函数语法错误。</li>
 </ul>
 
+</section>
+
+<!-- ==================== ADR-50 外部接口服务配置（V10.11.20） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-50 外部接口服务配置（V10.11.20 落地，对齐传统版）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>6 组「内置默认调用地址却页面无配置入口」的外部服务（Open-Meteo 地理编码/预报/空气质量、timor.tech 节假日、企微长连接、DuckDuckGo 搜索）地址硬编码于模块顶层；节假日接口带 <code>{year}</code> 参数模板、AI 搜索无开关无故障转移。</td></tr>
+<tr><td>统一模型</td><td>新增 <code>service_config.py</code>，每组 = 有序端点列表 <code>[{url, enabled}]</code> + <code>timeout</code> + <code>retries</code>；存储复用 <code>system_settings</code> 表新增 19 个 Key（<code>api_urls_*</code> / <code>ai_search_enabled</code>）；按序遍历启用端点故障转移，全败按重试轮数整轮重试后走既有降级。</td></tr>
+<tr><td>按组落地</td><td><code>weather_service._http_get_endpoint()</code> 替换 3 处硬编码；<code>holiday_service</code> 请求前自动注入 <code>{年份}</code>；<code>webhook_utils</code> 三处 <code>WSClientOptions</code> 增加 <code>ws_url</code> 握手探测；<code>web_search.py</code> 新增总开关与 DuckDuckGo 兼容自定义端点。两版业务代码 MD5 逐字一致。</td></tr>
+<tr><td>一键测试</td><td><code>POST /admin/service-config/test</code>（仅管理员 + CSRF），按组真实协议校验（Open-Meteo JSON 结构 / 节假日 <code>code==0</code>（模拟浏览器 UA 防 403）/ 企微 WS 握手 / 搜索端点解析）；基于表单当前值，未保存也可测。</td></tr>
+<tr><td>页面与交互</td><td>新增 <code>templates/admin_service_config.html</code>（6 组卡片、多端点列表、「＋ 添加端点」新增行自带「保存」「取消」（仅新增时显示）、重试参数、AI 总开关）；<code>routes_ext.py</code> 新增三路由（白名单+前缀校验+至少 1 条启用端点+节假日自动补全，天然支持单组提交）；<code>base.html</code> 菜单新增「外部接口配置」；提示为页面顶部居中 toast，按钮图标+中文，首行「上移」/末行「下移」自动置灰。</td></tr>
+<tr><td>Docker 环境说明</td><td>配置实时读库即存即生效（Gunicorn 多进程/后台巡检线程通用）；多 Worker 场景各进程共享同一 <code>system_settings</code> 表，任一进程保存后其他进程下次读取即时生效，无需重启容器。</td></tr>
+</table>
 </section>
 
 <!-- ==================== 文档总结 ==================== -->
