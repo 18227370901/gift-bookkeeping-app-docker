@@ -24,6 +24,8 @@ dist/
 *.bak
 *.bak_*
 data/
+# V10.11.21 结构重组：日志/缓存/恢复前备份等运行期临时产物归入 logs/，不入库不上传
+logs/
 ssl/
 .env
 .env.*

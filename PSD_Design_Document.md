@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.11.20 · 生成日期: 2026-10-16 · 审计基线: 全量对齐传统版功能 + ADR-39~50 规范固化 + 容器探针与字体适配 · 审计范围: 60 文件 / ~27,300 行代码
+> **Docker 版** · 版本: V10.11.21 · 生成日期: 2026-10-16 · 审计基线: 全量对齐传统版功能 + ADR-39~51 规范固化 + 容器探针与字体适配 · 审计范围: 60 文件 / ~27,300 行代码
 
 ---
 
@@ -1299,6 +1299,17 @@ graph LR
   3. **一键测试**：`POST /admin/service-config/test` 按组真实协议校验（Open-Meteo JSON 结构 / 节假日 `code==0`（模拟浏览器 UA 防 403）/ 企微 WS 握手 / 搜索端点解析）；基于表单当前值，未保存也可测。
   4. **页面与交互**：新增 `templates/admin_service_config.html`（6 组卡片，多端点列表+行内启用/上移/下移/删除/测试，「＋ 添加端点」新增行自带「保存」「取消」（仅新增时显示），请求超时/重试参数，AI 组总开关）；`routes_ext.py` 新增 GET / POST 保存 / POST 测试三路由（白名单+前缀校验+至少 1 条启用端点+节假日自动补全，天然支持单组提交）；`base.html` 系统管理菜单新增「外部接口配置」；提示为页面顶部居中 toast（替代原生 alert/confirm，恢复默认为模态二次确认）；按钮图标+中文，首行「上移」/末行「下移」自动置灰并在各类操作后刷新；默认值 = 现状硬编码地址，行为零变化。
   5. **Docker 环境说明**：配置实时读库即存即生效（容器内 Gunicorn 多进程/后台巡检线程均适用）；多 Worker 场景下各进程共享同一 `system_settings` 表，任一进程保存后其他进程下次读取即时生效，无需重启容器。
+
+### 12.13 ADR-51：根目录文件架构重组（V10.11.21 落地，仅结构·零业务逻辑变化，对齐传统版 ADR-51）
+- **背景与根因**：
+  1. 根目录堆积 20 个 `.py` 文件（主入口 app.py 3569 行 + gunicorn.conf.py 部署配置 + 18 个业务模块），阅读入口不清晰；正常工程惯例根目录仅应有启动入口、部署配置、说明/设计文档、依赖清单等基础文件；
+  2. 运行期产物散落：data/ 下 3 个节假日/天气/地理编码磁盘缓存 json、恢复操作自动生成的 `.bak` 备份与运行库同级——与"仓库数据"混杂，虽有 .gitignore 兜底但结构混乱。
+- **决策方案与实施结果**：
+  1. **三分层包化迁移（git mv 保留文件历史，18 个文件全部识别为 rename）**：`services/`（13 模块：models/gift_utils/ai_service/web_search/webhook_utils/webdav_utils/weather_service/holiday_service/alert_service/dashboard_service/pdf_generator/service_config/_daemon_lock）、`routes/`（routes_ext/routes_ai/routes_weather/routes_alert）、`tools/`（generate_ssl_certs）；根目录仅剩 `app.py`（BUNDLE_DIR/templates/static/样例库语义不变）与 `gunicorn.conf.py`（Dockerfile CMD `gunicorn -c gunicorn.conf.py app:app` 引用不变）。
+  2. **logs/ 运行期产物统一收纳（仅本地留存，.gitignore 整体忽略）**：`holiday_service`/`weather_service` 磁盘缓存路径常量由 `data/` 改 `logs/`（holiday 补 `os.makedirs('logs')` 保证）；`routes_ext.py` 两处恢复前自动备份路径由 `db_path + .bak_时间戳` 改为 `logs/` 下；Docker 运行日志走容器 stdout（`docker compose logs` 查看）不入 logs/；`data/` 收敛为仅运行库（含 WAL/SHM）与 attachments 用户附件（`gift_data` 卷挂载点 `/app/data` 不变）。
+  3. **路径适配（全部语义等价替换，零逻辑变化）**：55 处 import 改写（正则脚本批量：顶层 `from X import` → `from services.X import`、裸 `import X` → `from services import X`、routes 四模块同理；函数内延迟导入一并处理，改后全项目零残留旧式引用）；5 处 `__file__` 锚点各上溯一级（`os.path.dirname(os.path.dirname(...))`）——`_daemon_lock` 锁文件、`webhook_utils._resolve_db_file` 三候选 db 路径、`alert_service.check_data_integrity` 静态资源检查、`weather_service` 区划 js 加载、`routes_ext` 附件目录，指向路径与重组前逐字节一致；`bin/ssl_certs.sh` 两处证书脚本路径改指 `tools/`。
+  4. **验证（编译+启动冒烟）**：29 文件 `py_compile` 全过；本地启动（与容器同一入口 `python app.py`）后 `/health` 200、登录/看板/Webhook/外部接口配置/备份/AI 配置/天气/用户/审计日志等 10 页面全 200；`git diff -M` 全部识别为 rename，无业务逻辑改动。
+  5. **连带影响**：APK 版目录结构后续同步（三版共享文件约定改为按路径映射同步：传统版 `services/web_search.py` ↔ 两版 `web_search.py`）；PyInstaller frozen 分支逻辑（app.py 内 BUNDLE_DIR）不受影响；两版此前共享的 `bin/` 脚本未动。
 
 ## 文档总结
 

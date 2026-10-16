@@ -25,8 +25,7 @@ import threading
 import requests
 
 # V10.11.20 外部接口服务配置（多端点 + 故障转移 + 重试参数），见 service_config.py
-import service_config
-
+from services import service_config
 # ===================== 常量 =====================
 GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search'
 FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
@@ -160,8 +159,9 @@ def wind_direction_cn(deg):
 
 
 # ===================== 缓存与离线兜底常量 =====================
-FORECAST_CACHE_FILE = os.path.join('data', 'weather_forecast_cache.json')
-GEOCODE_CACHE_FILE = os.path.join('data', 'weather_geocode_cache.json')
+# V10.11.21 起归入 logs/ 目录：公开数据缓存不入库不上传（cwd 相对路径——服务以项目根为工作目录）
+FORECAST_CACHE_FILE = os.path.join('logs', 'weather_forecast_cache.json')
+GEOCODE_CACHE_FILE = os.path.join('logs', 'weather_geocode_cache.json')
 FORECAST_CACHE_TTL = 1800  # 30 分钟缓存有效期
 
 _mem_forecast_cache = {}
@@ -250,7 +250,8 @@ def _load_regional_cities():
             if n_k:
                 index[n_k] = dict(v)
 
-        js_path = os.path.join(os.path.dirname(__file__), 'static', 'js', 'china-regions.js')
+        # V10.11.21 结构重组：services/ 上溯一级回到项目根（static 资源位于项目根）
+        js_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'js', 'china-regions.js')
         if os.path.exists(js_path):
             try:
                 with open(js_path, 'r', encoding='utf-8') as f:

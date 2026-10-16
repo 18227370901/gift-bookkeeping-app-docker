@@ -20,7 +20,8 @@ _lock_holders = {}
 
 def _get_lock_path(name):
     """获取锁文件路径，优先使用 data 目录（Docker 卷挂载点）"""
-    base = os.path.dirname(os.path.abspath(__file__))
+    # V10.11.21 结构重组：模块移入 services/，锚点上溯一级回到项目根（语义逐字节等价）
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(base, 'data')
     if not os.path.isdir(data_dir):
         data_dir = base

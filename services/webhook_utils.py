@@ -49,16 +49,14 @@ def _import_aibot():
 # V10.10.15：监听线程通过 raw sqlite3 读取 bot_secret，需调用 decrypt_credential 解密
 # （models.py 的 bot_secret 是 property，raw SQL 读取的是 AES-256-GCM 密文）
 try:
-    from models import decrypt_credential
+    from services.models import decrypt_credential
 except Exception:
     decrypt_credential = None
 
-from _daemon_lock import try_acquire_daemon_lock
+from services._daemon_lock import try_acquire_daemon_lock
 
 # V10.11.20 外部接口服务配置（企微长连接地址多端点 + 故障转移），见 service_config.py
-import service_config
-
-
+from services import service_config
 async def _pick_wecom_ws_url_async():
     """V10.11.20 企微长连接地址故障转移：
     按配置顺序握手探测「启用」的端点，返回第一个可用的 wss 地址；
@@ -146,7 +144,8 @@ def _sanitize_log_data(data):
 
 def _resolve_db_file():
     """动态获取 SQLite 数据库文件路径（适配 Docker /app/data 挂载与原生环境）"""
-    base = os.path.dirname(os.path.abspath(__file__))
+    # V10.11.21 结构重组：services/ 上溯一级回到项目根目录（语义逐字节等价）
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidates = [
         os.path.join(base, 'data', 'gift_bookkeeping.db'),
         os.path.join(base, 'gift_bookkeeping.db'),
