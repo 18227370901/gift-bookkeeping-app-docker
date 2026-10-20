@@ -8,6 +8,11 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🐛 **V10.11.29 Nginx 配置渲染范围表达式加固（对齐传统版 ADR-59；其 sed 输入本已使用 `$nginx_template`，无路径缺陷）**：
+>   ① **背景**：传统版用户服务器实测——重启后生成的 Nginx 配置文件仅剩头部注释、正文为空，根因为渲染 sed 的输入路径写死旧路径（模板迁入 config/ 后读到空文件，详见传统版 ADR-59）；**本版核对结论：Docker 版 `bin/nginx_config.sh` 第 57 行 sed 输入本已使用 `$nginx_template` 变量（config/ 优先、根目录回退双路径正确），不存在该路径缺陷**；
+>   ② **同步加固**：两版共有的范围表达式 `'1,/^#   __SSL_KEY__/d'` 依赖模板头部注释中恰好存在 `#   __SSL_KEY__` 前缀行（模板重构后仅为占位符说明行），模板头部注释一旦变动，sed 地址范围延伸至 EOF 将静默删光全部正文——本版同步替换为 `'/^upstream /,$!d'`（按正文结构截取，模板头部布局变化均安全）；
+>   ③ **验证**：本版 `sh -n` 语法通过；Git Bash 沙盒按服务器场景渲染（config/ 模板存在、根目录旧模板缺失）生成 **57 行完整配置**，upstream/server_name/listen/proxy_pass 全部正确替换、无残留占位符。
+>   **服务器升级指引**：`git pull` 后由宿主侧脚本重跑（`NGINX_CONF_FORCE_UPDATE=1 ./run.sh restart`）重新生成完整 Nginx 配置。
 > - 🐛 **V10.11.28 Linux 服务器 logs/ 运行目录缺失修复同步（对齐传统版 ADR-58，含镜像侧加固）**：
 >   ① **宿主机侧评估（不适用）**：传统版报错根因是 `bin/config.sh` 的 `LOG_FILE`/`PID_FILE` 指向 `logs/` 而 shell 重定向要求目录已存在（logs/ 被 .gitignore 忽略，git clone 后缺失）——**Docker 版宿主 run.sh 无 LOG_FILE/PID_FILE 定义**（Web 服务在容器内运行，日志走 `docker compose logs`，无 shell 重定向到 logs/ 的路径），此缺陷不存在；
 >   ② **镜像侧加固（.dockerignore + Dockerfile）**：`.dockerignore` 此前仅排除 `*.log`/`*.pid` 文件而未排除 `logs/` 目录（本地构建若存在 logs/ 缓存 json 会随 `COPY . /app/` 打入镜像）——现显式排除 `logs/`（运行期产物不进镜像，减小体积、保证确定性）；`Dockerfile` runner 阶段新增 `RUN mkdir -p /app/logs` **预置空目录**（容器内运行期写入点 weather/holiday 磁盘缓存与数据库恢复备份虽有 Python makedirs 兜底，预置目录消除首个请求的兜底创建窗口并规范化镜像结构；容器 logs 为可丢弃数据不挂卷，符合 ADR-51 决策）；

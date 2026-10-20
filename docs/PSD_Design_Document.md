@@ -1347,10 +1347,18 @@ graph LR
 - **验证**：11 个 `run.sh + bin/*.sh` POSIX `sh -n` 语法全过（本版脚本未改动，例行复查）；`.dockerignore`/`Dockerfile` 变更在部署服务器 `git pull && docker compose up -d --build` 重建镜像后生效。
 - **连带影响**：仅 `.dockerignore`（+4 行）与 `Dockerfile`（+5 行）；bin 脚本、Python、模板零改动；APK 版不涉及。
 
+### 12.17 ADR-55：Nginx 配置渲染范围表达式加固（V10.11.29 落地，对齐传统版 ADR-59）
+- **背景**：传统版用户服务器实测 Nginx 配置文件正文为空——根因为渲染 sed 的输入路径写死旧路径（模板迁入 config/ 后读到空文件，详见传统版 ADR-59）。**本版核对结论：Docker 版 `bin/nginx_config.sh` 第 57 行 sed 输入本已使用 `$nginx_template` 变量**（config/ 优先、根目录回退双路径探测一致），**无路径缺陷**。
+- **评估结论与实施**：
+  1. **范围表达式同源加固**：两版共有的 `sed -e '1,/^#   __SSL_KEY__/d'` 依赖模板头部注释中恰好存在 `#   __SSL_KEY__` 前缀行（V10.11.22 模板重构后仅为占位符说明行）——模板头部注释一旦变动，sed 地址范围延伸至 EOF 将静默删光全部正文（`2>/dev/null` + `|| true` 掩盖错误）；本版同步替换为 `'/^upstream /,$!d'`（删除 upstream 行前全部头部注释、正文完整保留，模板头部布局变化均安全）；
+  2. **其余零改动**：宿主机脚本其余逻辑、Python、模板、Dockerfile/.dockerignore 均不涉及本次缺陷。
+- **验证**：本版 `bin/nginx_config.sh` POSIX `sh -n` 通过（Git Bash 5.2.37）；Git Bash 沙盒按服务器场景渲染（config/ 模板存在、根目录旧模板缺失）生成 **57 行完整配置**——upstream/keepalive/server_name/listen 443 default_server ssl/ssl_certificate/proxy_pass 等全部正确替换、无残留占位符，与原缺陷现象（仅头部注释）形成对照。
+- **连带影响**：仅 `bin/nginx_config.sh`（替换一处表达式）；Python/模板/前端/数据库零改动；APK 版不涉及。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-10（V10.11.28 修订：logs 运行目录缺失修复同步与镜像侧加固 ADR-54；承接 V10.11.23~27 批量同步） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表
+> 生成时间: 2026-10-10（V10.11.29 修订：Nginx 配置渲染范围表达式加固 ADR-55；承接 V10.11.28 logs 运行目录缺失修复同步 ADR-54） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表

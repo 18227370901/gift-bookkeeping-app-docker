@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.28</span>·<span>生成日期: 2026-10-20</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
+<span>Docker 版</span>·<span>版本: V10.11.29</span>·<span>生成日期: 2026-10-20</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -1440,13 +1440,26 @@ graph LR
 </table>
 </section>
 
+<!-- ==================== ADR-55 Nginx 配置渲染范围表达式加固（V10.11.29） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-55 Nginx 配置渲染范围表达式加固（V10.11.29 落地，对齐传统版 ADR-59）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>传统版用户服务器实测 Nginx 配置文件为空——根因是渲染 sed 的输入路径写死旧路径（config/ 迁入后读到空文件，详见传统版 ADR-59）。<strong>本版核对结论：Docker 版 <code>bin/nginx_config.sh</code> 第 57 行 sed 输入本已使用 <code>$nginx_template</code> 变量（config/ 优先、根目录回退双路径），无路径缺陷</strong>。</td></tr>
+<tr><td>范围表达式加固</td><td>两版共有的 <code>sed -e '1,/^#   __SSL_KEY__/d'</code> 依赖模板头部注释中恰好出现 <code>#   __SSL_KEY__</code> 前缀行（V10.11.22 模板重构后仅为占位符说明行）——头部注释一旦变动，sed 地址范围延伸至文件末尾将静默删光全部正文（<code>2>/dev/null</code> + <code>|| true</code> 掩盖错误）；本版同步替换为 <code>'/^upstream /,$!d'</code>（删除 upstream 行前全部头部注释、正文完整保留，模板头部布局变化均安全）。</td></tr>
+<tr><td>其余零改动</td><td>宿主机脚本其余逻辑、Python、模板、Dockerfile/.dockerignore 均不涉及本次缺陷。</td></tr>
+<tr><td>验证</td><td>本版 <code>bin/nginx_config.sh</code> POSIX <code>sh -n</code> 通过（Git Bash 5.2.37）；Git Bash 沙盒按服务器场景渲染（config/ 模板存在、根目录旧模板缺失）生成 <strong>57 行完整配置</strong>——upstream/keepalive/server_name/listen 443 default_server ssl/ssl_certificate/proxy_pass 等全部正确替换、无残留占位符，与原缺陷现象（仅头部注释）形成对照。</td></tr>
+<tr><td>连带影响</td><td>仅 <code>bin/nginx_config.sh</code>（替换一处表达式）；Python/模板/前端/数据库零改动；APK 版不涉及。</td></tr>
+</table>
+</section>
+
 
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.27 修订：V10.11.23~27 五版本批量同步对齐传统版 ADR-53；承接 V10.11.22 文档配置分层治理） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.29 修订：Nginx 配置渲染范围表达式加固 ADR-55；承接 V10.11.28 logs 运行目录缺失修复同步 ADR-54） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
 </div>
 
 </div>
