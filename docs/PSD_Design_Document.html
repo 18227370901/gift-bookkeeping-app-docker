@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.21</span>·<span>生成日期: 2026-10-16</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
+<span>Docker 版</span>·<span>版本: V10.11.27</span>·<span>生成日期: 2026-10-20</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -1412,13 +1412,27 @@ graph LR
 </table>
 </section>
 
+<!-- ==================== ADR-53 V10.11.23~27 五版本批量同步 ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-53 V10.11.23 ~ V10.11.27 五版本批量同步（对齐传统版 ADR-53~57，共享业务代码仓库态字节一致）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>传统版自 V10.11.22 后连续迭代 5 个版本（告警真实反馈/开关批量/即时保存/天气多级地名/别名双保险与缓存治理），Docker 版滞后 5 版；三仓库「共享业务文件 MD5 一致」约定要求本次同步消除版本漂移。</td></tr>
+<tr><td>同步机制</td><td>以传统版 <code>git diff 28327ed..HEAD</code>（12 文件 +1521 行）为源补丁应用——11 文件上下文干净应用零冲突；<code>weather_service.py</code> 因本版 V10.11.21 重组时注释措辞漂移冲突，连同 <code>routes_ext.py</code>/<code>alert_service.py</code>/<code>webhook_utils.py</code> 共 4 文件改以传统版整文件对齐（消除历史注释漂移）。</td></tr>
+<tr><td>字节一致性核验</td><td>12 共享文件中 <strong>11 个仓库态 blob（git ls-files 哈希）与传统版完全一致</strong>；<code>app.py</code> 唯一保留本版专属 <code>/healthz</code> 容器探活路由单行差异（Dockerfile HEALTHCHECK 依赖）。</td></tr>
+<tr><td>同步内容要点</td><td>①告警 <code>sync_collect</code> 真实反馈 +渠道选择（_SCHEMA_VERSION 1021）+表格列宽双缺陷修复+配置行只读锁；②行级开关图标化+批量启用/停用+即时保存+全停用校验放开；③天气全路径多级地名匹配+ServiceDisabled 停用哨兵+月/周视图修复+缓存回显；④DISTRICT_ALIASES 别名表+宽松匹配最具体优先；⑤缓存 TTL 30 分钟零请求秒开+更新时间常驻+刷新按钮+登出清理；⑥配置页布局显示优化全套（置灰/智能映射/toast 点名/F1-F6）。详见 docs/CHANGELOG.md。</td></tr>
+<tr><td>验证</td><td>7 个 Python 改动文件 py_compile 全过；容器内运行验证（构建镜像后浏览器回归）留部署服务器执行：pull 后 <code>docker compose up -d --build</code>，重点回归天气多级地名/配置页开关批量/告警测试真实反馈。</td></tr>
+<tr><td>连带影响</td><td><code>app.py</code>（healthz 保留）/<code>routes/</code>/<code>services/</code>/<code>templates/</code>/<code>static/js</code> 共 12 文件；APK 版按裁剪范围另行同步（APK V3.4.2）。</td></tr>
+</table>
+</section>
+
 
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.13 修订：五项缺陷修复；承接 V10.11.12 登录后背景横幅） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-10（V10.11.27 修订：V10.11.23~27 五版本批量同步对齐传统版 ADR-53；承接 V10.11.22 文档配置分层治理） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
 </div>
 
 </div>

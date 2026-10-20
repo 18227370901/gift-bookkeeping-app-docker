@@ -3405,8 +3405,11 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
                     # 管理员只需填到 .../year/，系统自动补全 {年份} 变量
                     u = normalize_holiday_url(u)
                 cleaned.append({'url': u, 'enabled': bool(item.get('enabled', True))})
-            if not cleaned or not any(x['enabled'] for x in cleaned):
-                return jsonify({'success': False, 'message': f'「{DEFAULT_GROUPS[gname]["label"]}」至少需要 1 条启用中的端点'}), 400
+            # V10.11.25: 放开「至少 1 条启用端点」强制校验——允许全部停用，运行时各业务模块
+            # （天气/节假日/AI搜索/企微长连接均为即用即读 get_enabled_urls）按设计走降级兜底；
+            # 端点为空行导致的空列表仍拒绝（端点记录不能整组丢失）。前端对全停用给出降级提示。
+            if not cleaned:
+                return jsonify({'success': False, 'message': f'「{DEFAULT_GROUPS[gname]["label"]}」端点列表不能为空'}), 400
             try:
                 timeout = max(1, min(60, int(timeout)))
             except Exception:
@@ -3726,6 +3729,15 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
             )
         except Exception:
             pass
+        # V10.11.23: AJAX 请求返回 JSON（前端行内更新状态徽标 + toast 轻提示，不再整页刷新）；
+        # 非 AJAX 请求保持 flash + redirect 兼容
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'success': True,
+                'enabled': bool(hook.is_enabled),
+                'channel_name': hook.channel_name,
+                'message': f"Webhook [{hook.channel_name}] 状态已更新！"
+            })
         flash(f"Webhook [{hook.channel_name}] 状态已更新！", 'success')
         return redirect(url_for('admin_webhooks'))
 
@@ -4566,8 +4578,8 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
                 return redirect(url_for('admin_backups'))
 
             # 第4步：备份现有数据库防止损坏
-            # V10.11.21 结构重组：恢复前自动备份归入 logs/ 目录（不入库不上传）
             if os.path.exists(db_path):
+                # V10.11.21 结构重组：历史库备份归入 logs/ 目录（仅本地留存，不入库不上传）
                 _bak_dir = os.path.abspath(os.path.join(os.path.dirname(db_path), '..', 'logs'))
                 os.makedirs(_bak_dir, exist_ok=True)
                 shutil.copy2(db_path, os.path.join(_bak_dir, os.path.basename(db_path) + f".bak_{int(time.time())}"))
@@ -4645,8 +4657,7 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
             flash('仅支持 JSON、CSV、TXT、XLSX、DOCX、ZIP 格式文件！', 'danger')
             return redirect(url_for('admin_backups'))
 
-        # 保存到 data/attachments 目录
-        # V10.11.21 结构重组：routes/ 上溯一级回到项目根（attachments 位于项目根 data/ 下）
+        # 保存到 data/attachments 目录（V10.11.21 结构重组：迁入 routes/ 后锚点上溯一级回项目根）
         attachments_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'attachments')
         os.makedirs(attachments_dir, exist_ok=True)
         filename = file.filename
@@ -4818,8 +4829,8 @@ def register_routes_ext(app, log_operation=None, get_accessible_records_query=No
 
                 # 管理员：保持原文件级替换逻辑（V5: 改用 sqlite3.backup() 原子操作，避免 WAL 不一致）
                 # 第4步：备份当前数据库防止恢复失败
-                # V10.11.21 结构重组：恢复前自动备份归入 logs/ 目录（不入库不上传）
                 if os.path.exists(db_path):
+                    # V10.11.21 结构重组：历史库备份归入 logs/ 目录（仅本地留存，不入库不上传）
                     _bak_dir = os.path.abspath(os.path.join(os.path.dirname(db_path), '..', 'logs'))
                     os.makedirs(_bak_dir, exist_ok=True)
                     shutil.copy2(db_path, os.path.join(_bak_dir, os.path.basename(db_path) + f".bak_{int(time.time())}"))

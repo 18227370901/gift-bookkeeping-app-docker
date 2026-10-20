@@ -26,6 +26,7 @@ import requests
 
 # V10.11.20 外部接口服务配置（多端点 + 故障转移 + 重试参数），见 service_config.py
 from services import service_config
+
 # ===================== 常量 =====================
 GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search'
 FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
@@ -117,6 +118,18 @@ class WeatherError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
+
+class ServiceDisabled(Exception):
+    """V10.11.26 该组外部接口已被管理员明确停用（组内无任何启用端点）。
+    与「端点启用但网络不可达」（返回 None）严格区分：
+       - 明确停用 → 调用方按业务语义报错（不走缓存/离线合成兜底）
+       - 网络故障   → 走原有缓存/离线合成降级链
+    """
+
+    def __init__(self, group):
+        super().__init__(group)
+        self.group = group
 
 
 # ===================== 工具函数 =====================
@@ -232,26 +245,37 @@ def _save_json_disk_cache(filepath, data):
 
 
 _regional_cities_cache = None
+_regional_path_cache = None      # V10.11.26 全路径索引：纯地名串(省/省市/省市县) → 坐标信息
 _regional_cities_lock = threading.Lock()
 
 
 def _load_regional_cities():
-    """懒加载全国行政区划库（static/js/china-regions.js），构建覆盖全部省、市、区县的地理坐标索引"""
-    global _regional_cities_cache
+    """懒加载全国行政区划库（static/js/china-regions.js），构建覆盖全部省、市、区县的地理坐标索引
+    V10.11.26 同时构建「全路径索引」：归一化后的省/省市/省市县纯地名串 → 坐标，
+    供自由文本『四川省巴中市恩阳区』等多级全名精确匹配（修复被宽松匹配误配为上级的问题）。"""
+    global _regional_cities_cache, _regional_path_cache
     if _regional_cities_cache is not None:
         return _regional_cities_cache
     with _regional_cities_lock:
         if _regional_cities_cache is not None:
             return _regional_cities_cache
         index = {}
+        path_index = {}
+
+        def _add_path(key, info):
+            """路径键首次写入（同名区县保留先出现的；多级全路径键天然唯一不受影响）"""
+            if key and key not in path_index:
+                path_index[key] = dict(info)
+
         for k, v in BUILTIN_CITIES.items():
             index[k] = dict(v)
             n_k = _norm_region(k)
             if n_k:
                 index[n_k] = dict(v)
+            _add_path(_norm_region_all(k), v)
 
-        # V10.11.21 结构重组：services/ 上溯一级回到项目根（static 资源位于项目根）
-        js_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'js', 'china-regions.js')
+        # V10.11.21 结构重组：本模块迁入 services/，锚点上溯一级回项目根（js 路径语义不变）
+        js_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'js', 'china-regions.js')
         if os.path.exists(js_path):
             try:
                 with open(js_path, 'r', encoding='utf-8') as f:
@@ -270,6 +294,8 @@ def _load_regional_cities():
                             n_p = _norm_region(p_name)
                             if n_p:
                                 index[n_p] = p_info
+                            p_norm = _norm_region_all(p_name)
+                            _add_path(p_norm, p_info)
                         for c in p.get('c', []):
                             c_name = c.get('n', '')
                             c_g = c.get('g')
@@ -279,6 +305,11 @@ def _load_regional_cities():
                                 n_c = _norm_region(c_name)
                                 if n_c:
                                     index[n_c] = c_info
+                                # 省+市（或直辖市：省+区）
+                                c_norm = _norm_region_all(c_name)
+                                if p_norm:
+                                    _add_path(p_norm + c_norm, c_info)
+                                _add_path(c_norm, c_info)
                             for d in c.get('c', []):
                                 d_name = d.get('n', '')
                                 d_g = d.get('g')
@@ -289,14 +320,135 @@ def _load_regional_cities():
                                     n_d = _norm_region(d_name)
                                     if n_d and n_d not in index:
                                         index[n_d] = d_info
+                                    # 市县 / 省市县 全路径（直辖市 c/d 同名时只留省+区路径，避免『北京朝阳朝阳』）
+                                    d_norm = _norm_region_all(d_name)
+                                    if c_norm and d_norm and d_norm != c_norm:
+                                        _add_path(c_norm + d_norm, d_info)
+                                        if p_norm:
+                                            _add_path(p_norm + c_norm + d_norm, d_info)
+                                    elif d_norm:
+                                        _add_path(d_norm, d_info)
             except Exception:
                 pass
         _regional_cities_cache = index
+        _regional_path_cache = path_index
         return _regional_cities_cache
 
 
+def _match_path(city_name):
+    """V10.11.26 全路径匹配：『省+市+区』/『市+区』/『省+市』完整地名串精确命中本地坐标。
+    返回 dict 或 None。例：『四川省巴中市恩阳区』→ 恩阳区坐标；『巴中市恩阳区』→ 恩阳区坐标。"""
+    if not city_name:
+        return None
+    key = _norm_region_all(str(city_name))
+    if not key:
+        return None
+    if _regional_path_cache is None:
+        _load_regional_cities()
+    v = _regional_path_cache.get(key) if _regional_path_cache else None
+    return dict(v) if v else None
+
+
+# ===================== V10.11.27 自由搜索别名与景区兜底 =====================
+# 景区通用后缀（剥离后能命中行政区划才采用）：『峨眉山风景区』→『峨眉山』
+SCENIC_STRIP_SUFFIXES = (
+    '风景名胜区', '风景区', '国家公园', '森林公园', '湿地公园', '地质公园',
+    '度假区', '旅游区', '滑雪场', '景区', '古城', '古镇',
+)
+
+# 中文区县/地区别名表：官方区划名 ≠ 常用输入习惯的三类场景
+#   ① 名胜古迹 → 所在标准区划；② 自治州俗称 → 州府/县级市（归一化仅剥『自治州』，『西双版纳』类无法直接命中）；
+#   ③ 城市别称/历史旧称
+DISTRICT_ALIASES = {
+    # --- 名胜古迹 → 所在区划 ---
+    '布达拉宫': '拉萨市', '大昭寺': '拉萨市', '纳木错': '当雄县',
+    '乐山大佛': '乐山市', '峨眉山': '峨眉山市', '青城山': '都江堰市', '九寨沟': '九寨沟县',
+    '黄龙': '松潘县', '稻城亚丁': '稻城县', '海螺沟': '泸定县', '四姑娘山': '小金县',
+    '凤凰古城': '凤凰县', '张家界': '张家界市', '武陵源': '张家界市',
+    '阳朔西街': '阳朔县', '漓江': '桂林市', '龙脊梯田': '龙胜县',
+    '鼓浪屿': '厦门市', '武夷山': '武夷山市', '土楼': '永定区',
+    '黄山': '黄山市', '宏村': '黟县', '西递': '黟县', '九华山': '青阳县',
+    '泰山': '泰安市', '崂山': '青岛市', '蓬莱阁': '蓬莱区',
+    '庐山': '庐山市', '井冈山': '井冈山市', '三清山': '玉山县', '婺源': '婺源县',
+    '少林寺': '登封市', '龙门石窟': '洛阳市', '云台山': '修武县', '白云山': '洛阳市',
+    '华山': '华阴市', '兵马俑': '西安市', '壶口瀑布': '吉县', '平遥古城': '平遥县',
+    '五台山': '五台县', '云冈石窟': '大同市', '恒山': '浑源县', '应县木塔': '应县',
+    '成吉思汗陵': '伊金霍洛旗', '呼伦贝尔': '呼伦贝尔市', '满洲里': '满洲里市',
+    '长白山': '安图县', '雾凇岛': '吉林市', '雪乡': '大海林林业局',
+    '莫高窟': '敦煌市', '鸣沙山': '敦煌市', '月牙泉': '敦煌市', '嘉峪关': '嘉峪关市',
+    '茶卡盐湖': '乌兰县', '青海湖': '共和县', '塔尔寺': '湟中区',
+    '西双版纳': '景洪市', '大理古城': '大理市', '洱海': '大理市', '丽江古城': '丽江市',
+    '泸沽湖': '盐源县', '香格里拉': '香格里拉市', '玉龙雪山': '丽江市',
+    '三亚湾': '三亚市', '亚龙湾': '三亚市', '天涯海角': '三亚市', '蜈支洲岛': '三亚市',
+    '千岛湖': '淳安县', '西湖': '杭州市', '普陀山': '舟山市', '雁荡山': '乐清市',
+    '婺州古城': '金华市', '三坊七巷': '福州市', '鼓山': '福州市',
+    '三峡': '宜昌市', '神农架': '神农架林区', '武当山': '丹江口市', '恩施大峡谷': '恩施市',
+    '黄果树': '镇宁县', '梵净山': '江口县', '荔波': '荔波县',
+    '张家界大峡谷': '慈利县', '桂林山水': '桂林市',
+    # --- 自治州俗称 → 州府/县级市 ---
+    '延边': '延吉市', '凉山': '西昌市', '甘孜': '康定市', '阿坝': '马尔康市',
+    '迪庆': '香格里拉市', '德宏': '芒市', '怒江': '泸水市', '大理州': '大理市',
+    '湘西': '吉首市', '恩施州': '恩施市', '黔东南': '凯里市', '黔南': '都匀市',
+    '黔西南': '兴义市', '临夏': '临夏市', '甘南': '合作市', '海西': '德令哈市',
+    '黄南': '同仁市', '果洛': '玛沁县', '海南州': '共和县', '海北': '海晏县',
+    '海东': '乐都区', '伊犁': '伊宁市', '巴州': '库尔勒市', '克州': '阿图什市',
+    '博州': '博乐市', '克孜勒苏': '阿图什市', '大兴安岭': '加格达奇区',
+    # --- 城市别称 / 历史旧称 ---
+    '京城': '北京市', '北平': '北京市', '沪上': '上海市', '申城': '上海市',
+    '金陵': '南京市', '长安': '西安市', '临安': '杭州市', '汴京': '开封市',
+    '汴梁': '开封市', '羊城': '广州市', '花城': '广州市', '蓉城': '成都市',
+    '锦城': '成都市', '山城': '重庆市', '渝州': '重庆市', '春城': '昆明市',
+    '泉城': '济南市', '冰城': '哈尔滨市', '鹏城': '深圳市', '星城': '长沙市',
+    '江城': '武汉市', '榕城': '福州市', '鹭岛': '厦门市',
+}
+
+
+def _alias_or_scenic_std(name):
+    """别名/景区后缀 → 标准行政区划名。
+    ① 直接命中别名表；② 剥离景区通用后缀后再查别名表；
+    ③ 剥离后缀的原名（如『峨眉山风景区』→『峨眉山』，交由调用方再走精确/路径匹配）。
+    返回 None 表示未产生任何标准名。"""
+    raw = str(name or '').strip()
+    if not raw:
+        return None
+    if raw in DISTRICT_ALIASES:
+        return DISTRICT_ALIASES[raw]
+    for suf in SCENIC_STRIP_SUFFIXES:
+        if raw.endswith(suf) and len(raw) > len(suf):
+            stripped = raw[:-len(suf)]
+            if stripped in DISTRICT_ALIASES:
+                return DISTRICT_ALIASES[stripped]
+            return stripped
+    return None
+
+
+def _try_alias_match(raw, reg_index):
+    """别名/景区后缀兜底：映射标准名后重走精确 + 归一化 + 全路径匹配；未命中返回 None"""
+    std = _alias_or_scenic_std(raw)
+    if not std or std == raw:
+        return None
+    if std in reg_index:
+        return dict(reg_index[std])
+    n2 = _norm_region(std)
+    if n2 and n2 in reg_index:
+        return dict(reg_index[n2])
+    p2 = _match_path(std)
+    if p2:
+        return p2
+    return None
+
+
+def _region_level(info):
+    """区划层级：0=区县 / 1=市 / 2=省（宽松匹配『最具体优先』排序用）
+    判定依据索引条目的 admin2：为空=省级；等于 name=市级；否则=区县级"""
+    adm2 = str((info or {}).get('admin2') or '')
+    if not adm2:
+        return 2
+    return 1 if str((info or {}).get('name') or '') == adm2 else 0
+
+
 def _find_cached_or_builtin_city(city_name, province=None, district_city=None):
-    """从内存、磁盘缓存或全国行政区划索引中查找城市坐标"""
+    """从内存、磁盘缓存、全路径索引或全国行政区划索引中查找城市坐标"""
     if not city_name:
         return None
     raw = str(city_name).strip()
@@ -320,6 +472,12 @@ def _find_cached_or_builtin_city(city_name, province=None, district_city=None):
     if norm and norm in reg_index:
         return dict(reg_index[norm])
 
+    # V10.11.26 全路径匹配优先（『四川省巴中市恩阳区』等完整全名），
+    # 必须在下方宽松匹配之前执行——否则『四川省巴中市恩阳区』会被『四川省』键抢先命中返回省级坐标
+    path_hit = _match_path(raw)
+    if path_hit:
+        return path_hit
+
     if province or district_city:
         p_norm = _norm_region(province) if province else ''
         d_norm = _norm_region(district_city) if district_city else ''
@@ -330,11 +488,25 @@ def _find_cached_or_builtin_city(city_name, province=None, district_city=None):
                 if (p_norm and p_norm in adm1) or (d_norm and d_norm in adm2):
                     return dict(v)
 
+    # V10.11.27 别名/景区后缀兜底：非常规输入（名胜古迹/自治州俗称/城市别称）映射标准名后
+    # 重走精确+路径匹配——防止此类输入未命中而错误降级至地级市或走在线解析
+    alias_hit = _try_alias_match(raw, reg_index)
+    if alias_hit:
+        return alias_hit
+
+    # V10.11.27 宽松匹配升级：收集全部候选后按「最具体优先」排序——
+    # 层级（区县>市>省）优先，同层级取命中键更长者；
+    # 修复旧实现按 dict 遍历顺序返回第一个命中导致『XX景区』类输入误配上级/无关区划的问题
+    loose = []
     for k, v in reg_index.items():
-        if k == raw or k == norm or raw in k or k in raw:
-            return dict(v)
-        if norm and (norm in k or k in norm):
-            return dict(v)
+        hit = (k == raw or raw in k or k in raw)
+        if not hit and norm:
+            hit = (k == norm or norm in k or k in norm)
+        if hit:
+            loose.append((k, v))
+    if loose:
+        loose.sort(key=lambda kv: (_region_level(kv[1]), -len(kv[0])))
+        return dict(loose[0][1])
 
     if district_city:
         d_norm = _norm_region(district_city)
@@ -439,6 +611,26 @@ def _norm_region(name):
     return s
 
 
+def _norm_region_all(name):
+    """V10.11.26 行政区划全后缀归一化：去除串内全部省/市/区/县等后缀，拼出纯地名路径。
+    例：'四川省巴中市恩阳区' → '四川巴中恩阳'；'巴中市恩阳区' → '巴中恩阳'。
+    用于自由搜索「省+市+区县」全名与内置路径索引精确匹配，修复全名被宽松匹配误配到省级的问题。
+    """
+    if not name:
+        return ''
+    s = str(name).strip()
+    # 长后缀优先逐项替换（'维吾尔自治区' 必须先于 '自治区'，避免残留 '维吾尔'）
+    for suf in ('特别行政区', '维吾尔自治区', '壮族自治区', '回族自治区', '自治区',
+                '省辖县级行政区划', '自治区直辖县级行政区划', '自治州', '地区',
+                '自治县', '自治旗', '林区', '矿区', '新区', '县级市',
+                '市辖区', '省', '市', '区', '县', '盟', '旗'):
+        s = s.replace(suf, '')
+    # 顺带去除常见分隔符（点号/空格/短横/中括号），兼容『四川省 巴中市』等写法
+    for ch in ('·', '、', ' ', '　', '-', '—', '（', '）', '(', ')'):
+        s = s.replace(ch, '')
+    return s
+
+
 def _region_match(candidate_val, region_name):
     """候选字段与区划名宽松匹配（归一化后包含或相等）"""
     if not region_name:
@@ -483,10 +675,12 @@ def _http_get_endpoint(group, params):
     全部失败后按配置 retries 整轮重试（每轮重新遍历启用端点）；
     返回第一个 HTTP 200 的 Response；全部失败返回 None（调用方走现有降级路径）。
     超时：连接 5s + 读取 = 该组配置的 timeout（默认 8s）。
+    V10.11.26：组内无任何启用端点时抛 ServiceDisabled（管理员明确停用），
+    与「端点启用但网络不可达」（返回 None）严格区分——前者按业务语义报错，后者走缓存/离线合成兜底。
     """
     urls = service_config.get_enabled_urls(group)
     if not urls:
-        return None
+        raise ServiceDisabled(group)
     timeout = (5, service_config.get_timeout(group))
     retries = service_config.get_retries(group)
     for _round in range(retries + 1):
@@ -528,6 +722,12 @@ def geocode_city(city_name, province=None, district_city=None):
         try:
             # V10.11.20 多端点故障转移（配置的启用端点依次尝试，失败自动切换）
             resp = _http_get_endpoint('geocoding', params)
+        except ServiceDisabled:
+            # V10.11.26 明确停用：本地索引/缓存命中时仍可零网络解析（不依赖外部服务）；
+            # 本地未命中（小地名需在线解析）时直接报错，不静默走缓存兜底
+            if cached_hit:
+                return [cached_hit]
+            raise WeatherError('外部城市解析服务已停用，请在「系统设置 → 外部接口服务」中重新启用', 503)
         except (requests.Timeout, requests.RequestException, Exception):
             resp = None
         if resp is None:
@@ -678,6 +878,10 @@ def fetch_forecast(latitude, longitude, timezone='auto', days=DEFAULT_FORECAST_D
             parsed = resp.json()
             if not parsed.get('error'):
                 network_data = parsed
+    except ServiceDisabled:
+        # V10.11.26 明确停用：不走缓存/离线合成兜底，如实报错——
+        # 避免管理员停用服务后天气页仍「正常」展示缓存/合成数据的假象
+        raise WeatherError('外部天气预报服务已停用，请在「系统设置 → 外部接口服务」中重新启用', 503)
     except Exception:
         pass
 
@@ -740,6 +944,9 @@ def fetch_air_quality(latitude, longitude):
             'pm10': cur.get('pm10'),
             'us_aqi': cur.get('us_aqi'),
         }
+    except ServiceDisabled:
+        # V10.11.26 空气质量为增强信息：明确停用同样静默降级（不影响主查询）
+        return None
     except Exception:
         # 网络失败 / JSON 解析失败：静默降级
         return None

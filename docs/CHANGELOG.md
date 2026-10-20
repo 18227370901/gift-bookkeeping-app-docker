@@ -8,6 +8,13 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🔁 **V10.11.23 ~ V10.11.27 批量同步（对齐传统版 main `edf2824`，共享业务代码仓库态字节一致）**：
+>   ① **V10.11.23 告警推送真实反馈与渠道选择 + 表格列宽双缺陷修复 + 行只读锁**（对齐传统版 ADR-53）：`webhook_utils.trigger_webhook_event` 新增 `sync_collect` 同步收集模式（告警测试/巡检真实逐通道反馈）；`AlertPushConfig.channels` 渠道选择字段（`_SCHEMA_VERSION` 1021 + 启动前置防御检查 SQLite/PG 双适配）；`table-resizer.js` 按 `.colw-scope` 模块作用域落位重置按钮 + `IntersectionObserver` 可见性感知初始化（修复隐藏 Tab 列宽固化）；外部接口配置行只读锁定+编辑状态机；Webhook 通道启停/测试局部更新（AJAX 识别 `X-Requested-With`）；
+>   ② **V10.11.24 行级启停开关图标化 + 批量启用/停用**（对齐 ADR-54）：行选择/组级全选（三态）/批量操作条；顺带修复 `cancelEndpointRow`/`delRow` 先 remove 后 closest 返回 null 的存量缺陷；
+>   ③ **V10.11.25 开关即时保存 + 全停用允许**（对齐 ADR-55）：change 事件委托 + 250ms 防抖 + `saveGroup(mode='switch')`（新增行跳过/编辑行取原地址/失败回滚）；保存校验放开「至少 1 条启用端点」（运行时即用即读 `get_enabled_urls` 走各自降级兜底）；
+>   ④ **V10.11.26 天气多级地名匹配 + 月/周视图修复 + 服务停用明确报错 + 配置页布局显示优化**（对齐 ADR-56）：`_norm_region_all` 全路径索引（「四川省巴中市恩阳区」→ 恩阳区零错配）；`syncCalSegs` 月/周按钮高亮同步 + `backToday` 显式选中；天气页 localStorage 缓存回显 + 自动静默刷新；`ServiceDisabled` 哨兵区分「明确停用」与「网络故障」（停用时 503 如实报错不走降级假象）；配置页只读置灰/批量按钮按勾选状态智能映射/toast 点名组名/F1-F6（组徽章/停用行弱化/未保存提醒/业务影响提示/批量停用二次确认/图标按钮）；
+>   ⑤ **V10.11.27 自由搜索别名双保险 + 缓存 TTL 治理**（对齐 ADR-57）：`DISTRICT_ALIASES` 约 90 条别名表（峨眉山→峨眉山市/西双版纳→景洪市/羊城→广州市）+ 景区后缀剥离 + 宽松匹配按「层级+名称长度」最具体优先排序；本地缓存升级 `{mode,label,city,lat,lon,data,fetchedAt}` + TTL 30 分钟零请求秒开 + 常驻「数据更新于 HH:MM」+ 刷新按钮；退出登录/会话失效清理 `gift_weather_*` 缓存键；
+>   **同步方式与验收**：传统版 `git diff 28327ed..HEAD` 补丁应用（11 文件干净应用）+ `weather_service.py` 等 4 个存在历史注释措辞漂移的文件以传统版为准整文件对齐——**12 共享文件中 11 个仓库态 blob 完全一致**，`app.py` 仅保留 Docker 专属 `/healthz` 容器探活路由单行差异；7 个 Python 文件 py_compile 全过；`.gitattributes` 未启用（两仓库均 autocrlf=true 仓库态 LF 规范化）。**容器内实际运行验证需在部署服务器执行**（开发机无 Docker）：pull 后重建镜像 `docker compose up -d --build`，重点回归天气页多级地名/配置页开关批量/告警测试真实反馈。
 > - 📦 **V10.11.22 根目录文档与配置分层治理（docs/ 与 config/ 体系化收归，对齐传统版）**：
 >   ① **统一建立 docs/ 文档中心**：PSD_Design_Document.md 与单文件 3.46MB 的 PSD_Design_Document.html 移入 docs/；从 README.md 中抽离 V2 至 V10.11.21 全量历史版本变更记录与部署运维手册至 docs/CHANGELOG.md、docs/DEPLOYMENT.md、docs/SAMPLE_DATA.md 与 docs/ANDROID_BUILD.md，使根目录自述文件精简易读；
 >   ② **统一建立 config/ 配置中心**：
