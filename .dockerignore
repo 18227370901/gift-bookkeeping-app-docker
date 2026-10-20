@@ -54,6 +54,10 @@ app.log
 app_err.log
 app_stdout.log
 
+# V10.11.28: logs/ 目录整体排除（磁盘缓存 json/数据备份等运行期产物，不打入镜像；
+# 镜像内空目录由 Dockerfile RUN mkdir -p /app/logs 预置）
+logs/
+
 # 文档与部署编排文件（运行时不需要，减小镜像体积）
 *.md
 docs/

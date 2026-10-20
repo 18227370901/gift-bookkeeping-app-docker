@@ -1337,10 +1337,20 @@ graph LR
   4. 外部接口配置页布局显示优化全套（只读置灰/批量按钮智能映射/toast 点名/F1-F6）。
 - **连带影响**：`app.py`（healthz 保留）/`routes/`/`services/`/`templates/`/`static/js` 共 12 文件；`.gitattributes` 仍不启用（autocrlf=true 仓库态 LF 归一）；APK 版按裁剪范围另行同步（见 APK 版 V3.4.2）。
 
+### 12.16 ADR-54：logs/ 运行目录缺失修复同步与镜像侧加固（V10.11.28 落地，对齐传统版 ADR-58）
+- **背景**：传统版用户服务器实测报错 `run.sh: cannot create /opt/service/gift-bookkeeping-app/logs/app.log: Directory nonexistent`——根因为 logs/ 被 .gitignore 整体忽略（git clone/pull 后目录缺失）+ shell 重定向不自动创建目录（详见传统版 ADR-58）。本版需评估同步范围。
+- **评估结论与实施**：
+  1. **宿主机侧（不适用）**：Docker 版宿主 `run.sh`/`bin/config.sh` **无 `LOG_FILE`/`PID_FILE` 定义**——Web 服务运行在容器内（Gunicorn stdout，`docker compose logs` 查看），宿主脚本不存在 shell 重定向到 logs/ 的路径，传统版缺陷在本版宿主侧不存在；
+  2. **`.dockerignore` 补排除 `logs/`**：此前仅排除 `*.log`/`*.pid` 文件，本地构建若存在 logs/（磁盘缓存 json）会随 `COPY . /app/` 打入镜像——现显式排除（运行期产物不进镜像，体积与确定性双收益）；镜像内空目录改由 Dockerfile 预置；
+  3. **`Dockerfile` runner 阶段新增 `RUN mkdir -p /app/logs`**：容器内运行期写入点（weather/holiday 磁盘缓存、数据库恢复备份）虽有 Python `makedirs(exist_ok=True)` 兜底，预置空目录消除首个请求的兜底创建窗口并规范化镜像结构；logs 为可丢弃数据不挂卷（ADR-51 决策不变）；
+  4. **容器内 Python 写入点核查（无需修复）**：weather/holiday/备份三处写入点均已有 makedirs 兜底，与共享文件保持一致（V10.11.23~27 同步后与传统版字节一致）。
+- **验证**：11 个 `run.sh + bin/*.sh` POSIX `sh -n` 语法全过（本版脚本未改动，例行复查）；`.dockerignore`/`Dockerfile` 变更在部署服务器 `git pull && docker compose up -d --build` 重建镜像后生效。
+- **连带影响**：仅 `.dockerignore`（+4 行）与 `Dockerfile`（+5 行）；bin 脚本、Python、模板零改动；APK 版不涉及。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-10（V10.11.27 修订：V10.11.23~27 五版本批量同步对齐传统版，ADR-53；承接 V10.11.21 重组与 V10.11.22 文档配置分层治理） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表
+> 生成时间: 2026-10-10（V10.11.28 修订：logs 运行目录缺失修复同步与镜像侧加固 ADR-54；承接 V10.11.23~27 批量同步） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表

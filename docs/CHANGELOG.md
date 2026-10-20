@@ -8,6 +8,11 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🐛 **V10.11.28 Linux 服务器 logs/ 运行目录缺失修复同步（对齐传统版 ADR-58，含镜像侧加固）**：
+>   ① **宿主机侧评估（不适用）**：传统版报错根因是 `bin/config.sh` 的 `LOG_FILE`/`PID_FILE` 指向 `logs/` 而 shell 重定向要求目录已存在（logs/ 被 .gitignore 忽略，git clone 后缺失）——**Docker 版宿主 run.sh 无 LOG_FILE/PID_FILE 定义**（Web 服务在容器内运行，日志走 `docker compose logs`，无 shell 重定向到 logs/ 的路径），此缺陷不存在；
+>   ② **镜像侧加固（.dockerignore + Dockerfile）**：`.dockerignore` 此前仅排除 `*.log`/`*.pid` 文件而未排除 `logs/` 目录（本地构建若存在 logs/ 缓存 json 会随 `COPY . /app/` 打入镜像）——现显式排除 `logs/`（运行期产物不进镜像，减小体积、保证确定性）；`Dockerfile` runner 阶段新增 `RUN mkdir -p /app/logs` **预置空目录**（容器内运行期写入点 weather/holiday 磁盘缓存与数据库恢复备份虽有 Python makedirs 兜底，预置目录消除首个请求的兜底创建窗口并规范化镜像结构；容器 logs 为可丢弃数据不挂卷，符合 ADR-51 决策）；
+>   ③ **容器内 Python 写入点核查（无需修复）**：`weather_service._save_json_disk_cache`（makedirs exist_ok）、`holiday_service`（makedirs 'logs'）、`routes_ext` 两处恢复备份（makedirs _bak_dir）均已有兜底；
+>   ④ **验证**：11 个 run.sh + bin/*.sh POSIX `sh -n` 语法全过（本版脚本未改动，例行复查）；`.dockerignore`/`Dockerfile` 变更镜像重建生效（部署服务器 `git pull && docker compose up -d --build`）。
 > - 🔁 **V10.11.23 ~ V10.11.27 批量同步（对齐传统版 main `edf2824`，共享业务代码仓库态字节一致）**：
 >   ① **V10.11.23 告警推送真实反馈与渠道选择 + 表格列宽双缺陷修复 + 行只读锁**（对齐传统版 ADR-53）：`webhook_utils.trigger_webhook_event` 新增 `sync_collect` 同步收集模式（告警测试/巡检真实逐通道反馈）；`AlertPushConfig.channels` 渠道选择字段（`_SCHEMA_VERSION` 1021 + 启动前置防御检查 SQLite/PG 双适配）；`table-resizer.js` 按 `.colw-scope` 模块作用域落位重置按钮 + `IntersectionObserver` 可见性感知初始化（修复隐藏 Tab 列宽固化）；外部接口配置行只读锁定+编辑状态机；Webhook 通道启停/测试局部更新（AJAX 识别 `X-Requested-With`）；
 >   ② **V10.11.24 行级启停开关图标化 + 批量启用/停用**（对齐 ADR-54）：行选择/组级全选（三态）/批量操作条；顺带修复 `cancelEndpointRow`/`delRow` 先 remove 后 closest 返回 null 的存量缺陷；

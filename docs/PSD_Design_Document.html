@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.27</span>·<span>生成日期: 2026-10-20</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
+<span>Docker 版</span>·<span>版本: V10.11.28</span>·<span>生成日期: 2026-10-20</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~51 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -1423,6 +1423,20 @@ graph LR
 <tr><td>同步内容要点</td><td>①告警 <code>sync_collect</code> 真实反馈 +渠道选择（_SCHEMA_VERSION 1021）+表格列宽双缺陷修复+配置行只读锁；②行级开关图标化+批量启用/停用+即时保存+全停用校验放开；③天气全路径多级地名匹配+ServiceDisabled 停用哨兵+月/周视图修复+缓存回显；④DISTRICT_ALIASES 别名表+宽松匹配最具体优先；⑤缓存 TTL 30 分钟零请求秒开+更新时间常驻+刷新按钮+登出清理；⑥配置页布局显示优化全套（置灰/智能映射/toast 点名/F1-F6）。详见 docs/CHANGELOG.md。</td></tr>
 <tr><td>验证</td><td>7 个 Python 改动文件 py_compile 全过；容器内运行验证（构建镜像后浏览器回归）留部署服务器执行：pull 后 <code>docker compose up -d --build</code>，重点回归天气多级地名/配置页开关批量/告警测试真实反馈。</td></tr>
 <tr><td>连带影响</td><td><code>app.py</code>（healthz 保留）/<code>routes/</code>/<code>services/</code>/<code>templates/</code>/<code>static/js</code> 共 12 文件；APK 版按裁剪范围另行同步（APK V3.4.2）。</td></tr>
+</table>
+</section>
+
+<!-- ==================== ADR-54 logs 运行目录缺失修复同步与镜像侧加固（V10.11.28） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-54 logs/ 运行目录缺失修复同步与镜像侧加固（V10.11.28 落地，对齐传统版 ADR-58）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>传统版用户服务器实测报错 <code>run.sh: cannot create /opt/service/gift-bookkeeping-app/logs/app.log: Directory nonexistent</code>——根因为 logs/ 被 .gitignore 整体忽略（git clone/pull 后目录缺失）+ shell 重定向不自动创建目录（详见传统版 ADR-58）。</td></tr>
+<tr><td>宿主机评估（不适用）</td><td>Docker 版宿主 <code>run.sh</code>/<code>bin/config.sh</code> <strong>无 LOG_FILE/PID_FILE 定义</strong>——Web 服务运行在容器内（Gunicorn stdout，<code>docker compose logs</code> 查看），宿主脚本不存在 shell 重定向到 logs/ 的路径，传统版缺陷在本版宿主侧不存在。</td></tr>
+<tr><td>.dockerignore 加固</td><td>此前仅排除 <code>*.log</code>/<code>*.pid</code> 文件，本地构建若存在 logs/（磁盘缓存 json）会随 <code>COPY . /app/</code> 打入镜像——现显式排除 <code>logs/</code>（运行期产物不进镜像，体积与确定性双收益）。</td></tr>
+<tr><td>Dockerfile 预置目录</td><td>runner 阶段新增 <code>RUN mkdir -p /app/logs</code>：容器内写入点（weather/holiday 磁盘缓存、数据库恢复备份）虽有 Python makedirs 兜底，预置空目录消除首个请求的兜底创建窗口并规范化镜像结构；logs 为可丢弃数据不挂卷（ADR-51 决策不变）。</td></tr>
+<tr><td>验证</td><td>11 个 run.sh + bin/*.sh POSIX <code>sh -n</code> 语法全过（本版脚本未改动，例行复查）；.dockerignore/Dockerfile 变更在部署服务器 <code>git pull && docker compose up -d --build</code> 重建镜像后生效。</td></tr>
+<tr><td>连带影响</td><td>仅 <code>.dockerignore</code>（+4 行）与 <code>Dockerfile</code>（+5 行）；bin 脚本、Python、模板零改动；APK 版不涉及。</td></tr>
 </table>
 </section>
 

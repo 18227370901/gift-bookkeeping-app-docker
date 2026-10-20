@@ -46,6 +46,11 @@ COPY --from=builder /install /usr/local
 # 复制应用代码
 COPY . /app/
 
+# V10.11.28 (对齐传统版运行目录修复)：logs/ 已被 .dockerignore 排除（不打入镜像），
+# 此处预置空目录——容器内运行期写入点（weather/holiday 磁盘缓存、数据库恢复备份）虽有
+# Python makedirs 兜底，预置目录可消除首个请求的兜底创建窗口并规范化镜像结构
+RUN mkdir -p /app/logs
+
 # 暴露 Flask Gunicorn 端口
 EXPOSE 11443
 
