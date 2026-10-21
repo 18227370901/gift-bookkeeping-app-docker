@@ -22,7 +22,7 @@ show_help() {
     echo_e "  ${GREEN}SSL_FORCE_UPDATE=1${NC}          SSL 证书已存在时强制覆盖更新，不询问 (默认: 询问/非交互时保留)"
     echo_e "  ${GREEN}NGINX_CONF_FORCE_UPDATE=1${NC}   Nginx 配置已存在时强制覆盖渲染，不询问 (默认: 询问/非交互时保留)"
     echo_e "  ${GREEN}APP_IMAGE=ghcr.io/...:latest${NC}  预构建镜像地址 (非空时拉取镜像不本地构建，为空时本地 build)"
-    echo_e "  ${GREEN}GUNICORN_WORKERS=1${NC}             Gunicorn worker 数量 (默认 1，可调 2/4)"
+    echo_e "  ${GREEN}GUNICORN_WORKERS=2${NC}             Gunicorn worker 数量 (默认 2，可调 1/4)"
     echo ""
     echo_e "  数据库部署选择 (首次 start 交互式三选一，选择结果持久化于 .temp/.db.env，后续 start/restart 自动读取):"
     echo_e "  ${GREEN}DB_MODE=sqlite|shared|independent${NC}   直接指定数据库模式跳过交互 (shared 需搭配 DB_PG_CONTAINER)"

@@ -559,6 +559,12 @@ def _anniversary_reminder_worker(flask_app):
                 check_and_trigger_due_reminders(flask_app)
         except Exception as e:
             print(f"[Anniversary Worker Error]: {e}")
+        finally:
+            try:
+                with flask_app.app_context():
+                    db.session.remove()
+            except Exception:
+                pass
         count = 0
         while _reminder_scheduler_running and count < 6:
             time.sleep(10)
@@ -866,6 +872,12 @@ def _backup_scheduler_worker(flask_app):
                         print(f"[Backup Scheduler Error] 任务 {task.name}: {e}")
         except Exception as e:
             print(f"[Backup Scheduler Worker Error]: {e}")
+        finally:
+            try:
+                with flask_app.app_context():
+                    db.session.remove()
+            except Exception:
+                pass
 
         # 每 60 秒检查一次
         count = 0

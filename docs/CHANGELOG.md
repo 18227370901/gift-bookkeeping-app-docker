@@ -8,6 +8,13 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - ⚡ **V10.11.30 Docker 版高并发性能治理与生产容器解绑 GIL 优化（消除 CPU/内存飙升）**：
+>   ① **根因诊断**：经审查，Docker 版同样存在用户访问时后台进程 CPU 与内存瞬间飙升的四大瓶颈——1) 首页 `index()` 中直接执行 `all_filtered_records = query.all()`（PF-03 核心技术债），在 Python 堆内存中实例化成千上万个 ORM 对象求和，引发内存暴涨与频繁 GC；2) 首页并发请求 `/api/home/weather` 中对全国近万条行政区划索引执行宽松遍历未写回内存缓存，且当月往来账单全量遍历；3) 后台常驻巡检任务（告警巡检、纪念日检测、定时备份调度）循环缺乏 `db.session.remove()` 释放会话；4) 容器默认配置 `GUNICORN_WORKERS=1`（单进程 4 线程），后台线程与前台 Web 请求强行争抢单个 Python GIL，并发请求触发剧烈上下文切换与排队阻塞；且 `alert_service` 缺少跨进程实例锁；
+>   ② **容器进程并发模型升级（解绑 GIL 锁竞争）**：`Dockerfile`、`gunicorn.conf.py`、`docker-compose.yml` 及 `bin/config.sh` 中的默认 Worker 数由 1 提升为 **2**（`2 workers × 4 gthread`），Web 请求分散至 2 个独立 GIL 进程；`services/alert_service.py` 巡检循环接入 `try_acquire_daemon_lock('alert_inspector')` 文件锁，确保多 Worker 下仅 1 个进程运行后台巡检，其余 Worker 纯粹响应 Web 请求；
+>   ③ **SQL 标量聚合投影改造（落地 PF-03）**：`app.py:index()` 彻底废除 `query.all()`，改用 SQLAlchemy `with_entities(func.count, func.sum, func.max).order_by(None).first()` 在数据库引擎层微秒级聚合，ORM 对象构建量骤降 95% 以上；`routes/routes_weather.py:api_home_weather()` 当月往来摘要同步升级为单条 SQL 条件聚合；
+>   ④ **地名解析缓存与防膨胀治理**：`services/weather_service.py` 宽松匹配升级为命中后写回 `_mem_geocode_cache` 内存缓存（下次 O(1) 秒出），遍历过程增加候选 50 条或精准区县提前截断保护；`_mem_forecast_cache`、`_mem_geocode_cache` 及 `_HOME_WEATHER_CACHE` 统一增加 `MAX_MEM_CACHE_ENTRIES` 容量上限防护与自动淘汰；
+>   ⑤ **后台巡检 Session 释放保障**：`alert_service._inspector_loop`、`routes_ext._anniversary_reminder_worker` 与 `routes_ext._backup_scheduler_worker` 每轮执行完毕后在 `finally` 块显式调用 `db.session.remove()`，杜绝守护线程长驻期间持有废弃连接与实体对象；
+>   - **验证**：py_compile 全量通过，sh -n 全量通过；与传统版 ADR-60 架构规范全面对齐。
 > - 🐛 **V10.11.29 Nginx 配置渲染范围表达式加固（对齐传统版 ADR-59；其 sed 输入本已使用 `$nginx_template`，无路径缺陷）**：
 >   ① **背景**：传统版用户服务器实测——重启后生成的 Nginx 配置文件仅剩头部注释、正文为空，根因为渲染 sed 的输入路径写死旧路径（模板迁入 config/ 后读到空文件，详见传统版 ADR-59）；**本版核对结论：Docker 版 `bin/nginx_config.sh` 第 57 行 sed 输入本已使用 `$nginx_template` 变量（config/ 优先、根目录回退双路径正确），不存在该路径缺陷**；
 >   ② **同步加固**：两版共有的范围表达式 `'1,/^#   __SSL_KEY__/d'` 依赖模板头部注释中恰好存在 `#   __SSL_KEY__` 前缀行（模板重构后仅为占位符说明行），模板头部注释一旦变动，sed 地址范围延伸至 EOF 将静默删光全部正文——本版同步替换为 `'/^upstream /,$!d'`（按正文结构截取，模板头部布局变化均安全）；

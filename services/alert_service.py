@@ -23,6 +23,10 @@ from datetime import datetime, timedelta
 from flask import current_app
 
 from services.models import db, AlertPushConfig, AlertPushGrant, WebhookConfig, ScheduledTaskExecutionLog, User
+try:
+    from services._daemon_lock import try_acquire_daemon_lock
+except Exception:
+    try_acquire_daemon_lock = None
 
 # ===================== 常量 =====================
 # 告警类型 → 中文名（推送标题与日志分类共用）
@@ -507,6 +511,10 @@ def _inspector_loop(app):
     time.sleep(60)
     count = 0
     while True:
+        # V10.11.30: 跨进程单实例锁，多 Worker 环境下仅一个进程执行告警巡检
+        if try_acquire_daemon_lock and not try_acquire_daemon_lock('alert_inspector'):
+            time.sleep(INSPECT_INTERVAL_SECONDS)
+            continue
         try:
             with app.app_context():
                 ok, summary = run_inspection_once()
@@ -515,6 +523,13 @@ def _inspector_loop(app):
             # 单轮异常不影响后续巡检
             try:
                 print('[Alert Inspector Error] {0}'.format(e))
+            except Exception:
+                pass
+        finally:
+            # V10.11.30 资源治理：每轮巡检结束后显式清理 Session 与连接池，防对象泄露
+            try:
+                with app.app_context():
+                    db.session.remove()
             except Exception:
                 pass
         count += 1

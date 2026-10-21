@@ -30,7 +30,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     SESSION_COOKIE_SECURE=true \
     MALLOC_ARENA_MAX=2 \
-    GUNICORN_WORKERS=1
+    GUNICORN_WORKERS=2
 
 # 安装运行时系统依赖（仅 curl 用于健康检查，libffi/libssl 运行库供 C 扩展使用）
 RUN apt-get update && apt-get install -y --no-install-recommends \

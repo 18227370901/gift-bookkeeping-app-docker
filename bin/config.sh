@@ -43,7 +43,7 @@ export NGINX_PORT="${NGINX_PORT:-443}"
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
 export APP_IMAGE="${APP_IMAGE:-}"
-export GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"
+export GUNICORN_WORKERS="${GUNICORN_WORKERS:-2}"
 
 # ===== PostgreSQL 默认值（V10.10.24: Docker 版与传统版数据隔离，默认值差异化；运行时仍可被 PG_USER/PG_PASSWORD/PG_DB/PG_PORT/PG_IMAGE 环境变量覆盖） =====
 PG_USER_DEFAULT="${PG_USER_DEFAULT:-gift_docker_user}"        # 默认数据库账号（传统版为 gift_user，此处差异化避免同服务器冲突）

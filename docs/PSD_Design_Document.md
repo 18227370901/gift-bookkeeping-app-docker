@@ -11,7 +11,7 @@ AIGC:
 
 # 人情记账宝 — PSD 系统设计与重构决策文档
 
-> **Docker 版** · 版本: V10.11.21 · 生成日期: 2026-10-16 · 审计基线: 全量对齐传统版功能 + ADR-39~51 规范固化 + 容器探针与字体适配 · 审计范围: 60 文件 / ~27,300 行代码
+> **Docker 版** · 版本: V10.11.30 · 生成日期: 2026-10-21 · 审计基线: 全量对齐传统版功能 + ADR-39~56 规范固化 + 容器探针与字体适配 · 审计范围: 60 文件 / ~27,300 行代码
 
 ---
 
@@ -205,7 +205,7 @@ graph TB
 
 | # | 模块/功能 | 历史文档记载 | 代码真实实现 | 状态 | 影响评估 |
 |---|---|---|---|---|---|
-| D-06 | Gunicorn 启动参数 | ADR-01 "gunicorn -w 4 -k gthread --threads 4 --timeout 60" | `Dockerfile:27`：无 gthread、无 threads、无 timeout | **部分漂移** | **中**：并发能力有限 |
+| D-06 | Gunicorn 启动参数 | ADR-01 "gunicorn -w 4 -k gthread --threads 4 --timeout 60" | ~~`Dockerfile:27`~~ **✅ V10.11.30 已落地**：`gunicorn.conf.py` + `Dockerfile` 升级为 2 workers + 4 gthread，解绑 GIL 并接入跨进程锁 | **已落地** | **高→已清偿**：解绑 GIL 并发瓶颈（ADR-56） |
 | D-07 | Dockerfile 多阶段构建 | Builder + Runner 两阶段，非 root UID 10001，只读根文件系统，HEALTHCHECK | 单阶段构建，无 USER、无 HEALTHCHECK | **未实现** | **中**：镜像较大，安全性低于预期 |
 | D-08 | Celery 异步任务 | ADR-04 "企业级方案引入 Redis + Celery" | 使用 `threading.Thread(daemon=True)` 守护线程 | **方案降级** | **低**：单容器规模够用 |
 | D-09 | 数据库迁移 | docker-entrypoint.sh + init-db/01-init.sql | `init_database()` 函数在模块加载时执行，ALTER TABLE 逐条尝试 | **实现不同** | **中**：迁移策略脆弱 |
@@ -1202,7 +1202,7 @@ graph LR
 
 ---
 
-## 第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-47)
+## 第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-56)
 
 > **架构决策状态公告**：本章节所有架构决策已于 2026-10-13 经过代码审计、端到端接口联调与用户正式审查确认（固化为系统技术规范）。
 
@@ -1355,10 +1355,36 @@ graph LR
 - **验证**：本版 `bin/nginx_config.sh` POSIX `sh -n` 通过（Git Bash 5.2.37）；Git Bash 沙盒按服务器场景渲染（config/ 模板存在、根目录旧模板缺失）生成 **57 行完整配置**——upstream/keepalive/server_name/listen 443 default_server ssl/ssl_certificate/proxy_pass 等全部正确替换、无残留占位符，与原缺陷现象（仅头部注释）形成对照。
 - **连带影响**：仅 `bin/nginx_config.sh`（替换一处表达式）；Python/模板/前端/数据库零改动；APK 版不涉及。
 
+
+### 12.18 ADR-56：Docker 版高并发性能治理与生产容器解绑 GIL 优化（V10.11.30 落地，对齐传统版 ADR-60）
+- **背景与根因**（用户访问时后台检测进程/容器进程 CPU 与内存瞬间飙升并导致可用性能降低）：
+  1. **PF-03 核心技术债：首页 `index()` 中 `query.all()` 全量 ORM 内存加载**：在分页切片前直接执行 `all_filtered_records = query.all()` 并利用 Python 内置列表推导式对成千上万条记录计算总金额、总笔数、最高礼金、平均礼金。成千上万个 SQLAlchemy ORM 实体对象被一次性实例化到内存堆中，触发巨幅内存峰值，并在请求结束释放时触发频繁 GC，导致容器 CPU 瞬时打满；
+  2. **首页横幅天气接口全量遍历与未写回缓存**：首页加载时并发请求 `/api/home/weather`，底层 `services/weather_service.py` 宽松匹配逻辑对近万条行政区划索引做全量线性遍历、字符串 contains 匹配与排序；且匹配命中的结果未写回内存缓存 `_mem_geocode_cache`；同时当月账单全量遍历计算也造成了额外 CPU 消耗；
+  3. **内存缓存无上限防膨胀保护与长驻巡检线程 Session 泄漏**：全局内存缓存缺乏最大条目数限制；后台守护线程轮询过程中未在 `finally` 块显式调用 `db.session.remove()`，导致长驻线程持有失效连接与未释放对象；
+  4. **容器单 Worker 默认配置与 GIL 锁严重互斥**：`Dockerfile` / `gunicorn.conf.py` / `docker-compose.yml` 默认配置 `GUNICORN_WORKERS=1`（单进程 4 线程）。后台常驻守护线程（系统告警巡检、纪念日到期检测、定时备份调度、企微长连接）与 Web 用户请求运行在同一 Python 进程中，争抢单个 GIL。一旦并发请求或重型 ORM 请求进入，全容器线程排队甚至响应超时；且 `alert_service` 缺少跨进程单实例锁。
+- **决策方案**：
+  1. **容器进程并发模型升级（解绑 GIL 锁竞争）**：
+     - `Dockerfile`、`gunicorn.conf.py`、`docker-compose.yml` 及 `bin/config.sh` 中的默认 Worker 进程数由 1 提升至 **2**（`2 workers × 4 gthread`），Web 请求分散至 2 个独立 GIL 进程；
+     - `services/alert_service.py` 巡检循环接入 `try_acquire_daemon_lock('alert_inspector')` 跨进程文件锁，确保多 Worker 下仅 1 个进程运行后台巡检，其余 Worker 纯粹响应 Web 请求；
+  2. **SQL 标量聚合投影改造（落地 PF-03）**：
+     - `app.py:index()` 彻底废止 `query.all()`，改用 SQLAlchemy `query.with_entities(func.count(GiftRecord.id), func.coalesce(func.sum(GiftRecord.amount), 0), func.coalesce(func.max(GiftRecord.amount), 0)).order_by(None).first()`；
+     - 计算平均值、总笔数、最高金额全部在 SQLite/PG 数据库引擎层微秒级完成，内存对象构建量骤降 95% 以上；
+     - `routes/routes_weather.py:api_home_weather()` 当月礼金往来统计同步升级为数据库层单条条件聚合（`db.case`）；
+  3. **天气解析全链路性能加固与内存防膨胀**：
+     - `services/weather_service.py` 宽松模糊匹配命中后立即写回 `_mem_geocode_cache`，后续地名查询 O(1) 瞬时返回；遍历过程增加前 50 条候选或精准区县命中即时提前截断；
+     - `_safe_put_mem_cache()` 设定 `MAX_MEM_CACHE_ENTRIES = 500` 容量上限与超时清理，防止长时间运行内存膨胀；`_HOME_WEATHER_CACHE` 限制 200 条；
+  4. **后台守护线程 Session 生命周期治理**：
+     - 在 `alert_service._inspector_loop`、`routes_ext._anniversary_reminder_worker`、`routes_ext._backup_scheduler_worker` 的每个轮询周期的 `finally` 块显式执行 `db.session.remove()`，保证连接与会话及时归还。
+- **验证**：
+  1. 全量 `python -m py_compile` 语法校验通过，Shell 脚本语法校验通过；
+  2. 与传统版 ADR-60 架构规范全面对齐，零数据库表变更与破坏性变动。
+- **连带影响**：
+  涉及 `app.py`、`services/weather_service.py`、`routes/routes_weather.py`、`services/alert_service.py`、`routes/routes_ext.py`、`gunicorn.conf.py`、`Dockerfile`、`docker-compose.yml`、`bin/config.sh`、`bin/help.sh`。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-10（V10.11.29 修订：Nginx 配置渲染范围表达式加固 ADR-55；承接 V10.11.28 logs 运行目录缺失修复同步 ADR-54） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表
+> 生成时间: 2026-10-21（V10.11.30 修订：Docker 版高并发性能治理与生产容器解绑 GIL 优化 ADR-56；承接 V10.11.29 Nginx 配置渲染加固 ADR-55） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表

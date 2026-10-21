@@ -33,6 +33,22 @@ _HOME_WEATHER_DEFAULT_CITY = '成都'
 # 模块级轻量缓存：城市名 → (过期时间戳, 数据字典)；TTL 30 分钟（天气变化频率低，多用户常查同一城市命中率高）
 _HOME_WEATHER_CACHE = {}
 _HOME_WEATHER_TTL = 30 * 60
+_MAX_HOME_WEATHER_CACHE_ENTRIES = 200
+
+
+def _safe_put_home_weather_cache(key, value):
+    """带容量淘汰保护的缓存写入"""
+    now = _time.time()
+    if len(_HOME_WEATHER_CACHE) >= _MAX_HOME_WEATHER_CACHE_ENTRIES:
+        # 清理已过期条目
+        expired_keys = [k for k, v in _HOME_WEATHER_CACHE.items() if v[0] <= now]
+        for k in expired_keys:
+            _HOME_WEATHER_CACHE.pop(k, None)
+        # 若仍满则淘汰最早 1/4 条目
+        if len(_HOME_WEATHER_CACHE) >= _MAX_HOME_WEATHER_CACHE_ENTRIES:
+            for k in list(_HOME_WEATHER_CACHE.keys())[:_MAX_HOME_WEATHER_CACHE_ENTRIES // 4]:
+                _HOME_WEATHER_CACHE.pop(k, None)
+    _HOME_WEATHER_CACHE[key] = value
 
 
 def _build_home_weather(city=None, lat=None, lon=None, label=None):
@@ -70,7 +86,7 @@ def _build_home_weather(city=None, lat=None, lon=None, label=None):
         "tomorrow_min": (daily[1] or {}).get("temp_min") if len(daily) > 1 else None,
         "update_time": current.get("time") or "",
     }
-    _HOME_WEATHER_CACHE[cache_key] = (now + _HOME_WEATHER_TTL, payload)
+    _safe_put_home_weather_cache(cache_key, (now + _HOME_WEATHER_TTL, payload))
     return payload
 
 
@@ -280,19 +296,32 @@ def register_weather_routes(app):
             else:
                 l_q = GiftRecord.query.filter(GiftRecord.deleted_at.is_(None), GiftRecord.user_id == current_user.id)
 
-            m_rows = l_q.with_entities(GiftRecord.amount, GiftRecord.record_type).filter(
+            # V10.11.30 性能治理：数据库层单条聚合直接获取当月往来汇总（规避 all() 内存实例化与循环）
+            stats = l_q.with_entities(
+                db.func.count(GiftRecord.id),
+                db.func.coalesce(db.func.sum(db.case(
+                    (GiftRecord.record_type.notin_(["send", "give"]), GiftRecord.amount),
+                    else_=0.0
+                )), 0.0),
+                db.func.coalesce(db.func.sum(db.case(
+                    (GiftRecord.record_type.in_(["send", "give"]), GiftRecord.amount),
+                    else_=0.0
+                )), 0.0)
+            ).filter(
                 GiftRecord.created_at >= first_day,
                 GiftRecord.created_at < next_month
-            ).all()
+            ).order_by(None).first()
 
-            rec = sum((r.amount or 0) for r in m_rows if r.record_type not in ("send", "give"))
-            snt = sum((r.amount or 0) for r in m_rows if r.record_type in ("send", "give"))
-            ledger_summary = {
-                "received": round(rec, 2),
-                "sent": round(snt, 2),
-                "net": round(rec - snt, 2),
-                "count": len(m_rows)
-            }
+            if stats:
+                cnt, rec, snt = stats
+                rec = float(rec or 0.0)
+                snt = float(snt or 0.0)
+                ledger_summary = {
+                    "received": round(rec, 2),
+                    "sent": round(snt, 2),
+                    "net": round(rec - snt, 2),
+                    "count": int(cnt or 0)
+                }
         except Exception:
             pass
 

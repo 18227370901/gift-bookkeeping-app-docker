@@ -2,7 +2,7 @@
 """
 Gunicorn 配置文件
 V10.10.16 性能优化：
-1. 默认 1 worker + gthread 4 线程（并发能力与原 4 sync workers 持平，内存降至 1/4）
+1. 默认 2 workers + gthread 4 线程（V10.11.30 解绑 GIL，8 并发，前后台解耦）
 2. timeout=60 防止 AI 聊天长响应被杀
 3. max_requests 周期回收内存，防止长驻进程 RSS 缓涨
 4. GUNICORN_WORKERS 环境变量可调，适配不同负载场景
@@ -12,7 +12,7 @@ import os
 import multiprocessing
 
 # Worker 数量：默认 1（家庭/小团队场景够用），通过环境变量可调
-workers = int(os.environ.get('GUNICORN_WORKERS', '1'))
+workers = int(os.environ.get('GUNICORN_WORKERS', '2'))
 
 # 使用 gthread 多线程模式，单进程内 4 线程并发
 # （原 4 sync worker = 4 并发 → 1 worker × 4 threads = 4 并发，持平）
