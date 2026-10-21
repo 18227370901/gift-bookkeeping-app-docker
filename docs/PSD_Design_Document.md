@@ -1391,10 +1391,19 @@ graph LR
 - **验证**：py_compile 通过；沙盒模拟缺 httpx 双场景（openai 可导入但运行期 import httpx 失败 / httpx 缺失连锁 openai 导入失败）均返回可操作安装指引（对照修复前「未知错误」）。
 - **连带影响**：仅 `requirements.txt`（+2 行）与 `services/ai_service.py`（约 30 行注释与分支加固，零业务逻辑变化）；APK 版不涉及。
 
+### 12.20 ADR-58：依赖检查升级同步说明（V10.11.32 落地，对齐传统版 ADR-62）
+- **背景**：传统版正式环境实测——按 V10.11.31 指引 `git pull` 后直接 `./run.sh restart` 仍报 httpx 缺失：根因是 `bin/python_env.sh` 依赖检查长期使用手工 6 包白名单（未含 httpx），requirements 新增包与白名单漂移，导致「探测全过、不触发安装」死循环（详见传统版 ADR-62）。
+- **本版评估结论（不涉及代码改动）**：
+  1. **Docker 版无 `bin/python_env.sh`**——宿主 run.sh 不含 venv/依赖管理（Web 服务在容器内运行，依赖由镜像构建期 `pip install -r requirements.txt` 一次性保证），不存在「白名单漏检」缺陷形态；
+  2. **httpx 依赖同步**：V10.11.31 已加入 requirements（`httpx>=0.27.0`），**镜像重建（`docker compose up -d --build`）时自动随 pip 安装**，无需宿主手工 pip；
+  3. 容器内运行期零依赖安装逻辑，Python 侧写入点均有 makedirs 兜底（与共享代码一致）。
+- **同步内容**：版本号与文档对齐 V10.11.32（README/CHANGELOG/PSD 本 ADR；app.py /healthz 版本号）。
+- **验证**：两版 `ai_service.py`/`requirements.txt` 仓库态字节一致（httpx 声明两版同步）；本版无运行时代码变更。
+- **连带影响**：仅 `app.py`（healthz 版本号字符串）；镜像需重建以应用 requirements 变更（httpx）。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-21（V10.11.31 修订：AI 助手依赖缺失修复同步 ADR-57；承接 V10.11.30 Docker 版高并发性能治理 ADR-56） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表

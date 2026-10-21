@@ -59,7 +59,7 @@ li{margin:4px 0}
 <header>
 <h1>人情记账宝 — PSD 系统设计与重构决策文档</h1>
 <div class="meta">
-<span>Docker 版</span>·<span>版本: V10.11.31</span>·<span>生成日期: 2026-10-21</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~57 + 容器探针与字体适配）</span>
+<span>Docker 版</span>·<span>版本: V10.11.32</span>·<span>生成日期: 2026-10-21</span>·<span>审计范围: 70 文件 / ~32,600 行代码（全量对齐传统版 + ADR-39~58 + 容器探针与字体适配）</span>
 </div>
 </header>
 
@@ -1480,12 +1480,25 @@ graph LR
 </table>
 </section>
 
+<!-- ==================== ADR-58 依赖检查升级同步说明（V10.11.32） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-58 依赖检查升级同步说明（V10.11.32 落地，对齐传统版 ADR-62）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景</td><td>传统版正式环境实测：按 V10.11.31 指引 <code>git pull</code> 后直接 <code>./run.sh restart</code> 仍报 httpx 缺失——根因为 <code>bin/python_env.sh</code> 依赖检查使用手工 6 包白名单（未含 httpx），requirements 新增包与白名单漂移导致「未触发安装」死循环（详见传统版 ADR-62）。</td></tr>
+<tr><td>本版评估（不涉及代码改动）</td><td>Docker 版<strong>无 <code>bin/python_env.sh</code></strong>——宿主 run.sh 不含 venv/依赖管理（Web 服务在容器内运行），依赖由镜像构建期 <code>pip install -r requirements.txt</code> 一次性保证，不存在「白名单漏检」缺陷形态；httpx 已随 V10.11.31 加入 requirements，<strong>重建镜像（<code>docker compose up -d --build</code>）时自动安装</strong>，无需宿主手工 pip。</td></tr>
+<tr><td>同步内容</td><td>版本号与文档对齐 V10.11.32（README/CHANGELOG/本 ADR；app.py /healthz 版本号）。</td></tr>
+<tr><td>验证</td><td>共享文件 <code>ai_service.py</code>/<code>requirements.txt</code> 与传统版仓库态哈希一致（httpx 声明两版一致）；本版无运行时代码变更。</td></tr>
+<tr><td>连带影响</td><td>仅 <code>app.py</code>（healthz 版本号字符串）；README.md；镜像需重建以生效 httpx 依赖变更。</td></tr>
+</table>
+</section>
+
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-21（V10.11.31 修订：AI 助手依赖缺失修复同步 ADR-57；承接 V10.11.30 Docker 版高并发性能治理 ADR-56） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-21（V10.11.32 修订：依赖检查升级同步说明 ADR-58；承接 V10.11.31 AI 助手依赖缺失修复 ADR-57） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
 </div>
 
 </div>

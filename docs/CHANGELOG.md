@@ -8,6 +8,10 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🔧 **V10.11.32 依赖检查升级同步说明（对齐传统版 ADR-62：run.sh 自动按 requirements 全量校验并补装缺失包）**：
+>   ① **背景**：传统版正式环境实测——`git pull` 后直接 `./run.sh restart` 仍报 httpx 缺失：根因是 `bin/python_env.sh` 依赖检查长期使用手工 6 包白名单（未含 httpx），requirements 新增包与白名单漂移导致「检测不到缺失、不触发安装」（详见传统版 ADR-62）；
+>   ② **本版评估结论（不涉及代码改动）**：Docker 版**无 `bin/python_env.sh`**（宿主脚本不含 venv/依赖管理，Web 服务在容器内运行）——依赖完整性由**镜像构建期 `pip install -r requirements.txt` 保证**（httpx 已随 V10.11.31 加入 requirements，重建镜像即装）；容器内运行期写入点零依赖安装逻辑，无「白名单漏检」缺陷形态；
+>   ③ **同步内容**：版本号与文档对齐 V10.11.32（README/CHANGELOG/PSD ADR-58；app.py healthz 版本号）；部署提醒——**镜像重建时 httpx 自动随 requirements 安装**（`docker compose up -d --build`），无需手工 pip。
 > - 🐛 **V10.11.31 AI 助手依赖缺失修复同步（对齐传统版 ADR-61：正式环境测试按钮报「No module named 'httpx'」）**：
 >   ① **背景**：传统版正式环境实测 AI 配置页「获取模型列表」（走 `requests`）正常，但「测试按钮」（走 OpenAI SDK `import httpx`）报「配置不可用 未知错误  No module named 'httpx'」——根因为 requirements 未显式声明 openai SDK 的传递依赖 httpx，正式环境装包不全时缺失；且异常归类无依赖缺失分支，显示「未知错误」无指引（AI 对话/图片 OCR 同链路受影响）。详见传统版 ADR-61；
 >   ② **同步内容**：`requirements.txt` 显式声明 `httpx>=0.27.0`；`ai_service.py` 错误指引治理——`_ensure_openai` 记录 `_OPENAI_IMPORT_ERROR` 具体缺失模块名、`_chat_with_fallback` 前置检测 httpx 缺失抛中文 RuntimeError、`test_ai_config` 异常归类置顶依赖缺失分支（返回「服务器 Python 环境缺少 AI 运行依赖（如 httpx），请执行 pip install -r requirements.txt 安装后重试」）；测试请求超时 15s→10s（对话 30s/OCR 120s 不变）；
