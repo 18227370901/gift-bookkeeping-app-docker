@@ -1379,7 +1379,17 @@ graph LR
   1. 全量 `python -m py_compile` 语法校验通过，Shell 脚本语法校验通过；
   2. 与传统版 ADR-60 架构规范全面对齐，零数据库表变更与破坏性变动。
 - **连带影响**：
-  涉及 `app.py`、`services/weather_service.py`、`routes/routes_weather.py`、`services/alert_service.py`、`routes/routes_ext.py`、`gunicorn.conf.py`、`Dockerfile`、`docker-compose.yml`、`bin/config.sh`、`bin/help.sh`。
+   涉及 `app.py`、`services/weather_service.py`、`routes/routes_weather.py`、`services/alert_service.py`、`routes/routes_ext.py`、`gunicorn.conf.py`、`Dockerfile`、`docker-compose.yml`、`bin/config.sh`、`bin/help.sh`。
+
+### 12.19 ADR-57：AI 助手依赖缺失修复同步（V10.11.31 落地，对齐传统版 ADR-61）
+- **背景**：传统版正式环境实测 AI 配置页「获取模型列表」正常但「测试按钮」报「配置不可用 未知错误  No module named 'httpx'」——根因为 requirements 未显式声明 openai SDK 的传递依赖 httpx，装包不全的部署环境缺失；异常归类无依赖缺失分支显示「未知错误」无指引（AI 对话/图片 OCR 同函数 3 处调用同样受影响）。详见传统版 ADR-61。
+- **同步内容**：
+  1. **`requirements.txt` 显式声明 `httpx>=0.27.0`**（openai SDK 传递依赖，AI 对话/测试/OCR 必需）——镜像重建时随 pip 一并安装，部署不再依赖传递依赖解析；
+  2. **`ai_service.py` 错误指引治理**（与应用代码对齐）：`_ensure_openai` 新增 `_OPENAI_IMPORT_ERROR` 记录具体缺失模块名、「SDK 未安装」分支文案升级并附 `pip install -r requirements.txt` 指引；`_chat_with_fallback` 前置检测 httpx 缺失时抛出可操作中文 RuntimeError；`test_ai_config` 异常归类置顶新增依赖缺失分支（命中 `no module named`/`缺少 httpx 依赖`）；
+  3. **测试请求超时 15s→10s**（双路径最坏约 30s→20s；对话 30s/OCR 120s 不变）。
+- **共享文件对齐**：`ai_service.py`/`requirements.txt` 与传统版仓库态字节一致。
+- **验证**：py_compile 通过；沙盒模拟缺 httpx 双场景（openai 可导入但运行期 import httpx 失败 / httpx 缺失连锁 openai 导入失败）均返回可操作安装指引（对照修复前「未知错误」）。
+- **连带影响**：仅 `requirements.txt`（+2 行）与 `services/ai_service.py`（约 30 行注释与分支加固，零业务逻辑变化）；APK 版不涉及。
 
 ## 文档总结
 
@@ -1387,4 +1397,4 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
-> 生成时间: 2026-10-21（V10.11.30 修订：Docker 版高并发性能治理与生产容器解绑 GIL 优化 ADR-56；承接 V10.11.29 Nginx 配置渲染加固 ADR-55） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表
+> 生成时间: 2026-10-21（V10.11.31 修订：AI 助手依赖缺失修复同步 ADR-57；承接 V10.11.30 Docker 版高并发性能治理 ADR-56） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表

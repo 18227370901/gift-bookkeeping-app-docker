@@ -8,6 +8,11 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🐛 **V10.11.31 AI 助手依赖缺失修复同步（对齐传统版 ADR-61：正式环境测试按钮报「No module named 'httpx'」）**：
+>   ① **背景**：传统版正式环境实测 AI 配置页「获取模型列表」（走 `requests`）正常，但「测试按钮」（走 OpenAI SDK `import httpx`）报「配置不可用 未知错误  No module named 'httpx'」——根因为 requirements 未显式声明 openai SDK 的传递依赖 httpx，正式环境装包不全时缺失；且异常归类无依赖缺失分支，显示「未知错误」无指引（AI 对话/图片 OCR 同链路受影响）。详见传统版 ADR-61；
+>   ② **同步内容**：`requirements.txt` 显式声明 `httpx>=0.27.0`；`ai_service.py` 错误指引治理——`_ensure_openai` 记录 `_OPENAI_IMPORT_ERROR` 具体缺失模块名、`_chat_with_fallback` 前置检测 httpx 缺失抛中文 RuntimeError、`test_ai_config` 异常归类置顶依赖缺失分支（返回「服务器 Python 环境缺少 AI 运行依赖（如 httpx），请执行 pip install -r requirements.txt 安装后重试」）；测试请求超时 15s→10s（对话 30s/OCR 120s 不变）；
+>   ③ **共享文件对齐**：`ai_service.py`/`requirements.txt` 与传统版仓库态字节一致（共享业务代码对齐原则）。注：上述代码变更已随 V10.11.30 性能治理提交（`86a705b`）一并入库（同批工作区），本条目补录版本说明与设计文档（ADR-57）；
+>   ④ **验证**：py_compile 通过；沙盒模拟缺 httpx 双场景均返回可操作指引。**镜像重建时 httpx 随 requirements 一并安装**（`docker compose up -d --build`）。
 > - ⚡ **V10.11.30 Docker 版高并发性能治理与生产容器解绑 GIL 优化（消除 CPU/内存飙升）**：
 >   ① **根因诊断**：经审查，Docker 版同样存在用户访问时后台进程 CPU 与内存瞬间飙升的四大瓶颈——1) 首页 `index()` 中直接执行 `all_filtered_records = query.all()`（PF-03 核心技术债），在 Python 堆内存中实例化成千上万个 ORM 对象求和，引发内存暴涨与频繁 GC；2) 首页并发请求 `/api/home/weather` 中对全国近万条行政区划索引执行宽松遍历未写回内存缓存，且当月往来账单全量遍历；3) 后台常驻巡检任务（告警巡检、纪念日检测、定时备份调度）循环缺乏 `db.session.remove()` 释放会话；4) 容器默认配置 `GUNICORN_WORKERS=1`（单进程 4 线程），后台线程与前台 Web 请求强行争抢单个 Python GIL，并发请求触发剧烈上下文切换与排队阻塞；且 `alert_service` 缺少跨进程实例锁；
 >   ② **容器进程并发模型升级（解绑 GIL 锁竞争）**：`Dockerfile`、`gunicorn.conf.py`、`docker-compose.yml` 及 `bin/config.sh` 中的默认 Worker 数由 1 提升为 **2**（`2 workers × 4 gthread`），Web 请求分散至 2 个独立 GIL 进程；`services/alert_service.py` 巡检循环接入 `try_acquire_daemon_lock('alert_inspector')` 文件锁，确保多 Worker 下仅 1 个进程运行后台巡检，其余 Worker 纯粹响应 Web 请求；
