@@ -1493,12 +1493,25 @@ graph LR
 </table>
 </section>
 
+<!-- ==================== ADR-59 无人值守模式同步（V10.11.33） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-59 无人值守模式同步（V10.11.33 落地，对齐传统版 ADR-63）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景与需求</td><td>传统版 run.sh 需兼容两种执行场景——<strong>手动执行</strong>（保留证书/Nginx 配置替换 y/N 询问、数据库三选一菜单）与<strong>定时任务</strong>（crontab 直接使用默认参数，且数据库沿用用户此前持久化的 .temp/.db.env 模式）。详见传统版 ADR-63。</td></tr>
+<tr><td>同步内容</td><td>① <code>bin/common.sh</code> 新增 <code>is_unattended()</code>（<code>UNATTENDED=1</code>/<code>--unattended</code> 或 stdin 非 TTY 即无人值守）；② <code>run.sh</code> 参数解析 <code>$2/$3</code> 循环支持 <code>--unattended</code> 与 <code>--reconfig</code>/<code>--reconfig-db</code> 任意顺序组合；③ <code>should_overwrite</code>/<code>select_db_mode</code> ③ 菜单/`check_port_conflict` 三处判定统一升级；④ 显式策略（SSL_FORCE_UPDATE/NGINX_CONF_FORCE_UPDATE/DB_MODE/PORT）优先级始终高于无人值守默认值；⑤ help.sh/config.sh 文档化。</td></tr>
+<tr><td>验证</td><td>两版 23 个 Shell 文件 <code>sh -n</code> 全过；Git Bash 沙盒 38 项断言全过；两版 common.sh 仓库态 MD5 一致。</td></tr>
+<tr><td>连带影响</td><td>Docker 版 7 文件（含 app.py 版本号）；宿主机脚本变更即生效，容器镜像无需重建；APK 版不涉及。</td></tr>
+<tr><td>部署提醒</td><td>手动 <code>./run.sh restart</code> 交互不变；定时任务：<code>30 3 * * * UNATTENDED=1 /opt/service/gift-bookkeeping-app-docker/run.sh restart &gt;&gt; /var/log/gift_docker_cron.log 2&gt;&amp;1</code>；强制更新：<code>UNATTENDED=1 NGINX_CONF_FORCE_UPDATE=1 ./run.sh restart</code>。</td></tr>
+</table>
+</section>
+
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-21（V10.11.32 修订：依赖检查升级同步说明 ADR-58；承接 V10.11.31 AI 助手依赖缺失修复 ADR-57） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-22（V10.11.33 修订：无人值守模式同步 ADR-59，对齐传统版 ADR-63；承接 V10.11.32 依赖检查升级同步说明 ADR-58） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
 </div>
 
 </div>

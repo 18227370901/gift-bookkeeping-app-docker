@@ -1401,6 +1401,18 @@ graph LR
 - **验证**：两版 `ai_service.py`/`requirements.txt` 仓库态字节一致（httpx 声明两版同步）；本版无运行时代码变更。
 - **连带影响**：仅 `app.py`（healthz 版本号字符串）；镜像需重建以应用 requirements 变更（httpx）。
 
+### 12.21 ADR-59：无人值守模式同步（V10.11.33 落地，对齐传统版 ADR-63）
+- **背景与需求**（对齐传统版）：传统版 run.sh 需兼容两种执行场景——**手动执行**（保留证书/Nginx 配置替换 y/n 询问、数据库三选一菜单交互）与**定时任务**（crontab 直接使用默认参数免人工介入，且数据库沿用用户此前手动选择并持久化的 `.temp/.db.env` 模式）。详见传统版 ADR-63。
+- **本版同步内容（同构代码变更）**：
+  1. **`bin/common.sh` 新增 `is_unattended()`**：`[ "${UNATTENDED:-}" = "1" ] || [ ! -t 0 ]`——显式声明 `UNATTENDED=1`（命令行 `--unattended` 或环境变量）或 stdin 非 TTY（cron/CI）即视为无人值守；判定不依赖调度器是否分配 TTY；
+  2. **`run.sh` 参数解析扩展**：`$2` 升级为 `$2/$3` 循环，新增 `--unattended`，可与 `--reconfig`/`--reconfig-db` 任意顺序组合（如 `./run.sh restart --reconfig --unattended`）；环境变量形式仍兼容；
+  3. **三处交互点判定统一升级**：`should_overwrite`（证书/Nginx 覆盖询问）、`select_db_mode` ③ 交互菜单条件 `! is_unattended`（② 分支已优先读取 .db.env 用户持久化选择）、`check_port_conflict` 无人值守中止（安全语义：绝不自动 kill 进程或停用他人 Nginx 配置）；
+  4. **优先级**：显式策略环境变量（SSL_FORCE_UPDATE/NGINX_CONF_FORCE_UPDATE/DB_MODE/PORT）始终高于无人值守默认值；
+  5. **文档化**：`bin/config.sh` 定义 `UNATTENDED`、`bin/help.sh` 增加用法与 crontab 示例。
+- **验证**：① 两版 23 个 Shell 文件 `sh -n` 全过；② Git Bash 沙盒 38 项断言全过——is_unattended 判定、should_overwrite 保留/强制覆盖优先级、参数解析组合（含未知参数报错）、select_db_mode 三分支（默认 SQLite / 沿用 .db.env / DB_MODE 直通）；③ 两版 `bin/common.sh` 仓库态 MD5 一致。
+- **连带影响**：Docker 版 7 文件（run.sh/common.sh/config.sh/db_select.sh/port_conflict.sh/help.sh/app.py 版本号）；容器镜像无需重建（宿主机脚本变更即生效）；APK 版不涉及。
+- **部署提醒**：手动执行 `./run.sh restart` 交互行为不变；定时任务示例——`30 3 * * * UNATTENDED=1 /opt/service/gift-bookkeeping-app-docker/run.sh restart >> /var/log/gift_docker_cron.log 2>&1`；需强制更新 Nginx 配置时 `UNATTENDED=1 NGINX_CONF_FORCE_UPDATE=1 ./run.sh restart`。
+
 ## 文档总结
 
 本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。

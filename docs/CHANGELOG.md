@@ -1,6 +1,6 @@
 # 人情礼金记账系统 版本发布与全量变更日志 (Changelog)
 
-> 本文档收录了系统自诞生起从 V2 直至最新 V10.11.22 的全量版本演进、技术重构与历史缺陷修复档案。  
+> 本文档收录了系统自诞生起从 V2 直至最新 V10.11.33 的全量版本演进、技术重构与历史缺陷修复档案。  
 > 快速上手与使用指引请参见项目主页 [README.md](../README.md)。
 
 ---
@@ -8,6 +8,12 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🔧 **V10.11.33 无人值守模式同步（对齐传统版 ADR-63：run.sh 双场景兼容，手动交互保留 + 定时任务免人工介入）**：
+>   ① **背景**：传统版 run.sh 需兼容手动执行（保留证书/Nginx 配置替换询问、数据库菜单交互）与定时任务（crontab 直接使用默认参数，且数据库沿用用户此前手动选择并持久化的 .temp/.db.env 模式）两种场景——详见传统版 ADR-63；
+>   ② **本版同步内容（同构代码变更）**：Docker 版同样实现——`bin/common.sh` 新增 `is_unattended()`（显式 `UNATTENDED=1`/`--unattended` 或 stdin 非 TTY 即无人值守）；`run.sh` 参数解析扩展 `$2/$3` 循环支持 `--unattended` 与 `--reconfig/--reconfig-db` 任意顺序组合；`should_overwrite`（证书/Nginx 保留询问）、`select_db_mode` ③ 菜单条件、`check_port_conflict` 中止分支三处判定统一升级；`bin/config.sh` 定义 `UNATTENDED`；`bin/help.sh` 文档化无人值守用法与 crontab 示例；显式策略（SSL_FORCE_UPDATE/NGINX_CONF_FORCE_UPDATE/DB_MODE/PORT）优先级始终高于无人值守默认值；
+>   ③ **两版一致性**：`bin/common.sh` 两版仓库态 MD5 一致（两版公共函数对齐原则）；其余模块同构变更；
+>   ④ **验证**：两版 23 个 Shell 文件 `sh -n` 全过；Git Bash 沙盒 38 项断言全过（is_unattended 判定、should_overwrite 保留/强制覆盖优先级、参数解析组合、select_db_mode 三分支）；
+>   ⑤ **部署提醒**：手动执行 `./run.sh restart` 交互行为不变；定时任务示例——`30 3 * * * UNATTENDED=1 /opt/service/gift-bookkeeping-app-docker/run.sh restart >> /var/log/gift_docker_cron.log 2>&1`。
 > - 🔧 **V10.11.32 依赖检查升级同步说明（对齐传统版 ADR-62：run.sh 自动按 requirements 全量校验并补装缺失包）**：
 >   ① **背景**：传统版正式环境实测——`git pull` 后直接 `./run.sh restart` 仍报 httpx 缺失：根因是 `bin/python_env.sh` 依赖检查长期使用手工 6 包白名单（未含 httpx），requirements 新增包与白名单漂移导致「检测不到缺失、不触发安装」（详见传统版 ADR-62）；
 >   ② **本版评估结论（不涉及代码改动）**：Docker 版**无 `bin/python_env.sh`**（宿主脚本不含 venv/依赖管理，Web 服务在容器内运行）——依赖完整性由**镜像构建期 `pip install -r requirements.txt` 保证**（httpx 已随 V10.11.31 加入 requirements，重建镜像即装）；容器内运行期写入点零依赖安装逻辑，无「白名单漏检」缺陷形态；
