@@ -1506,12 +1506,25 @@ graph LR
 </table>
 </section>
 
+<!-- ==================== ADR-60 定时任务 3 大场景优化同步（V10.11.34） ==================== -->
+<section>
+<h2>第 12 部分补充：ADR-60 定时任务 3 大场景优化同步（V10.11.34 落地，对齐传统版 ADR-64）</h2>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>背景与需求</td><td>对齐传统版 ADR-64，针对生产实际定时任务使用场景深度优化：① <strong>完全自适应模式</strong>（crontab 自身无 TTY，直接写 <code>./run.sh restart</code> 自动使用默认参数，零额外参数）；② <strong>显式语义化模式</strong>（推荐，显式传 <code>--cron</code>，意图最明确且防伪终端干扰）；③ <strong>按需强制更新模式</strong>（如每月定时轮换证书：<code>./run.sh add_nginx --cron --renew-ssl</code>，独立热重载 Nginx 反代，免重启 Docker 容器）。</td></tr>
+<tr><td>同步内容</td><td>① <strong>新增 <code>add_nginx</code> 子命令</strong>：独立执行证书与 Nginx 反代配置热重载（<code>nginx -s reload</code> / <code>systemctl reload nginx</code>），零容器中断；② <strong>多参数通用解析循环</strong>：<code>run.sh</code> 升级为 <code>while [ $# -gt 0 ]</code> 循环消费，支持 <code>--cron</code>、<code>--unattended</code>、<code>--renew-ssl</code>、<code>--renew-nginx</code>、<code>--reconfig</code> 任意数量与顺序组合；③ <strong>判定与映射联动</strong>：<code>is_unattended()</code> 门禁联动 <code>CRON=1</code> / <code>--cron</code>，<code>--renew-ssl</code> 映射 <code>SSL_FORCE_UPDATE=1</code>，<code>--renew-nginx</code> 映射 <code>NGINX_CONF_FORCE_UPDATE=1</code>；④ <strong>文档与帮助完善</strong>：<code>bin/help.sh</code> 完整收录 3 大场景 crontab 示例与参数规范。</td></tr>
+<tr><td>验证</td><td>两版 23 个 Shell 文件 <code>sh -n</code> 全过；Git Bash 仿真：无 TTY 自适应执行通过、<code>--cron</code> 显式非交互通过、<code>--renew-ssl</code> 强制证书生成与重载通过、未知参数拦截提示通过；两版 common.sh 仓库态 MD5 一致。</td></tr>
+<tr><td>连带影响</td><td>Docker 版 7 文件（含 app.py 版本号与 README.md）；宿主机脚本变更即生效，容器镜像无需重建；APK 版不涉及。</td></tr>
+<tr><td>部署提醒</td><td>① 完全自适应：<code>0 3 * * * cd /opt/mengya-local && ./run.sh restart >> /var/log/mengya_cron.log 2>&1</code><br>② 显式语义化：<code>0 3 * * * cd /opt/mengya-local && ./run.sh restart --cron >> /var/log/mengya_cron.log 2>&1</code><br>③ 证书定期轮换：<code>0 0 1 * * cd /opt/mengya-local && ./run.sh add_nginx --cron --renew-ssl >> /var/log/mengya_ssl.log 2>&1</code></td></tr>
+</table>
+</section>
+
 <!-- ==================== 文档总结 ==================== -->
 <div class="summary-box">
 <h3>文档总结</h3>
 <p>本 PSD 基于项目历史设计资产（原 Project_Survey_Docker.md 和 Docker_Deployment_Plan.md，已清理整合至本文档）与 README.md 及 48 个源代码文件的全面交叉核验，识别了 <strong>13 处文档-代码漂移</strong>（D-01 ~ D-13），评估了 <strong>5 维 25 项技术债</strong>，并给出了 <strong>P0/P1/P2 三期演进路线</strong>。</p>
 <p>核心结论：<strong>不建议替换框架，建议局部治理</strong> — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。</p>
-<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-22（V10.11.33 修订：无人值守模式同步 ADR-59，对齐传统版 ADR-63；承接 V10.11.32 依赖检查升级同步说明 ADR-58） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
+<p style="margin-top:12px;color:#bfdbfe;font-size:.85em">生成时间: 2026-10-23（V10.11.34 修订：定时任务 3 大场景优化同步 ADR-60，对齐传统版 ADR-64；承接 V10.11.33 无人值守模式同步 ADR-59） | 审计范围: 64 文件 / ~28,000 行代码 | 174 个路由 | 24 张数据表</p>
 </div>
 
 </div>

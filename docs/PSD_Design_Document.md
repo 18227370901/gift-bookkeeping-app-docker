@@ -1419,3 +1419,13 @@ graph LR
 
 核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
 
+### 11.26 ADR-64：run.sh 定时任务 3 大场景优化同步（自适应检测 + --cron 显式语义 + add_nginx 与 --renew-ssl 证书轮换闭环）（V10.11.34 落地）
+- **背景与需求**：对齐传统版 ADR-64，针对生产实际定时任务使用场景深度优化：① 完全自适应模式（crontab 自身无 TTY，直接写 `./run.sh restart` 自动使用默认参数，零额外参数）；② 显式语义化模式（推荐，显式传 `--cron`，意图最明确且防伪终端干扰）；③ 按需强制更新模式（如每月定时轮换证书：`./run.sh add_nginx --cron --renew-ssl`，独立热重载 Nginx 反代，免重启 Docker 容器）。
+- **决策方案**：
+  1. **多参数通用解析循环**：升级 `run.sh` 解析架构为 `while [ $# -gt 0 ]` 循环消费，支持 `--cron`、`--unattended`、`--renew-ssl`、`--renew-nginx`、`--reconfig` 任意数量与顺序组合；
+  2. **新增 `add_nginx` 运维子命令**：独立执行 `ensure_ssl_certs` 与 `setup_nginx_config`，支持证书自动签发/轮换及 Nginx 反代配置热重载（`nginx -s reload` / `systemctl reload nginx`），零 Docker 容器中断；
+  3. **`is_unattended` 判定扩展**：`bin/common.sh` 支持 `CRON=1` 与 `--cron` 标志联动，与 `UNATTENDED=1`、`[ ! -t 0 ]` 形成三元保底；
+  4. **参数映射规范**：`--renew-ssl` 自动映射 `SSL_FORCE_UPDATE=1`；`--renew-nginx` 自动映射 `NGINX_CONF_FORCE_UPDATE=1`；
+  5. **帮助文档完善**：`bin/help.sh` 全面收录 3 大场景 crontab 示例与参数规范。
+- **验证**：① POSIX `sh -n` 全量校验通过；② Git Bash 仿真：无 TTY 自适应分支通过、`--cron` 显式非交互通过、`--renew-ssl` 穿透覆盖通过、未知参数报错拦截通过；③ 两版 `bin/common.sh` 仓库态一致。
+- **连带影响**：Docker 版 `run.sh`、`bin/common.sh`、`bin/config.sh`、`bin/nginx_config.sh`、`bin/help.sh`、`app.py`、`README.md` 同构同步。

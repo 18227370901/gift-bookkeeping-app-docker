@@ -1,6 +1,6 @@
 # 人情礼金记账系统 版本发布与全量变更日志 (Changelog)
 
-> 本文档收录了系统自诞生起从 V2 直至最新 V10.11.33 的全量版本演进、技术重构与历史缺陷修复档案。  
+> 本文档收录了系统自诞生起从 V2 直至最新 V10.11.34 的全量版本演进、技术重构与历史缺陷修复档案。  
 > 快速上手与使用指引请参见项目主页 [README.md](../README.md)。
 
 ---
@@ -8,6 +8,18 @@
 ## 🌟 V10.11 系列全版本演化与架构升级记录
 
 > 💡 **版本与架构升级公告（最新）**：
+> - 🔧 **V10.11.34 run.sh 定时任务 3 大场景优化同步（自适应检测 + --cron 显式语义 + add_nginx 与 --renew-ssl 证书轮换闭环）**：
+>   ① **需求与背景**：对齐传统版 ADR-64，针对 Linux 服务器定时任务实际运维场景，深度升级 run.sh 自动化执行调度：1. **完全自适应模式**（crontab 自身无 TTY，脚本全自动识别为定时任务并使用默认参数，零额外参数）；2. **显式语义化模式**（推荐，显式传 `--cron`，意图最明确且防伪终端干扰）；3. **按需强制更新模式**（如每月定时轮换证书：`./run.sh add_nginx --cron --renew-ssl`，独立热重载 Nginx 反代，免重启 Docker 容器集群）；
+>   ② **架构设计与优化点**：
+>     - **新增 `add_nginx`（别名 `setup_nginx`）子命令**：独立配置/更新 SSL 证书与 Nginx 反代并热重载（`nginx -s reload` / `systemctl reload nginx`），零 Docker 容器中断；
+>     - **多参数通用解析循环**：升级 `run.sh` 为通用 `while [ $# -gt 0 ]` 参数消费循环，支持 `--cron`、`--unattended`、`--renew-ssl`（置 `SSL_FORCE_UPDATE=1`）、`--renew-nginx`（置 `NGINX_CONF_FORCE_UPDATE=1`）、`--reconfig`（置 `DB_RESET=1`）任意数量与顺序组合；
+>     - **`is_unattended` 门禁升级**：`bin/common.sh` 支持 `CRON=1` 环境变量与 `--cron` 命令行标志联动（两版 MD5 一致）；
+>     - **文档化与帮助文本更新**：`bin/help.sh` 全面更新 3 大场景 crontab 示例与命令参数说明；
+>   ③ **验证结果**：① POSIX `sh -n` 语法全过；② 仿真测试：无 TTY 自适应执行通过、`--cron` 显式非交互通过、`--renew-ssl` 强制证书生成与重载通过、未知参数拦截提示通过；
+>   ④ **服务器 Crontab 配置范例**：
+>     - 完全自适应：`0 3 * * * cd /opt/service/gift-bookkeeping-app-docker && ./run.sh restart >> /var/log/gift_docker_cron.log 2>&1`
+>     - 显式语义化：`0 3 * * * cd /opt/service/gift-bookkeeping-app-docker && ./run.sh restart --cron >> /var/log/gift_docker_cron.log 2>&1`
+>     - 证书定期轮换：`0 0 1 * * cd /opt/service/gift-bookkeeping-app-docker && ./run.sh add_nginx --cron --renew-ssl >> /var/log/gift_docker_ssl.log 2>&1`
 > - 🔧 **V10.11.33 无人值守模式同步（对齐传统版 ADR-63：run.sh 双场景兼容，手动交互保留 + 定时任务免人工介入）**：
 >   ① **背景**：传统版 run.sh 需兼容手动执行（保留证书/Nginx 配置替换询问、数据库菜单交互）与定时任务（crontab 直接使用默认参数，且数据库沿用用户此前手动选择并持久化的 .temp/.db.env 模式）两种场景——详见传统版 ADR-63；
 >   ② **本版同步内容（同构代码变更）**：Docker 版同样实现——`bin/common.sh` 新增 `is_unattended()`（显式 `UNATTENDED=1`/`--unattended` 或 stdin 非 TTY 即无人值守）；`run.sh` 参数解析扩展 `$2/$3` 循环支持 `--unattended` 与 `--reconfig/--reconfig-db` 任意顺序组合；`should_overwrite`（证书/Nginx 保留询问）、`select_db_mode` ③ 菜单条件、`check_port_conflict` 中止分支三处判定统一升级；`bin/config.sh` 定义 `UNATTENDED`；`bin/help.sh` 文档化无人值守用法与 crontab 示例；显式策略（SSL_FORCE_UPDATE/NGINX_CONF_FORCE_UPDATE/DB_MODE/PORT）优先级始终高于无人值守默认值；
