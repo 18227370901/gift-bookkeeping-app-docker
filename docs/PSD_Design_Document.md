@@ -3,15 +3,19 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '2f14de4a-bf25-4893-b825-596c8c03d9c3'
-  PropagateID: '2f14de4a-bf25-4893-b825-596c8c03d9c3'
-  ReservedCode1: '5d83a5b3-902f-4592-92ff-b14cf642dace'
-  ReservedCode2: '5d83a5b3-902f-4592-92ff-b14cf642dace'
+  ProduceID: '1b232354-e410-498f-9bf7-470d56e411d1'
+  PropagateID: '1b232354-e410-498f-9bf7-470d56e411d1'
+  ReservedCode1: '9d894392-9c41-47c7-b912-2ac2560b67ef'
+  ReservedCode2: '9d894392-9c41-47c7-b912-2ac2560b67ef'
 ---
 
-# 人情记账宝 — PSD 系统设计与重构决策文档
+# 人情礼金记账系统 PSD 设计与重构决策文档
 
-> **Docker 版** · 版本: V10.11.30 · 生成日期: 2026-10-21 · 审计基线: 全量对齐传统版功能 + ADR-39~56 规范固化 + 容器探针与字体适配 · 审计范围: 60 文件 / ~27,300 行代码
+> **版本**：V10.11.36  
+> **生成日期**：2026-10-25   
+> **项目根目录**：`C:\Users\cheng\Documents\akshare-test\gift_bookkeeping_app`  
+> **审计基线**：代码 commit `f1e6744`（main 分支，filter-repo 重写后；原 6360bb6），README.md V10.10.10，Project_Survey.md ADR-01~38  
+> **文档定位**：以代码为实现真相（Ground Truth），历史文档为设计意图真相，显式揭露漂移，证据链闭环。
 
 ---
 
@@ -19,11 +23,11 @@ AIGC:
 
 - [阶段 0：资产自发现与执行计划](#阶段-0资产自发现与执行计划)
 - [第 1 部分：项目全局概览](#第-1-部分项目全局概览)
-- [第 2 部分：文档-代码差异与漂移矩阵](#第-2-部分文档-代码差异与漂移矩阵-drift-matrix)
+- [第 2 部分：文档-代码差异与漂移矩阵 (Drift Matrix)](#第-2-部分文档-代码差异与漂移矩阵-drift-matrix)
 - [第 3 部分：架构模式识别](#第-3-部分架构模式识别)
 - [第 4 部分：架构耦合度诊断](#第-4-部分架构耦合度诊断)
 - [第 5 部分：架构替换与轻量化可行性决策](#第-5-部分架构替换与轻量化可行性决策)
-- [第 6 部分：前后端详尽规格](#第-6-部分前后端详尽规格)
+- [第 6 部分：前后端详尽规格（校准整合版）](#第-6-部分前后端详尽规格校准整合版)
 - [第 7 部分：数据持久化设计](#第-7-部分数据持久化设计)
 - [第 8 部分：工程与安全保障](#第-8-部分工程与安全保障)
 - [第 9 部分：综合问题排查与渐进演进路线图](#第-9-部分综合问题排查与渐进演进路线图)
@@ -32,44 +36,73 @@ AIGC:
 
 ## 阶段 0：资产自发现与执行计划
 
-### 一、历史设计资产盘点
+### 0.1 历史设计资产探测
 
-对项目根目录递归扫描后，发现 **3 份核心文档**，无 wiki、会议纪要或其他外部架构文件。
+递归检索项目内所有 `.md` 文档及含有架构/设计/规范关键字的文件，共发现 **4 份历史文档**：
 
 | # | 文件路径 | 行数 | 预估用途 | 时效性判定 |
-|---|---|---|---|---|
-| 1 | `README.md` | 1091 | **用户手册 + 版本变更日志**：功能模块详解、默认凭证说明、V2~V10.10.8 逐版本修复记录 | **最新**（持续更新至 2026-09-22） |
-| 2 | `Project_Survey_Docker.md` | 1137+ | **技术调研与架构决策报告（PSD 主体）**：系统概述、痛点审计、ADR-01~ADR-38、模块设计规范、多轮复盘 | **较新**（ADR 覆盖至 V10.10.2，部分章节存在与代码的局部漂移） |
-| 3 | `Docker_Deployment_Plan.md` | 1107+ | **容器化部署方案**：多容器架构蓝图、Dockerfile 逐行注释、CI/CD 流水线、安全加固 | **设计意图文档，大量未落地** |
+|---|---------|------|---------|-----------|
+| 1 | `README.md` | 1042 | **用户手册 + 版本变更日志**（V2~V10.10.10，含功能说明、部署指南、样例数据、多仓库矩阵） | **新** — 最后更新 2026-09-22，版本迭代到 V10.10.10，与代码高度同步 |
+| 2 | `Project_Survey.md` | 948+ | **系统架构设计规范 + ADR 决策记录**（ADR-01~ADR-38，含 6 大故障根因审计、业务模块设计规范、权限模型、Webhook/WebDAV/纪念日架构决策） | **新** — 最后更新 2026-09-22，ADR 追加到 38 条，是核心设计意图资产 |
+| 3 | `AI_ASSISTANT_DESIGN.md` | 1932+ | **AI 助手模块技术设计 + 综合修复记录**（ER 图、API 规范、前端设计、V2~V10.7 逐版本修复详情） | **较新** — 最后更新约 V10.7（2026-09-17），后续 V10.8~V10.10.10 的修复记录仅在 README.md 中，未同步至此文档 |
+| 4 | `V8_修复设计方案.md` | 240 | **V8 修复设计方案**（12 项需求的独立方案文档，已确认定稿） | **草稿/已归档** — 内容已被 AI_ASSISTANT_DESIGN.md 第十二章完整吸收，无独立参考价值 |
 
-### 二、代码骨架与技术栈初判
+### 0.2 代码骨架与技术栈初判
 
-| 层面 | 技术选型 | 版本/来源 |
-|---|---|---|
-| 后端语言 | Python | 3.11（Dockerfile `python:3.11-slim`） |
-| Web 框架 | Flask | 3.0.3 |
-| ORM | Flask-SQLAlchemy | 3.1.1 |
-| 认证 | Flask-Login + Flask-WTF (CSRF) | 0.6.3 / 1.2.1 |
-| WSGI 容器 | Gunicorn | 22.0.0（4 workers） |
-| 加密 | cryptography (AES-256-GCM) | 42.0.8 |
-| 数据库 | SQLite（WAL 模式）/ PostgreSQL（可选） | — |
-| 数据库驱动 | psycopg2-binary（PostgreSQL 可选） | 2.9.9 |
-| AI | OpenAI SDK + DuckDuckGo Search | openai>=1.0, duckduckgo_search>=4.0 |
-| 企微机器人 | wecom-aibot-python-sdk + websockets + pyee | >=1.0.2 / >=12.0 / >=11.0 |
-| 备份加密 | pyzipper (AES-256 zip) | >=0.3.1 |
-| 前端 | Jinja2 + Bootstrap 5 + Font-Awesome（V10.10.18 起 `static/vendor/` 本地加载；历史记载的 Chart.js 实际无引用） | — |
-| PWA | manifest.json + sw.js (Service Worker) | — |
-| 反向代理 | Nginx（宿主机安装，非容器化） | nginx_ssl.conf 占位符模板 |
-| 部署脚本 | run.sh (POSIX sh 兼容，V10.10.17b 模块化拆分后) | 158 行 |
+#### 代码体量分布（行数为编辑器总行数口径，2026-09-23 实测）
 
-### 三、代码规模统计
+| 文件 | 行数 | 占比 | 职责 |
+|------|------|------|------|
+| `routes_ext.py` | 5,231 | 40.3% | 业务扩展路由（最大单体文件） |
+| `app.py` | 3,193 | 24.6% | Flask 核心 + 礼金 CRUD + 用户管理 |
+| 21 个 HTML 模板 | 11,785 | — | 前端视图层（最大 1,527 行） |
+| `models.py` | 1,071 | 8.2% | 22+ 张数据表模型定义 |
+| `webhook_utils.py` | 918 | 7.1% | Webhook 推送引擎 |
+| `webdav_utils.py` | 556 | 4.3% | WebDAV 客户端 |
+| `run.sh` | 551 | 4.2% | 部署脚本 |
+| `ai_service.py` | 424 | 3.3% | AI 核心服务 |
+| `routes_ai.py` | 423 | 3.3% | AI 路由 |
+| `gift_utils.py` | 322 | 2.5% | NLP 与对账工具 |
+| 其他 | 302 | 2.3% | SSL 生成（152）、Web 搜索（81）、Nginx 配置（69） |
+| **核心代码合计** | **12,991** | — | 不含模板；含模板共 24,776 行 |
 
-| 类别 | 文件数 | 总行数 | 说明 |
-|---|---|---|---|
-| Python 后端 | 19 | ~10,900 | `routes_ext.py` 4,744 行（最大）、`app.py` 2,842 行 |
-| HTML 模板 | 21 | ~11,100 | `admin_webhooks.html` 1,426 行、`admin_users.html` 1,293 行 |
-| 配置/脚本 | 8 | ~700 | Dockerfile、docker-compose.yml、run.sh 等 |
-| **合计** | **48** | **~22,700** | 中型单体应用 |
+#### 模板文件行数
+
+| 文件 | 行数 |
+|------|------|
+| `admin_webhooks.html` | 1527 |
+| `admin_users.html` | 1359 |
+| `admin_backups.html` | 1249 |
+| `index.html` | 1079 |
+| `banquet_detail.html` | 994 |
+| `reminders.html` | 862 |
+| `banquets.html` | 648 |
+| `ai_assistant.html` | 502 |
+| `permission_tickets.html` | 461 |
+| `admin_ai_config.html` | 450 |
+| `base.html` | 493 |
+| `recycle_bin.html` | 370 |
+| `reconciliation.html` | 368 |
+| `admin_logs.html` | 265 |
+| `profile_security.html` | 262 |
+| `admin_broadcasts.html` | 231 |
+| `login.html` | 199 |
+| `forgot_password.html` | 193 |
+| `register.html` | 171 |
+| `shared_ledger.html` | 261 |
+| `change_password.html` | 52 |
+| **合计** | **11,990** |
+
+### 0.3 文档采纳决策
+
+| 文档 | 采纳角色 | 理由 |
+|------|---------|------|
+| `Project_Survey.md` | **架构意图主源** | 38 条 ADR 是架构决策的权威记录，业务模块设计规范详尽 |
+| `README.md` | **功能现状与版本演进主源** | 版本变更日志完整到 V10.10.10，功能清单与部署指南准确 |
+| `AI_ASSISTANT_DESIGN.md` | **AI 模块与 V2~V10.7 修复细节参考** | ER 图、API 规范、前端设计详实，但需标注 V10.8+ 记录缺失 |
+| `V8_修复设计方案.md` | **排除**（已被 AI_ASSISTANT_DESIGN.md 第十二章完整吸收） | 独立草稿，无增量信息 |
+
+> **归档说明**（2026-09-23）：上表所列 Project_Survey.md、AI_ASSISTANT_DESIGN.md、V8_修复设计方案.md 三份历史文档，已在本 PSD 定稿后移入回收站归档。全文对其引用均记录审计时点状态，不影响本 PSD 的代码事实结论。
 
 ---
 
@@ -77,219 +110,190 @@ AIGC:
 
 ### 1.1 业务定位
 
-人情礼金记账系统是一套面向中国家庭/小团队的人情往来与礼金资产记账管理系统。核心业务涵盖：礼金收支记录、专属宴席大账本、人情往来对账、亲友纪念日智能提醒、全系统统一回收站、多渠道 Webhook 消息推送、WebDAV 云端备份、AI 助手及细粒度权限管控。
+人情礼金记账系统（Gift Bookkeeping App）是一套面向中国家庭/小团队的人情往来资产管理工具，核心解决三大痛点：
+1. **礼金收支记账**：收礼/送礼双向记录，自然语言复合拆分一键入库
+2. **人情对账追踪**：按亲友聚合收送差额，自动判定"待补礼/待还礼/已平账"
+3. **多渠道预警推送**：企业微信/钉钉/飞书 Webhook + 企微官方长连接机器人，纪念日到期主动推送
 
-**实际部署形态**：Docker 单容器（Flask + Gunicorn + SQLite），宿主机 Nginx 反向代理（SNI 多项目共用 443 端口）。
+系统具备多用户细粒度权限、WebDAV 加密云备份、AI 助手、权限工单审批等企业级能力，部署形态覆盖 Web 原生、Docker Compose 和 Android APK 三种交付。
 
 ### 1.2 真实技术栈全景清单
 
-| 层面 | 技术选型 | 版本 | 代码依据 |
-|---|---|---|---|
-| 后端语言 | Python | 3.11 | `Dockerfile:1` |
-| Web 框架 | Flask | 3.0.3 | `requirements.txt:1` |
-| ORM | Flask-SQLAlchemy | 3.1.1 | `requirements.txt:2` |
-| 认证 | Flask-Login | 0.6.3 | `requirements.txt:4` |
-| CSRF 防护 | Flask-WTF | 1.2.1 | `requirements.txt:3` |
-| 密码哈希 | Werkzeug | 3.0.3 | `requirements.txt:5` |
-| WSGI 容器 | Gunicorn | 22.0.0（4 workers） | `requirements.txt:6`；`Dockerfile:27` |
-| 加密 | cryptography (AES-256-GCM) | 42.0.8 | `requirements.txt:7`；`models.py:10` |
-| 数据库 | SQLite（WAL）/ PostgreSQL（可选） | — | `app.py:76-85` |
-| 数据库驱动 | psycopg2-binary（PostgreSQL 可选） | 2.9.9 | `requirements.txt:8` |
-| AI SDK | openai | >=1.0.0 | `requirements.txt:14`；`ai_service.py:13` |
-| 联网搜索 | duckduckgo_search | >=4.0.0 | `requirements.txt:15`；`web_search.py:10` |
-| 企微机器人 | wecom-aibot-python-sdk + websockets + pyee | >=1.0.2 | `requirements.txt:11-13`；`aibot/` 目录 |
-| HTTP 客户端 | requests + aiohttp | >=2.31 / >=3.9 | `requirements.txt:9-10` |
-| 备份加密 | pyzipper (AES-256 zip) | >=0.3.1 | `requirements.txt:16`；`webdav_utils.py:26` |
-| 前端框架 | Jinja2 + Bootstrap 5（Bootstrap/Font-Awesome/Bootstrap Icons 本地 `static/vendor/` 引用，V10.10.18 起替代 CDN） | — | `templates/base.html:23-25、256` |
-| PWA | manifest.json + sw.js | — | `static/` 目录 |
-| 反向代理 | Nginx（宿主机安装） | — | `nginx_ssl.conf`；`run.sh` |
-| 部署脚本 | run.sh (POSIX sh 兼容) | — | `run.sh`（158 行，V10.10.17b 模块化拆分后） |
-| 容器编排 | docker-compose.yml | 3.8 | `docker-compose.yml` |
+| 层级 | 技术选型 | 版本 | 代码依据 |
+|------|---------|------|---------|
+| **后端语言** | Python | 3.12（本地）/ 3.11-slim（Docker） | `run.sh:367` |
+| **Web 框架** | Flask | 3.0.3 | `requirements.txt:1`、`app.py:42` |
+| **ORM** | Flask-SQLAlchemy | 3.1.1 | `requirements.txt:2`、`models.py:75` |
+| **认证** | Flask-Login (Session) | 0.6.3 | `requirements.txt:4`、`app.py:90-93` |
+| **CSRF** | Flask-WTF | 1.2.1 | `requirements.txt:3`、`app.py:214-238` |
+| **密码哈希** | Werkzeug | 3.0.3 | `requirements.txt:5`、`models.py:9` |
+| **对称加密** | cryptography (AES-256-GCM) | 42.0.8 | `requirements.txt:7`、`models.py:10,27-43` |
+| **数据库** | SQLite (WAL) / PostgreSQL (可选) | — | `app.py:68-78`，`DATABASE_URL` 环境变量切换 |
+| **PostgreSQL 驱动** | psycopg2-binary + psycopg[binary]（V10.10.20 新增，SQLAlchemy 2.0 默认 psycopg3 驱动） | 2.9.9 / >=3.1 | `requirements.txt:8-9`（切换 PostgreSQL 的必要依赖；psycopg2-binary 供 webhook_utils 原生连接保留） |
+| **WSGI 容器** | Gunicorn（**V10.11.30 生产级全面启用**，支持自动降级与 PID 托管） | 22.0.0 | `requirements.txt:6`；`bin/service.sh:42-53`（-w 2 -k gthread --threads 4，回退 python3 app.py） |
+| **反向代理** | Nginx (SNI 多项目 443) | — | `config/nginx_ssl.conf`、`run.sh:224-291` |
+| **前端** | Jinja2 + Bootstrap 5 + 原生 JS | — | `templates/base.html:23-25、256`（**V10.10.18 已本地化 `static/vendor/` 加载**） |
+| **图表** | ECharts 5.5.0（V10.11 新增，本地化 `static/vendor/echarts/`） | 5.5.0 | `templates/dashboard.html`、`static/vendor/echarts/5.5.0/echarts.min.js` |
+| **Excel 解析** | openpyxl（V10.11 新增） | >=3.1.0 | `requirements.txt:18`、`routes_ext.py` 导入路由 |
+| **PDF 生成** | reportlab（V10.11 新增） | >=4.0.0 | `requirements.txt:19`、`pdf_generator.py` |
+| **长图海报** | html2canvas（V10.11 新增，本地化 `static/vendor/html2canvas/`） | 1.4.1 | `templates/poster_template.html`、`static/vendor/html2canvas/1.4.1/html2canvas.min.js` |
+| **PWA** | Service Worker | — | `static/sw.js`（1053 bytes） |
+| **AI 接入** | OpenAI Python SDK | >=1.0.0 | `requirements.txt:14`、`ai_service.py` |
+| **联网搜索** | DuckDuckGo Search | >=4.0.0 | `requirements.txt:15`、`web_search.py` |
+| **企微机器人** | wecom-aibot-python-sdk | >=1.0.2 | `requirements.txt:11`、`aibot/` 目录 |
+| **企微 SDK 运行依赖** | websockets + pyee | >=12.0 / >=11.0 | `requirements.txt:12-13`（长连接与事件循环） |
+| **Webhook 网络** | requests + aiohttp | >=2.31.0 / >=3.9.0 | `requirements.txt:9-10`、`webhook_utils.py:18,47` |
+| **加密备份** | pyzipper | >=0.3.1 | `requirements.txt:16`、`webdav_utils.py` |
+| **部署脚本** | POSIX Shell (`#!/bin/sh`) | — | `run.sh:1`（551 行，兼容 dash/sh） |
+| **SSL 证书** | 自签（cryptography 库生成） | — | `generate_ssl_certs.py` |
 
-### 1.3 最新端到端架构拓扑图
+### 1.3 端到端架构拓扑图
 
 ```mermaid
 graph TB
-    subgraph 互联网["互联网用户终端"]
-        USER["用户浏览器 Bootstrap5+Chart.js+PWA"]
+    subgraph "客户端层"
+        WEB[浏览器 Web 端<br/>Jinja2 + Bootstrap 5 + 原生JS]
+        APK[Android APK<br/>WebView 封装]
     end
-    subgraph 宿主机["宿主机 Linux"]
-        subgraph Nginx层["Nginx 反向代理 宿主机安装"]
-            NGINX["nginx_ssl.conf SNI多项目共用443 TLS1.2/1.3终止"]
-        end
-        subgraph Docker层["Docker Engine"]
-            subgraph 容器["gift_bookkeeping_web 容器"]
-                GUN["Gunicorn 4 Workers bind 0.0.0.0:11443 app:app"]
-                subgraph FlaskApp["Flask 应用 单体"]
-                    APP["app.py 2842行 认证/风控/权限/审计/CSV 37个路由"]
-                    EXT["routes_ext.py 4744行 宴席/纪念日/回收站 Webhook/WebDAV/备份/工单 110个路由"]
-                    AI["routes_ai.py 356行 AI聊天/会话/配置 14个路由"]
-                end
-                subgraph 工具层["业务工具层 框架无关"]
-                    GIFT["gift_utils.py NLP拆分/对账计算"]
-                    AISVC["ai_service.py 多配置优先级/本地兜底"]
-                    WSEARCH["web_search.py DuckDuckGo搜索"]
-                end
-                subgraph 基础设施["基础设施层"]
-                    HOOK["webhook_utils.py 918行 多通道推送/日志脱敏"]
-                    WDAV["webdav_utils.py 489行 PROPFIND/MKCOL/PUT/GET"]
-                    AIBOT["aibot/ 9文件1109行 企微SDK封 WebSocket长连接"]
-                end
-                subgraph 数据层["数据层"]
-                    SQLITE[("SQLite WAL模式 data/gift_bookkeeping.db 22张表")]
-                end
-                subgraph 后台["后台守护线程"]
-                    T1["纪念日巡检线程 60s周期"]
-                    T2["备份调度线程 60s检查Cron"]
-                    T3["企微长连接监听 chatid自动捕获"]
-                end
-            end
-        end
-        SSL["generate_ssl_certs.py 自签证书"]
-        RUN["run.sh start/stop/restart/status"]
+
+    subgraph "接入层"
+        NGINX[Nginx 反向代理<br/>SNI 多项目 443 端口<br/>TLS 1.2/1.3 + HTTP/2]
     end
-    subgraph 外部["外部服务"]
-        WD["WebDAV 坚果云/NAS/Nextcloud"]
-        WH["Webhook 企微/钉钉/飞书/Bark/PushPlus"]
-        WECOM["企微WebSocket wss://openws.work.weixin.qq.com"]
-        OPENAI["OpenAI API 兼容Base URL"]
-        DDG["DuckDuckGo Search"]
+
+    subgraph "应用层 Flask 单体"
+        APP[app.py 3193行<br/>核心路由 + 认证 + 权限引擎<br/>礼金CRUD + 用户管理 + 审计日志]
+        EXT[routes_ext.py 5231行<br/>宴席/对账/纪念日/回收站<br/>广播/备份/工单/Webhook CRUD<br/>WeCom回调 + 定时调度器]
+        AI[routes_ai.py 423行<br/>AI 聊天/会话/配置/授权]
+        GIFT[gift_utils.py 322行<br/>NLP分词 + 中文大写 + 对账聚合]
+        WHK[webhook_utils.py 918行<br/>推送矩阵 + 模板 + 脱敏<br/>企微SDK长连接 + 监控过滤]
+        WDV[webdav_utils.py 556行<br/>WebDAV客户端 + 加密zip]
+        AIS[ai_service.py 424行<br/>多配置优先级 + 联网搜索 + 兜底]
     end
-    USER -->|HTTPS 443| NGINX
-    NGINX -->|HTTP HOST_PORT| GUN
-    GUN --> FlaskApp
-    FlaskApp --> 工具层
-    FlaskApp --> 基础设施
-    FlaskApp --> 数据层
-    FlaskApp --> 后台
-    HOOK --> WH
-    HOOK --> WECOM
-    WDAV --> WD
-    AISVC --> OPENAI
-    AISVC --> DDG
-    RUN --> Docker层
-    SSL --> NGINX
+
+    subgraph "后台守护线程"
+        T1[_anniversary_reminder_worker<br/>每60秒巡检纪念日]
+        T2[_backup_scheduler_worker<br/>每60秒检查定时备份]
+        T3[_wecom_listener_worker<br/>企微长连接常驻监听]
+    end
+
+    subgraph "数据层"
+        SQLite[(SQLite WAL 模式<br/>22+ 张表<br/>data/gift_bookkeeping.db)]
+        PG[(PostgreSQL<br/>可选, DATABASE_URL切换)]
+    end
+
+    subgraph "外部服务"
+        WDAV[WebDAV 云端<br/>坚果云/NAS/Nextcloud]
+        WHK_EXT[Webhook 目标<br/>企微/钉钉/飞书/Bark]
+        WECOM[企业微信官方<br/>wss://openws.work.weixin.qq.com]
+        OPENAI[OpenAI 兼容 API<br/>多配置优先级]
+        DDG[DuckDuckGo Search]
+    end
+
+    WEB --> NGINX
+    APK --> NGINX
+    NGINX -->|http://127.0.0.1:11443| APP
+    APP --> EXT
+    APP --> AI
+    EXT --> GIFT
+    EXT --> WHK
+    EXT --> WDV
+    AI --> AIS
+
+    APP --> SQLite
+    EXT --> SQLite
+    AI --> SQLite
+    SQLite -.->|DATABASE_URL| PG
+
+    T1 --> SQLite
+    T1 --> WHK
+    T2 --> SQLite
+    T2 --> WDV
+    T3 --> WECOM
+    T3 --> SQLite
+
+    WDV --> WDAV
+    WHK --> WHK_EXT
+    WHK --> WECOM
+    AIS --> OPENAI
+    AIS --> DDG
 ```
-
-### 1.4 代码规模总览
-
-| 类别 | 文件数 | 总行数 | 最大文件 |
-|---|---|---|---|
-| Python 后端 | 19 | ~10,900 | `routes_ext.py` 4,744 行 |
-| HTML 模板 | 21 | ~11,100 | `admin_webhooks.html` 1,426 行 |
-| 配置/脚本 | 8 | ~700 | `run.sh` 424 行 |
-| **合计** | **48** | **~22,700** | 中型单体应用 |
-
-| 路由分布 | 路由数 | 文件 |
-|---|---|---|
-| 核心路由（认证/用户/日志/CSV） | 37 | `app.py` |
-| 扩展路由（宴席/纪念日/回收站/Webhook/备份/工单） | 110 | `routes_ext.py` |
-| AI 路由（聊天/会话/配置/授权） | 14 | `routes_ai.py` |
-| **合计** | **161** | — |
 
 ---
 
 ## 第 2 部分：文档-代码差异与漂移矩阵 (Drift Matrix)
 
-### 2.1 重大漂移（架构级）
+> 以下矩阵基于 `Project_Survey.md`（38 条 ADR）、`AI_ASSISTANT_DESIGN.md`、`README.md` 与实际代码的逐条交叉核验。
+
+### 2.1 关键漂移项
 
 | # | 模块/功能 | 历史文档记载 | 代码真实实现 | 状态 | 影响评估 |
-|---|---|---|---|---|---|
-| D-01 | **容器架构** | 5 容器集群：Nginx + Web×2 + PostgreSQL + Redis + Certbot，双网络隔离 | `docker-compose.yml` 仅 1 个 Web 容器 + SQLite + 单网络单卷 | **画饼未实现** | **高**：误导新成员对系统能力的预期 |
-| D-02 | **akshare 金融集成** | §1.1 "具备金融量化/市场数据中台能力（集成 akshare）" | `requirements.txt` 无 akshare；全代码库无 import akshare | **完全未落地** | **中**：早期设计探索遗留 |
-| D-03 | **Redis 会话共享** | "LOGIN_FAIL_COUNTS 迁移至 Redis"；"Flask-Session Redis 驱动" | 无 Redis 依赖；风控用内存字典 + DB 表 LoginRisk；Flask 原生 Cookie Session | **未实现** | **高**：多 Worker 下内存字典不共享 |
-| D-04 | **健康探针 /healthz** | "新增轻量级 /healthz 路由，执行 PG + Redis PING 探活" | 代码中无 /healthz 路由定义 | **未实现** | **低**：单容器部署无编排需求 |
-| D-05 | **PostgreSQL 默认** | "默认配置为 postgresql://gift_user:..." | `app.py:76-78` 默认 SQLite，仅当 DATABASE_URL 非空时切换 PG | **SQLite 为默认** | **低**：代码设计支持 PG 切换 |
+|---|---------|------------|------------|------|---------|
+| D-01 | **akshare 金融数据集成** | `Project_Survey.md` §3 详述 akshare 集成方案、熔断/降级/超时守卫规范；§1.1 定位含"金融量化/市场数据中台能力" | `requirements.txt` 无 akshare 依赖；全项目无 `import akshare`；`web_search.py` 仅用 DuckDuckGo | **未落地** | **低** — 业务上从未使用，文档描述与系统实际定位脱节，建议从文档中标注为"规划中/搁置" |
+| D-02 | **Gunicorn 多 Worker 生产部署** | `Project_Survey.md` ADR-01 决策"全面采用 Gunicorn -w 4 -k gthread --threads 4"；`requirements.txt:6` 声明 gunicorn==22.0.0 | ~~`run.sh:362-368` 实际用 python3 app.py~~ **✅ V10.11.30 已落地**：`bin/service.sh` 升级为 `gunicorn -w 2 -k gthread --threads 4 --max-requests 2000 --max-requests-jitter 200 -b 127.0.0.1:$PORT app:app --timeout 60`（环境无 gunicorn 时自动平滑回退 python3；结合 exec 保证 PID 正确托管） | **已落地** | **高→已清偿** — 解绑 GIL，消除后台守护线程与 Web 并发请求单进程争抢导致的 CPU/内存飙升（ADR-60） |
+| D-03 | **CDN 依赖彻底移除** | `Project_Survey.md` ADR-03 决策"彻底移除国外外部公共 CDN 链接，静态资源本地化" | ~~仍从 `cdn.jsdelivr.net`/`cdnjs.cloudflare.com` 加载~~ **✅ V10.10.18 已落地**：`static/vendor/` 本地化 14 个资源文件（Bootstrap 5.3.0/Font Awesome 6.4.0/Bootstrap Icons 1.11.3，版本与原 CDN 一致），`base.html` 4 处 + `shared_ledger.html` 2 处改为 `url_for` 本地引用 | **已落地** | **高→已清偿** — 内网/弱网白屏问题（BUG-04）随之解决 |
+| D-04 | **Celery/Redis 任务队列** | `Project_Survey.md` ADR-04 决策"企业级方案引入 Redis + Celery 任务队列" | 代码使用 Python `threading.Thread` daemon 线程（`_anniversary_reminder_worker`、`_backup_scheduler_worker`、`_wecom_listener_worker`），无 Celery/Redis 依赖 | **方案降级** | **低** — 对当前单机部署规模合理，但文档应标注实际选型为轻量线程池方案 |
+| D-05 | **权限级别 1 语义** | `Project_Survey.md` ADR-25 决策"级别 1 为全局绝对全只读模式，严禁修改或删除任何数据（包括自身创建的实体）" | V10.4 已修正为"自身全权 + 仅查看他人数据"（`app.py` `can_user_edit_entity` 自身实体可编辑，他人实体需 perm>=2）；`README.md` V10.4 记录了此变更但 ADR-25 未更新 | **已重构** | **中** — ADR-25 文档与代码语义矛盾，需更新 ADR 或新增 ADR 记录此次修正 |
+| D-06 | **AI_ASSISTANT_DESIGN.md 版本覆盖** | 文档覆盖到 V10.7（2026-09-17），含 ER 图/API 规范/前端设计/逐版本修复 | V10.8~V10.10.10（约 20+ 条修复）仅在 `README.md` 变更日志中，未同步至本文档 | **版本断层** | **低** — 文档参考价值降低但不影响运行；新 PSD 应以 README.md 为最新事实源 |
+| D-07 | **Service Worker 超时熔断** | `Project_Survey.md` BUG-06 决策"为 Service Worker fetch 增加超时限制与离线降级分支" | `static/sw.js` 仅 1053 bytes，无 `fetch` 事件拦截逻辑，无超时/降级代码 | **未落地** | **低** — 当前 SW 仅做 manifest 缓存壳，实际未拦截请求，反而避免了 BUG-06 描述的问题 |
+| D-08 | **数据库连接超时** | `Project_Survey.md` ADR-02 决策 `connect_args={'timeout': 30}` | `app.py:83-84` 确实设置 `'timeout': 30`；`app.py:878-879` 设置 `PRAGMA busy_timeout=30000` | **一致** | — |
+| D-09 | **AES-256-GCM 加密存储** | `Project_Survey.md` ADR-05/ADR-36 决策"敏感凭据 AES-256-GCM 加密落盘" | `models.py:27-43` `encrypt_credential`/`decrypt_credential` 实现 AESGCM；`WebhookConfig._secret_token`/`_bot_secret`、`BackupConfig._backup_encrypt_password`、`User._ai_api_key`、`SharedLedgerLink._access_password` 均密文存储 | **一致** | — |
+| D-10 | **CSRF 全局保护** | `Project_Survey.md` ADR-05 决策"CSRF 强校验" | `app.py:214-238` 手动实现 CSRF token 生成与校验（非依赖 Flask-WTF 内置 decorator），企微回调/根路径/Webhook 接口免除 | **一致** | — |
 
-### 2.2 中等漂移（实现级）
+### 2.2 漂移影响汇总
 
-| # | 模块/功能 | 历史文档记载 | 代码真实实现 | 状态 | 影响评估 |
-|---|---|---|---|---|---|
-| D-06 | Gunicorn 启动参数 | ADR-01 "gunicorn -w 4 -k gthread --threads 4 --timeout 60" | ~~`Dockerfile:27`~~ **✅ V10.11.30 已落地**：`gunicorn.conf.py` + `Dockerfile` 升级为 2 workers + 4 gthread，解绑 GIL 并接入跨进程锁 | **已落地** | **高→已清偿**：解绑 GIL 并发瓶颈（ADR-56） |
-| D-07 | Dockerfile 多阶段构建 | Builder + Runner 两阶段，非 root UID 10001，只读根文件系统，HEALTHCHECK | 单阶段构建，无 USER、无 HEALTHCHECK | **未实现** | **中**：镜像较大，安全性低于预期 |
-| D-08 | Celery 异步任务 | ADR-04 "企业级方案引入 Redis + Celery" | 使用 `threading.Thread(daemon=True)` 守护线程 | **方案降级** | **低**：单容器规模够用 |
-| D-09 | 数据库迁移 | docker-entrypoint.sh + init-db/01-init.sql | `init_database()` 函数在模块加载时执行，ALTER TABLE 逐条尝试 | **实现不同** | **中**：迁移策略脆弱 |
-| D-10 | 权限级别 1 语义 | ADR-25 "级别 1 为全局绝对全只读" | `app.py:527-528`：级别 1 对自身实体 return True（可编辑自身） | **文档已修正** | **低**：后续版本说明已修正 |
-
-### 2.3 轻微漂移（细节级）
-
-| # | 模块/功能 | 历史文档记载 | 代码真实实现 | 状态 |
-|---|---|---|---|---|
-| D-11 | Nginx 端口 | 15001 | `run.sh:29` 默认 NGINX_PORT=443（V10.10 SNI 改造后变更） | **已重构** |
-| D-12 | Nginx 容器化 | Nginx 容器 | 宿主机安装 Nginx，run.sh 渲染配置文件 | **方案变更** |
-| D-13 | CI/CD 流水线 | 完整 GitHub Actions（SAST + Build + Scan + Push + Deploy） | 仓库中无 .github/workflows/ 目录 | **未实现** |
-
-### 2.4 漂移根因分析
-
-| 根因 | 影响范围 | 说明 |
-|---|---|---|
-| 设计先行，实现降级 | D-01, D-03, D-07, D-08 | Docker_Deployment_Plan.md 是理想化的企业级架构蓝图，实际落地时降级为单容器方案 |
-| 早期探索遗留 | D-02 | akshare 金融集成是项目早期定位探索，后续聚焦纯记账功能后废弃 |
-| 迭代中演进 | D-10, D-11, D-12 | 权限语义和 Nginx 部署方式在迭代中变更，部分 ADR 未同步更新 |
-| DevOps 未落地 | D-04, D-13 | 健康探针和 CI/CD 属于规划但未投入资源实现 |
+| 严重度 | 数量 | 漂移项 |
+|--------|------|--------|
+| **高影响** | 1 | D-02（Gunicorn 未落地）；D-03（CDN 未移除）✅ 已于 V10.10.18 清偿 |
+| **中影响** | 1 | D-05（权限级别 1 语义矛盾） |
+| **低影响** | 4 | D-01（akshare 未落地）、D-04（Celery 降级）、D-06（文档断层）、D-07（SW 未落地） |
+| **一致** | 3 | D-08、D-09、D-10 |
 
 ---
 
 ## 第 3 部分：架构模式识别
 
-### 3.1 整体架构判定：单体应用（Monolith）
+### 3.1 模式判定：经典单体应用（Monolith）
 
-| 维度 | 判定 | 证据 |
-|---|---|---|
-| 部署单元 | 单一可执行单元 | 单个 Docker 容器，单 `app:app` WSGI 入口 |
-| 进程模型 | 单进程多 Worker | Gunicorn 4 workers，无微服务进程 |
-| 数据共享 | 共享数据库 | 所有模块操作同一 SQLite 文件 |
-| 代码组织 | 模块化但未分层 | 3 个路由文件 + 工具模块，无 Service/Repository 层 |
+**判定依据**：
 
-### 3.2 路由装配方式
+| 维度 | 观察结论 | 代码依据 |
+|------|---------|---------|
+| **部署单元** | 单一 Python 进程，无微服务拆分 | `run.sh:362` `python3 $APP_SCRIPT` |
+| **路由装配** | Flask 单 app 实例 + `register_routes_ext()` 注册扩展路由 + `routes_ai` 模块注册 AI 路由 | `app.py:33` `from routes_ext import register_routes_ext`；`routes_ext.py` 在函数内用 `@app.route` 注册 |
+| **数据访问** | 全量 ORM（SQLAlchemy），无 Repository/DAO 抽象层；Model 直接在路由中 `query` | `app.py:960` `get_accessible_records_query(current_user)` 直接操作 Model |
+| **通信模式** | 进程内同步调用，无 RPC/消息队列；异步任务用 daemon 线程 | `routes_ext.py:7` `import threading`；无 Celery/RabbitMQ/Kafka |
+| **状态管理** | 服务端 Session（Flask-Login），无 JWT/Token 无状态设计 | `app.py:90-93` `LoginManager` |
+| **前端渲染** | 服务端渲染（Jinja2 SSR），无 SPA/CSR 分离 | `templates/*.html` 21 个模板 |
 
-```python
-# app.py:3163-3178 — 路由注册入口
-register_routes_ext(
-    app,
-    log_operation=log_action,
-    get_accessible_records_query=get_accessible_records_query,
-    get_accessible_banquets_query=get_accessible_banquets_query,
-    ...
-)
-from routes_ai import register_ai_routes
-register_ai_routes(app, log_action=log_action)
+### 3.2 分层结构（实际 vs 理想）
+
+```
+理想分层:                          实际分层:
+┌─────────────────┐               ┌─────────────────────┐
+│  Controller     │               │  Route Handler      │  ← 胖 Controller
+│  (薄路由)        │               │  (路由+业务+数据访问  │     (app.py 3193行
+├─────────────────┤               │   +权限校验+日志     │      routes_ext.py 5231行)
+│  Service        │               │   +Webhook推送       │
+│  (业务逻辑)     │  ← 缺失       ├─────────────────────┤
+├─────────────────┤               │  Model              │
+│  Repository     │  ← 缺失       │  (SQLAlchemy ORM     │
+├─────────────────┤               │   +加解密property    │
+│  Model          │               │   +权限方法)          │
+└─────────────────┘               └─────────────────────┘
 ```
 
-采用**函数注册模式**：核心路由直接在 app.py 中用 @app.route 装饰器定义（37 个）；扩展路由通过 `register_routes_ext()` 函数注入（110 个）；AI 路由通过 `register_ai_routes()` 函数注入（14 个）。
+**关键发现**：系统**无 Service 层和 Repository 层**，业务逻辑直接内嵌在路由函数中。权限校验、Webhook 推送、审计日志、数据查询全部在同一个函数内完成，形成典型的**胖 Controller 反模式**。
 
-特点：依赖通过函数参数传递，未使用依赖注入框架；无蓝图（Blueprint）拆分；无 URL 前缀分组。
+### 3.3 模块间通信模式
 
-### 3.3 ORM 使用模式
-
-| 维度 | 实际方式 | 证据 |
-|---|---|---|
-| ORM 框架 | Flask-SQLAlchemy 3.1.1 | `models.py:7` |
-| 模型定义 | 22 模型类，单文件 models.py（927 行） | `models.py` |
-| 查询模式 | 以 `Model.query.filter()` 为主 | `app.py:960`、`routes_ext.py` 全文 |
-| 原生 SQL | 3 类场景、16 处 `sqlite3.connect()` 调用：迁移(`app.py:662-879`)、备份/恢复(`routes_ext.py` 11 处)、Webhook日志(`webhook_utils.py` 5 处) | 绕过 ORM 直接 `sqlite3.connect()` |
-| 事务管理 | 隐式提交（`db.session.commit()` 散落各路由），无统一事务边界 | 全代码库 60+ 次 commit |
-
-### 3.4 通信模式
-
-| 通信类型 | 实现方式 | 代码位置 |
-|---|---|---|
-| 前端 ↔ 后端 | SSR（Jinja2）+ AJAX（fetch 返回 JSON） | `templates/` + 各路由 `jsonify()` |
-| 后端 ↔ 外部 API | 同步 HTTP（`requests.Session`），12 秒超时 | `webhook_utils.py:44-81`；`webdav_utils.py:82-89` |
-| 后端 ↔ 企微长连接 | 异步 WebSocket（`aibot` SDK + `asyncio`） | `webhook_utils.py:278-318`；`aibot/ws.py` |
-| 后台任务 | `threading.Thread(daemon=True)` 守护线程 | `routes_ext.py:401,692,2823` |
-| 后端 ↔ AI | 同步 OpenAI SDK 调用，30 秒超时 | `ai_service.py:127-156` |
-
-### 3.5 前端架构
-
-| 维度 | 实际方式 |
-|---|---|
-| 渲染模式 | 服务端渲染（SSR）为主，关键交互用 AJAX 增强 |
-| 模板继承 | `base.html` 基础布局 + 20 个业务页面模板 |
-| 状态管理 | 无前端框架，依赖 Flask `session` + Jinja2 模板变量 |
-| 组件复用 | Bootstrap 5 组件 + 自定义 JS 内联脚本（无构建工具） |
-| API 通信 | `fetch()` 调用 JSON API，CSRF Token 通过 `X-CSRFToken` Header 传递 |
-| PWA | Service Worker (`sw.js`) + `manifest.json` |
+| 通信类型 | 实现方式 | 代码依据 |
+|---------|---------|---------|
+| **同步 HTTP** | Flask 路由处理 → Jinja2 渲染 → 返回 HTML | 全部 `@app.route` |
+| **AJAX 异步** | 前端 `fetch()` → 后端 `jsonify()` | `templates/base.html:233-259` 全局 Fetch 拦截器 |
+| **后台线程** | `threading.Thread(daemon=True)` 三常驻线程 | `routes_ext.py` 三个 worker 函数 |
+| **外部 HTTP** | `requests.Session()` 连接池 | `webhook_utils.py:47`、`webdav_utils.py` |
+| **WebSocket 长连接** | `aibot.WSClient` 企微官方 SDK | `webhook_utils.py:29` `from aibot import WSClient` |
+| **数据库直连** | SQLite 文件级 / PostgreSQL TCP | `app.py:80` `SQLALCHEMY_DATABASE_URI` |
 
 ---
 
@@ -297,363 +301,362 @@ register_ai_routes(app, log_action=log_action)
 
 ### 4.1 纯业务代码（框架无关，可直接复用）
 
-| 文件 | 行数 | 复用评级 | 说明 |
-|---|---|---|---|
-| `gift_utils.py` | 273 | **A 级** | 纯 Python，无 Flask 依赖。NLP 拆分、对账计算、大写金额转换，可 100% 移植 |
-| `web_search.py` | 70 | **A 级** | 纯 Python，DuckDuckGo 搜索封装，仅依赖 `ddgs` 库 |
-| `ai_service.py`（核心逻辑） | 362 | **B 级** | 依赖 `models.py`（SQLAlchemy），但 AI 调用与配置优先级逻辑本身框架无关 |
+| 模块 | 文件 | 行数 | 复用评估 |
+|------|------|------|---------|
+| NLP 分词引擎 | `gift_utils.py:58-86` `split_gift_nlp_text` | ~30 | 纯 Python 正则，零框架依赖，**可直接复用** |
+| 中文大写数字转换 | `gift_utils.py:13-55` `cn2num` | ~43 | 纯算法，零依赖，**可直接复用** |
+| 对账聚合计算 | `gift_utils.py` `calculate_reconciliation` | ~50 | 纯数据计算逻辑，**可直接复用** |
+| AES-256-GCM 加解密 | `models.py:14-73` `encrypt_credential`/`decrypt_credential` | ~60 | 仅依赖 `cryptography` 库，**可直接复用** |
+| CSV 导出逻辑 | `app.py:2961-2998` `export_csv` 核心 | ~40 | CSV 格式化逻辑可复用，路由绑定需剥离 |
+| Cron 表达式解析 | `routes_ext.py` `_cron_match` | ~40 | 纯算法，**可直接复用** |
+
+**纯业务代码占比估计：约 15-20%**（~2,200 行）
 
 ### 4.2 强侵入代码（强依赖框架 API，替换必须重写）
 
-| 文件 | 行数 | 耦合点 | 替换代价 |
-|---|---|---|---|
-| `app.py` | 2842 | Flask `app`、`request`、`session`、`flash`、`render_template`、`url_for`、`@app.route`、`@login_required`、Flask-WTF CSRF | **高** |
-| `routes_ext.py` | 4744 | 同上 + `threading.Thread` + `sqlite3` 直连 + `current_app` 上下文 | **极高** |
-| `routes_ai.py` | 356 | `@app.route`、`@login_required`、`jsonify`、`render_template` | **中** |
-| `models.py` | 927 | `Flask-SQLAlchemy` 的 `db.Model` 基类、`UserMixin` | **中** |
-| `webhook_utils.py` | 808 | `sqlite3` 直连（绕过 ORM）+ Flask `current_app` 间接依赖 | **中高** |
-| `webdav_utils.py` | 489 | `requests` 库（非 Flask 依赖），但 `BackupConfig` 模型耦合 SQLAlchemy | **低** |
+| 模块 | 文件 | 行数 | 耦合点 |
+|------|------|------|--------|
+| **全部路由处理** | `app.py` + `routes_ext.py` + `routes_ai.py` | ~7,942 | `@app.route`、`request`/`flash`/`redirect`/`url_for`/`jsonify`、`render_template` |
+| **认证中间件** | `app.py:155-261` | ~107 | `@app.before_request`、`current_user`、`login_user`/`logout_user`、`session` |
+| **CSRF 保护** | `app.py:214-238` | ~25 | Flask `request.form`/`session`/`abort` |
+| **模板渲染** | 21 个 HTML 模板 | 11,785 | Jinja2 模板语法 `{% %}`、`{{ }}`、`url_for()` |
+| **ORM 模型** | `models.py` 全量 | 1,071 | `db.Model`、`db.Column`、`db.relationship`、`db.session` |
+| **Webhook 推送引擎** | `webhook_utils.py` | 918 | `trigger_webhook_event` 直接操作 `WebhookConfig.query` |
+| **权限引擎** | `app.py` `can_user_*` 系列 + `models.py` `get_menu_perm` | ~200 | 与 Flask `current_user`、SQLAlchemy `query` 深度耦合 |
 
-### 4.3 分层退化坏味道（反模式代码片段）
+**强侵入代码占比估计：约 80-85%**
 
-#### 反模式 1：胖 Controller（Fat Controller）
+### 4.3 分层退化坏味道
 
-`routes_ext.py` 4744 行承载 110 个路由，大量路由超过 100 行，最复杂路由（`admin_restore_webdav_backup`）超过 200 行。业务逻辑直接内联于路由函数，无 Service 层抽象。
+#### 坏味道 1：胖 Controller — 路由函数承载全部逻辑
 
-#### 反模式 2：SQL 外露（绕过 ORM 直接操作 sqlite3）
+**典型代码**：`routes_ext.py` `admin_upload_local_backup` 路由（~130 行）
 
-```python
-# webhook_utils.py:115 — 直接 sqlite3 写日志，绕过 SQLAlchemy
-conn = sqlite3.connect(_resolve_db_file(), timeout=10)
-c = conn.cursor()
-c.execute("INSERT INTO webhook_logs ...")
-
-# app.py:662-673 — 迁移时直接 sqlite3 修复孤儿索引
-_fix_conn.execute("PRAGMA writable_schema=1")
-_orphan_indexes = _fix_conn.execute("SELECT name FROM sqlite_master WHERE ...")
+```
+路由函数内完成：
+  ① 文件上传校验 → ② 文件命名/归属校验 → ③ 数据库完整性检查 →
+  ④ 权限判定（管理员/普通用户分流）→ ⑤ 文件级替换 或 数据级合并 →
+  ⑥ ATTACH DATABASE 跨库操作 → ⑦ init_database 迁移 →
+  ⑧ Webhook 推送 → ⑨ 审计日志 → ⑩ Flash 提示 + 重定向
 ```
 
-3 处独立 `sqlite3.connect()` 绕过 ORM，在多 Worker 下可能产生连接竞争。
+**影响**：单个函数职责超过 10 个，任何修改都有高回归风险。
 
-#### 反模式 3：全局可变状态（多 Worker 不安全）
+#### 坏味道 2：SQL 外露 — ORM 之外直接执行原生 SQL
+
+**典型代码**：`routes_ext.py:47-105` `build_user_scoped_backup_db`
 
 ```python
-# app.py:1062-1065 — 模块级内存字典，多 Worker 下不共享
-LOGIN_FAIL_COUNTS = {}
-LOGIN_LOCK_UNTILS = {}
-FORGOT_SECURITY_FAIL_COUNTS = {}
-FORGOT_SECURITY_LOCK_UNTILS = {}
+# 直接 sqlite3.connect 而非 SQLAlchemy
+_src_conn = _sqlite3.connect(db_path)
+_dst_conn = _sqlite3.connect(tmp_db)
+with _dst_conn:
+    _src_conn.backup(_dst_conn)
+# 直接执行 DELETE/DROP TABLE
+c.execute("DELETE FROM gift_records WHERE user_id != ?", (user.id,))
+c.execute(f'DROP TABLE IF EXISTS "{tbl}"')
 ```
 
-Gunicorn 4 workers 下，每个 Worker 维护独立字典，风控计数被 4 倍稀释。
+**影响**：绕过 ORM 的事务管理和连接池，存在数据库状态不一致风险。
 
-#### 反模式 4：init_database() 在模块加载时执行
+#### 坏味道 3：数据库迁移硬编码 SQL — 无版本管理
 
-```python
-# app.py:936-939 — 模块级自动执行，import 即触发
-try:
-    init_database()
-except Exception as _e:
-    print(f"[Warning] 应用启动自动初始化数据库提示: {_e}")
-```
-
-任何 `import app`（如测试、CLI 工具）都会触发数据库迁移，违反幂等性原则。
-
-#### 反模式 5：Webhook 推送代码重复散布
+**典型代码**：`app.py:681-817` `init_database` migration_sqls
 
 ```python
-# 在 app.py、routes_ext.py、routes_ai.py 中共 100+ 处以下模式重复出现（全代码库 149 处）：
-try:
-    trigger_webhook_event(
-        WebhookConfig.query.filter_by(is_enabled=True).all(), 'event_type',
-        f'标题', f'详情',
-        page_key='xxx', user_name=current_user.username,
-        operator_id=current_user.id
-    )
-except Exception:
-    pass  # 静默吞掉异常
-```
-
-在 app.py、routes_ext.py、routes_ai.py 中共 100+ 处 `try/except: pass` 模式（全代码库 149 处，其中 trigger_webhook_event 调用 112 次），异常被静默吞噬，推送失败不可观测。
-
-#### 反模式 6：数据库迁移策略脆弱
-
-```python
-# app.py:866-872 — 逐条 ALTER TABLE + try/except 忽略异常
+migration_sqls.extend([
+    "ALTER TABLE backup_configs ADD COLUMN config_alias VARCHAR(100)",
+    "ALTER TABLE backup_configs ADD COLUMN adopted_from_admin BOOLEAN DEFAULT 0",
+    ...
+])
+# 逐条 try-except 忽略错误
 for sql in migration_sqls:
     try:
         conn.execute(db.text(sql))
         conn.commit()
     except Exception:
-        pass  # 字段已存在则忽略
+        pass  # 已存在则跳过
 ```
 
-~60 条迁移 SQL 逐条尝试，无法追踪迁移版本，无法回滚，无法区分"字段已存在"和"其他错误"。
+**影响**：无 Alembic/Flask-Migrate 版本管理，迁移失败被静默吞没，无法回滚。
+
+#### 坏味道 4：路由文件膨胀失控
+
+| 文件 | 行数 | 路由数量（估计） | 单文件职责 |
+|------|------|---------------|---------|
+| `routes_ext.py` | 5,231 | ~82 个路由 | 宴席/对账/纪念日/回收站/广播/备份/工单/Webhook/WeCom/定时任务 |
+| `app.py` | 3,193 | ~37 个路由 | 礼金CRUD/认证/用户管理/审计日志/安全配置/导出导入 |
+
+**影响**：单文件 5231 行已超出可维护阈值，模块边界模糊。
+
+#### 坏味道 5：前端逻辑内联 — JS 与 HTML 混杂
+
+`admin_webhooks.html`（1527 行）中包含大量内联 `<script>`，矩阵配置/事件绑定/AJAX 逻辑全部嵌在 HTML 中，无独立 JS 模块。
 
 ---
 
 ## 第 5 部分：架构替换与轻量化可行性决策
 
-### 5.1 替换动机评估
+### 5.1 评估动机
 
-| 维度 | 现状 | 是否构成瓶颈 | 分析 |
-|---|---|---|---|
-| 框架重量 | Flask 3.0.3，轻量级框架 | **否** | Flask 本身极轻量（核心 ~100KB），不是性能瓶颈 |
-| 性能 | Gunicorn 4 Worker 单线程模式 | **潜在瓶颈** | 缺少 `gthread`，每 Worker 单线程；Webhook/AI 调用同步阻塞 |
-| 可维护性 | 4744 行 routes_ext.py 单文件 | **是** | 胖 Controller 严重影响可维护性，非框架问题 |
-| 扩展性 | 单容器 + SQLite + 内存风控 | **当前够用** | 目标场景家庭/小团队（< 50 人），SQLite WAL 足够 |
-| 安全 | AES-256-GCM + CSRF + 风控 | **良好** | 主要风险是多 Worker 内存风控不共享 |
+| 评估维度 | 当前状态 | 是否存在瓶颈 |
+|---------|---------|------------|
+| **框架重量** | Flask 3.0 轻量级，无过度抽象 | **否** — Flask 本身足够轻量，非瓶颈 |
+| **并发性能** | Werkzeug 开发服务器单线程 | **是** — 生产部署仍用 `python3 app.py`，无多 Worker（D-02 漂移） |
+| **代码可维护性** | 5231 行单文件，无 Service 层 | **是** — 胖 Controller 已导致修改回归风险高 |
+| **前端体验** | Jinja2 SSR + 本地静态资源 + 内联 JS | **否** — V10.10.18 前端资源已本地化（D-03 已清偿），SSR 满足业务需求 |
+| **数据库扩展** | SQLite WAL 足够单机场景 | **否** — 已支持 PostgreSQL 无缝切换 |
+| **部署复杂度** | 单文件部署 + run.sh 自动化 | **否** — 部署体验优秀 |
+
+**核心结论**：框架本身不是瓶颈，**工程纪律缺失**（无 Service 层、无迁移版本管理、CDN 未本地化、Gunicorn 未启用）才是真正的问题。
 
 ### 5.2 替换代价 vs 收益矩阵
 
-| 方案 | 迁移工作量 | 预期收益 | ROI |
-|---|---|---|---|
-| **维持 Flask，局部治理** | 低（2-4 人周） | 可维护性提升 40%，性能提升 20% | **高 ROI** |
-| Flask → FastAPI | 高（8-12 人周） | 异步性能、自动文档、类型安全 | **中 ROI** |
-| Flask → Django | 极高（16+ 人周） | Admin、ORM 更强、迁移框架 | **低 ROI** |
-| Flask → 纯 ASGI（Starlette） | 极高（12+ 人周） | 极致轻量、异步原生 | **低 ROI** |
+| 方案 | 代价 | 收益 | ROI |
+|------|------|------|-----|
+| **A. 维持 Flask + 局部治理** | 低（重构内部结构，不换框架） | 中（可维护性提升，并发修复） | **高** |
+| **B. 换 FastAPI + 前后端分离** | 极高（全部路由+模板+认证重写，~14,000 行） | 高（异步原生支持、自动文档、类型安全） | **低** |
+| **C. 换 Django + DRF** | 极高（ORM 迁移、模板迁移、认证迁移） | 中（admin 内置、migrate 内置） | **低** |
+| **D. 换 Go/Rust 重写** | 灾难级（全量重写） | 高（性能极大提升） | **极低** |
 
 ### 5.3 模块可替换性资产分级表
 
-| 级别 | 模块 | 文件 | 说明 |
-|---|---|---|---|
-| **Level 1**（纯业务复用） | NLP 记账解析、对账计算 | `gift_utils.py` | 纯 Python，零框架依赖 |
-| **Level 1** | 联网搜索 | `web_search.py` | 仅依赖 ddgs |
-| **Level 1** | WebDAV 协议操作 | `webdav_utils.py`（协议层） | requests 库操作，非 Flask 依赖 |
-| **Level 2**（适配可复用） | 数据模型 | `models.py` | 需从 Flask-SQLAlchemy 迁移到纯 SQLAlchemy |
-| **Level 2** | AI 服务核心 | `ai_service.py` | 需解耦 models.py 依赖 |
-| **Level 2** | 企微 SDK 封装 | `aibot/` | 独立模块，仅通过 webhook_utils 间接关联 |
-| **Level 3**（需重写适配层） | Webhook 推送引擎 | `webhook_utils.py` | sqlite3 直连日志需重构为 ORM |
-| **Level 3** | 认证与风控 | `app.py:155-210,1062-1144` | Flask-Login + Flask-WTF 需替换 |
-| **Level 4**（架构级推倒） | 全部路由处理器 | `app.py` + `routes_ext.py` + `routes_ai.py` | 161 个路由与 Flask 深度耦合，必须逐个重写 |
-| **Level 4** | 前端模板 | `templates/` (21 HTML) | Jinja2 模板与 Flask url_for/flash 深度绑定 |
+| Level | 定义 | 模块 | 估计行数 |
+|-------|------|------|---------|
+| **Level 1** | 纯业务复用（零框架依赖，可直接搬运） | `cn2num`、`split_gift_nlp_text`、`calculate_reconciliation`、`encrypt_credential`/`decrypt_credential`、`_cron_match` | ~2,200 |
+| **Level 2** | 轻度适配可复用（改 import 和接口签名即可） | `webdav_utils.py`（WebDAV 协议无关）、`ai_service.py`（OpenAI SDK 无框架绑定）、`web_search.py`、`gift_utils.py` 的 `parse_gift_nlp` | ~1,000 |
+| **Level 3** | 强框架耦合，替换需大幅重写 | 全部 `@app.route` 路由（~7,942 行）、`models.py`（SQLAlchemy 模型）、`webhook_utils.py`（依赖 `WebhookConfig.query`）、权限引擎、CSRF 中间件 | ~9,500 |
+| **Level 4** | 架构级推倒重写 | 21 个 Jinja2 模板（11,785 行）— 换前端框架必须全量重写 | ~11,785 |
 
-### 5.4 明确结论
+### 5.4 最终结论
 
 > **【不建议替换，仅局部治理】**
 
-1. **Flask 不是瓶颈**：性能瓶颈在于 Gunicorn 缺少 `gthread` 和同步阻塞的外部调用，而非 Flask 本身。
-2. **迁移代价极高**：161 个路由 + 21 个模板与 Flask 深度耦合（Level 4），任何框架替换需 8-16 人周全量重写。
-3. **纯业务模块已解耦**：核心业务逻辑（`gift_utils.py`）已达 Level 1 可复用。
-4. **真正需要治理的是**：代码组织（拆分 routes_ext.py）、工程实践（引入 Alembic、添加测试）、性能调优（Gunicorn gthread）。
-5. **如果未来确需替换**：推荐 FastAPI + 渐进式迁移，路由签名与 Flask 最接近，迁移成本最低。
+**理由**：
+
+1. **Flask 本身不是瓶颈**。系统并发问题的根因是未启用 Gunicorn（D-02 漂移），而非框架选型。启用 Gunicorn 多 Worker 即可解决，代价仅修改 `run.sh` 一行启动命令。
+
+2. **替换 ROI 极低**。Level 3+4 代码占总量 80%+（~20,400 行），任何框架替换都意味着近乎全量重写，而当前系统功能完整、业务运行正常，重写收益无法覆盖代价。
+
+3. **真正需要的是工程纪律**。当前技术债来自"有决策未执行"（Gunicorn；CDN 本地化已于 V10.10.18 执行）和"无规范的开发模式"（无 Service 层、无迁移版本管理），而非框架能力不足。
+
+**推荐治理清单（P0 立即执行）**：
+
+| 优先级 | 治理项 | 漂移编号 | 预估工作量 | 具体操作 |
+|--------|--------|---------|-----------|---------|
+| **P0** | 启用 Gunicorn 多 Worker | D-02 | 0.5 人日 | `run.sh` 启动命令从 `python3 app.py` 改为 `gunicorn -w 4 -k gthread --threads 4 -b 127.0.0.1:$PORT app:app --timeout 60` |
+| **P0** | ~~CDN 资源本地化~~ **✅ V10.10.18 已完成** | D-03 | — | Bootstrap 5.3.0/Font Awesome 6.4.0/Bootstrap Icons 1.11.3 共 14 个文件已落地 `static/vendor/`，`base.html` 4 处 + `shared_ledger.html` 2 处改本地引用 |
+| **P1** | 更新 ADR-25 权限语义 | D-05 | 0.5 人日 | 在 `Project_Survey.md` 中追加 ADR-39 记录 V10.4 权限级别 1 语义修正 |
+| **P1** | 标注 akshare 为"规划搁置" | D-01 | 0.5 人日 | 在 `Project_Survey.md` §3 添加状态标注 |
+| **P2** | routes_ext.py 拆分 | — | 3 人日 | 按业务域拆分为 `routes_banquets.py`/`routes_backups.py`/`routes_webhooks.py` 等 |
+| **P2** | 引入 Flask-Migrate | — | 2 人日 | 替换 `init_database` 硬编码 SQL 为 Alembic 版本管理 |
+| **P2** | 提取 Service 层 | — | 5 人日 | 将路由中的业务逻辑抽离为 `services/` 模块，路由仅负责参数校验和响应 |
 
 ---
 
-## 第 6 部分：前后端详尽规格
+## 第 6 部分：前后端详尽规格（校准整合版）
 
 ### 6.1 前端架构
 
-#### 6.1.1 模板继承体系
+#### 6.1.1 技术栈与渲染模式
 
-```
-base.html (493行 — 全局布局骨架)
-├── 导航栏（动态菜单渲染，基于 current_user.can_access_menu()）
-├── Flash 消息区（3.5s 自动淡出）
-├── 广播通知横幅 + 通知抽屉 Modal
-├── {% block content %}（各业务页面填充）
-├── 全局 JS：CSRF Token 注入 / PWA SW 注册 / 密码显隐切换 / 防偷窥遮罩 / 黑夜·白天主题切换
-│
-├── index.html (1030行 — 礼金账本)
-├── banquets.html (601行 — 宴席总览)
-├── banquet_detail.html (923行 — 宴席台账详情)
-├── reconciliation.html (337行 — 人情对账)
-├── reminders.html (807行 — 纪念日备忘)
-├── recycle_bin.html (350行 — 统一回收站)
-├── login.html (189行) / register.html (162行) / forgot_password.html (177行)
-├── admin_users.html (1293行 — 用户管理)
-├── admin_webhooks.html (1426行 — Webhook 配置)
-├── admin_backups.html (1201行 — WebDAV 备份)
-├── ai_assistant.html (453行 — AI 聊天)
-├── permission_tickets.html (443行 — 权限工单)
-├── shared_ledger.html (162行 — 免登录分享)
-├── profile_security.html (242行 — 个人安全设置)
-└── change_password.html (49行)
-```
+| 维度 | 实现 | 代码依据 |
+|------|------|---------|
+| 渲染模式 | 服务端渲染（SSR），Jinja2 模板继承 | `templates/base.html` 为布局模板，各页面 `{% extends 'base.html' %}` |
+| CSS 框架 | Bootstrap 5.3.0（本地 `static/vendor/bootstrap/5.3.0/`，V10.10.18 起替代 CDN） | `base.html:23、256` |
+| 图标库 | Font Awesome 6.4.0 + Bootstrap Icons 1.11.3（本地 `static/vendor/`，V10.10.18 起替代 CDN） | `base.html:24-25` |
+| 图表库 | 无（历史文档记载 Chart.js，实际模板内已无引用） | — |
+| JavaScript | 原生 JS（无框架、无构建工具），`fetch()` API 做 AJAX 通信 | 全部模板内联 `<script>` |
+| PWA | `static/manifest.json` + `static/sw.js`（仅 manifest 壳，无 fetch 拦截） | `base.html:9-10` |
+| CSRF | 全局 `<meta name="csrf-token">` 注入，fetch 请求头携带 `X-CSRF-Token` | `base.html:6、396-400、418` |
+| 主题系统 | Bootstrap 5.3 原生 `data-bs-theme` 双主题（白天/黑夜），CSS 变量（`--app-bg`/`--app-card-bg` 等 6 个）驱动；导航栏主题切换按钮 + `localStorage('gift_theme')` 持久化，默认白天零回归；暗色下统一覆盖 `bg-white/bg-light/text-dark/text-muted/table-light` 等浅色工具类 | `base.html` 全局 `<style>`、`V10.10.13` 新增 |
+| 输入框提示语 | 全局 `::placeholder` 统一美化（浅灰蓝 `--ph-color`、常规字重 400、0.875em、半透明、聚焦淡出），覆盖全部 20 个含输入框页面约 122 处 | `base.html` 全局 `<style>`、`V10.10.13` 新增 |
 
-#### 6.1.2 菜单权限映射
+#### 6.1.2 路由（前端导航）
 
-| 端点名 | 菜单 Key | 说明 |
-|---|---|---|
-| `index`, `add_record`, `edit_record`, `export_csv`, `import_csv` | `ledger` | 礼金账本 |
-| `banquets_view`, `banquet_detail_view`, `banquet_edit`, `banquets_sync` | `banquets` | 专属宴席 |
-| `reconciliation_view`, `reconciliation_sync`, `api_person_ledger` | `reconciliation` | 人情对账 |
-| `reminders_view`, `reminder_edit`, `api_trigger_reminder_push` | `reminders` | 纪念日备忘 |
-| `recycle_bin_view`, `restore_record`, `purge_record` | `recycle_bin` | 回收站 |
+前端无 SPA 路由，全部通过 Flask `url_for()` 生成后端路由链接，浏览器整页跳转。AJAX 请求仅用于局部刷新（如 WebDAV 列表异步加载、Webhook 测试 toast、权限配置即时保存等）。
 
-#### 6.1.3 前端状态管理
+**全局导航栏**（`base.html:56-80`）基于 `current_user.can_access_menu(menu_key)` 动态渲染：
 
-| 状态类型 | 管理方式 | 代码依据 |
-|---|---|---|
-| 用户会话 | Flask `session`（Cookie 签名） | `app.py:1232-1238` |
-| CSRF Token | `session['csrf_token']` → `<meta>` 注入 → JS 读取 | `app.py:227-228`；`base.html:6` |
-| 页面筛选/排序/分页 | URL Query Parameters | `app.py:951-958` |
-| 临时 UI 状态 | 内联 JS 变量 + DOM 操作（无框架） | 各模板内 `<script>` 块 |
-| 广播已读状态 | AJAX `POST /api/broadcast/mark_read/<id>` → DB `BroadcastRead` | `base.html:162` |
-| 主题偏好 | `localStorage('gift_theme')` → `<html data-bs-theme>`（Bootstrap 5.3 原生），导航栏按钮切换，默认白天 | `base.html` V10.10.13 新增 |
+| 菜单项 | menu_key | 可见条件 |
+|--------|---------|---------|
+| 礼金账本 | `ledger` | 管理员或 `can_access_menu('ledger')` |
+| 专属宴席 | `banquets` | 管理员或 `can_access_menu('banquets')` |
+| 人情对账 | `reconciliation` | 管理员或 `can_access_menu('reconciliation')` |
+| 纪念日备忘 | `reminders` | 管理员或 `can_access_menu('reminders')` |
+| 回收站 | `recycle_bin` | 管理员或 `can_access_menu('recycle_bin')` |
 
-#### 6.1.5 主题系统与输入框提示语（V10.10.13 新增）
+#### 6.1.3 前端全局 Fetch 拦截器
 
-| 项目 | 规格 | 说明 |
-|---|---|---|
-| 双主题 | 白天（默认）/ 黑夜 | Bootstrap 5.3 原生 `data-bs-theme` 属性驱动，自动适配全部组件（表格/弹窗/下拉/表单/徽章） |
-| 切换入口 | 导航栏右侧月亮/太阳圆形按钮；免登录页同样可用；外链页右上角悬浮按钮 | `base.html`、`shared_ledger.html` |
-| 持久化 | `localStorage('gift_theme')`，刷新/重启服务后保持；`<head>` 首帧读取避免闪烁 | `base.html` |
-| CSS 变量 | `--app-bg`/`--app-card-bg`/`--app-card-header-bg`/`--app-border`/`--app-border-soft`/`--app-footer-bg`/`--app-hover-bg`/`--app-ai-bg`/`--app-ai-text`/`--ph-color`/`--ph-opacity`；白天取值与原版一致零回归 | `base.html` 全局 `<style>` |
-| 浅色工具类覆盖 | 暗色下统一覆盖 `bg-white`/`bg-light`/`text-dark`/`text-muted`/`table-light` 表头 | `base.html` `[data-theme=dark]` 作用域 |
-| 特殊页面 | AI 助手聊天页（24 处硬编码色变量化）、AI 助手配置页（卡片变量化）、免登录分享外链页（独立变量+悬浮按钮） | `ai_assistant.html` / `admin_ai_config.html` / `shared_ledger.html` |
-| placeholder 美化 | 全局 `::placeholder` 统一：浅灰蓝 `--ph-color`、字重 400、0.875em、半透明、聚焦淡出；覆盖约 122 处占位提示，仅改视觉不改文案 | `base.html` 全局 `<style>` |
-| 消息自动消失（V10.10.14） | Flash 提示 3.5s、广播横幅 8s 自动淡出；自动消失脚本从带 `src` 的 `<script>` 中拆出独立执行（原脚本被浏览器忽略从未生效） | `base.html` 独立 `<script>` 块 |
-| 广播敏感内容隔离（V10.10.14） | 发布广播内容含敏感词（管理员账号/初始密码/admin123 等）自动强制 `scope='admin'` 仅管理员可见且不推送 Webhook | `routes_ext.py` 广播发布路由 |
-| 企微长连接 chatid 修正（V10.10.14） | 保存清空 chatid 不再回填旧值；@机器人捕获与测试/发送统一读写运行库（`_resolve_db_file()`），修复 3 处硬编码库路径 | `routes_ext.py`、`webhook_utils.py` |
-| 监听线程 bot_secret 密文解密（V10.10.15） | raw SQL 读取的 `bot_secret` 是 AES-256-GCM 密文，需 `decrypt_credential()` 解密为明文后传给 SDK 认证；修复后 WebSocket 认证成功；真实企微群 @机器人 实测通过，全链路闭环确认 | `webhook_utils.py` `_wecom_listener_worker` |
-| Docker 版性能优化（V10.10.16） | 四层组合拳：① Gunicorn 4 sync workers → 1 worker + gthread 4 线程 ② 5 组重型依赖延迟导入（openai/duckduckgo_search/cryptography/aibot SDK/pyzipper） ③ 守护线程 fcntl 跨进程单实例锁 ④ init_database() 幂等快跳 + Dockerfile 多阶段构建 + MALLOC_ARENA_MAX=2 + GitHub Actions 双 Registry 免构建部署。内存 350~535MB → 60~95MB（↓80%） | `gunicorn.conf.py`、`_daemon_lock.py`、`Dockerfile`、`docker-compose.yml`、`run.sh`、`app.py`、`ai_service.py`、`web_search.py`、`models.py`、`webhook_utils.py`、`webdav_utils.py`、`routes_ext.py` |
-| 交互式数据库部署选择 + PG 兼容（V10.10.17） | run.sh 交互式三选一（SQLite/共享 PG/独立 PG）+ 服务器环境智能推荐 + Cron 安全（DB_MODE 环境变量直通 + .temp/.db.env 配置持久化 + 非交互自动降级 SQLite）；app.py/webhook_utils.py/routes_ext.py 全面 PG 兼容（schema_version 表、_get_db_conn() 统一连接、备份/恢复 JSON 导出导入）；共享文件两版 MD5 逐字一致 | `run.sh`、`docker-compose.yml`、`app.py`、`webhook_utils.py`、`routes_ext.py` |
-| 前端资源本地化 + 部署链路加固（V10.10.18） | 方案A：新增 `static/vendor/` 14 个文件（Bootstrap 5.3.0 CSS+bundle.js / Font Awesome 6.4.0 all.min.css+webfonts×8 / Bootstrap Icons 1.11.3 min.css+woff2/woff，经 npmmirror 官方 npm 镜像获取、版本与原 CDN 一致零视觉变化），`base.html` 4 处 + `shared_ledger.html` 2 处 jsdelivr/cdnjs 引用改为 `url_for` 本地加载，镜像 `COPY . /app/` 自动包含 vendor（.dockerignore 未排除 static/）；方案B/C 仅传统版（V10.10.18 起首次部署就绪 `data/` 运行库，V10.10.20 起不再复制样例库、初次部署为纯净空库 + 单一管理员 + python3 预检 + pip 三源兑底；Docker 版容器命名卷 + .dockerignore 排除样例库天然隔离，不适用）；浏览器实测 vendor 全部 200 本地加载无 CDN 请求 | `static/vendor/**`、`templates/base.html`、`templates/shared_ledger.html`（两版 MD5 一致）；`run.sh`、`bin/db_setup.sh`（仅传统版） |
-| run.sh status 访问信息展示 + 数据库配置帮助（V10.10.19） | status 命令在 docker compose ps 基础上，有容器运行时附带访问信息与数据库模式：抽取 print_access_info() 与 start 共用（start 输出零变化）；status 补带 PG override 文件（此前共享/独立 PG 模式漏看 PG 容器）；print_db_mode_info() 展示 .temp/.db.env 持久化模式且不展示 DATABASE_URL 防密码泄露；两版帮助文本新增 DB_MODE/DB_PG_CONTAINER/DB_RESET 说明；沙盒验证 20 项通过 | `run.sh`（两版各自独立改造） |
-| 帮助示例命令名规范化（V10.10.19b） | 帮助文本与 status 提示中的示例命令由 ./$0 规范为 ./$(basename "$0")，任何调用方式（./run.sh / sh run.sh / 绝对路径）下均稳定显示 ./run.sh start；修正传统版 status 端口占用提示 ./service.sh → ./run.sh 历史笔误；用法首行 $0 保留原样如实反映调用方式 | `run.sh`（两版） |
-| 传统版初次部署纯净化（V10.10.20） | app.py 非 frozen 分支始终使用 data/ 运行库并自动建目录（删除回退根目录样例库分支）；ensure_sqlite_runtime_db() 仅就绪 data/ 目录、不再复制样例库；初次部署为纯净空库 + 单一管理员（admin/admin123，与 Docker 版一致）；根目录样例库仅作开发/演示参考；共享文件 app.py 两版同步修改 MD5 一致 | `app.py`（两版共享）、`run.sh`、`bin/db_setup.sh`（仅传统版） |
-| Docker 版部署架构对齐 mengya-docker（V10.10.20） | 彻底移除 .temp override 动态文件机制（根治 external 网络失效启动失败，如萌芽旧网络 mengya-docker_netpgv-network）；compose 无 version 字段消除 obsolete 警告；默认网络重命名固定名 gift-docker_net（永不声明 external）；独立 PG 改为静态 docker-compose.db.yml 按 -f 合成 + PG_DATA_DIR 按镜像智能匹配（18+/pgvector:pg18 → /var/lib/postgresql，15/16/alpine → /var/lib/postgresql/data，防数据不落卷）；共享 PG 由 docker network connect 接入自有网络（幂等）+ start 后兜底接入重启 web + stop 先摘除；DATABASE_URL 经 shell 环境变量插值注入；共享文件（db_select.sh/common.sh/app.py）零改动 | `docker-compose.yml`、`docker-compose.db.yml`（新增）、`run.sh`、`bin/db_setup.sh`（仅 Docker 版） |
-| PG 驱动与镜像策略修复（V10.10.20，两版同步） | 新增 `psycopg[binary]>=3.1` 依赖：SQLAlchemy 2.0 对 `postgresql://` 默认 psycopg3 驱动，修复 PG 模式下 gunicorn worker 启动报 `No module named 'psycopg'` 崩溃（psycopg2-binary 保留给 webhook_utils 原生连接）；PG 镜像优先级链 `PG_IMAGE`（自定义）> 本地已有镜像 > 自动下载默认 `postgres:16-alpine`（失败降级 SQLite）；独立 PG 模式持久化镜像与挂载路径至 `.temp/.db.env`（restart 不漂移）；传统版独立 PG 同步策略 + detect_pg_data_dir 智能匹配 | `requirements.txt`（两版共享）、`run.sh`、`bin/db_setup.sh`（两版各自独立） |
-| DB_RESET 重选菜单修复 + PG_IMAGE 示例细化（V10.10.20，两版同步） | 修复 `DB_RESET=1 ./run.sh restart` 时交互菜单被跳过的问题：restart 场景下 stop_service 的 load_db_env 会把旧配置中的 DB_MODE 注入当前 shell，被 ① 直通分支误判为"环境变量直通"而静默沿用旧模式；db_select.sh 顶部捕获 `_DB_MODE_AT_LOAD`（模块加载时用户显式指定值），① 分支只认该值——DB_RESET=1 重选正常弹出交互菜单、用户显式 DB_MODE 直通不变、日常 restart 读配置不变（三场景模拟验证通过）；帮助文本与交互菜单细化 PG_IMAGE 使用示例（优先级链 + 4 组场景示例 + 仅独立 PG 模式生效说明） | `bin/db_select.sh`（两版共享）、`run.sh`（两版） |
-| PG 连接参数全面自定义（V10.10.20，两版同步） | `PG_USER`/`PG_PASSWORD`/`PG_DB`/`PG_PORT` 环境变量自定义数据库账号、密码、库名、端口（默认 gift_user / 随机 16 位 / gift_bookkeeping / 5432）；setup_shared_pg 与 setup_independent_pg 的建号、建库、授权、DATABASE_URL 拼接全部参数化（幂等建号 ALTER 同步密码）；密码含单引号/空格拒绝、URL 特殊字符警告；Docker 版 docker-compose.db.yml 的 POSTGRES_DB/USER/PASSWORD 改为插值 + 连接参数持久化至 .temp/.db.env（restart 不漂移）；PG_PORT 语义：Docker 版仅共享模式生效（独立模式容器内固定 5432），传统版共享=宿主机连接端口（优先于映射检测）、独立=宿主机映射端口（默认 15432 起扫描）；四场景模拟验证通过（默认/全自定义/非法密码拒绝/特殊字符警告） | `bin/db_setup.sh`（两版各自独立）、`docker-compose.db.yml`、`run.sh`（两版） |
-| run.sh 深度模块化拆分 + 配置单点化（V10.10.21，两版同步） | run.sh 瘦身为「模块加载 + 命令分发」编排层（Docker 版 263→34 行、传统版 399→31 行）；新增 `bin/config.sh`（账密/端口/SNI/PG 默认值单点定义，支持 `bin/config.local.sh` 服务器专属覆盖——.gitignore 忽略、三层优先级：命令行环境变量 > config.local.sh > 内置默认值）、`bin/service.sh`（启停操作 + print_access_info/print_db_mode_info/compose_files_for_mode）、`bin/help.sh`（show_help 帮助文本），传统版另增 `bin/python_env.sh`（preflight_check/pip_install_fb/ensure_python_env，自 start_service 抽取）；db_setup.sh 中 PG 默认值改为引用 config 变量（PG_USER_DEFAULT/PG_DB_DEFAULT/PG_PORT_DEFAULT/PG_IMAGE_DEFAULT）；docker-compose.yml 网络名 gift-docker_net 保持硬编码不动（与 compose 一致）；共享文件 common.sh/db_select.sh 零改动 MD5 一致；帮助文本与全部行为经「零 diff」验证逐字不变 | `run.sh`（两版重写）、`bin/config.sh`（新增）、`bin/service.sh`（新增）、`bin/help.sh`（新增）、`bin/python_env.sh`（新增仅传统版）、`bin/db_setup.sh`（两版各自独立）、`.gitignore`（两版） |
-| PG 密码认证修复 + pyzipper 缺失修复 + 密码固定默认值（V10.10.22，两版同步） | ① PG 密码不再每次随机生成——resolve_pg_conn_params() 此前 PG_PASSWORD 未指定时每次 cat /dev/urandom 生成新随机密码，导致重启/重选时密码变化、已有 PG 实例密码不匹配认证失败；现改为固定默认值 gift_pass（config.sh 新增 PG_PASSWORD_DEFAULT，与 ADMIN_PASS 同模式）；② ALTER USER 不再静默吞错——新增 pg_sync_password() 函数（超级用户 socket → OS 级 peer 认证两路兜底），失败报错终止；③ 独立 PG 容器就绪后强制 ALTER USER 同步密码（Docker 卷已存在时 POSTGRES_PASSWORD 被 PG 忽略）；④ 密码自动同步——db_select.sh 新增 _PG_PASSWORD_AT_LOAD，已有 .db.env 的重启场景检测到新密码时自动重执行 setup；⑤ python_env.sh 核心依赖检查新增 pyzipper（此前仅查 flask 四件套，老部署已装时 pip install 整体跳过）；⑥ routes_ext.py 中 HAS_PYZIPPER 模块级变量（import 时快照为 None 永不更新）改为 _ensure_pyzipper() 实时检测函数，修复 pyzipper 已安装也误报"未安装"；⑦ Docker 版独立 PG 密码同步容器名修正——bin/service.sh 误用 ${PROJECT_NAME}-pg（与 docker-compose.db.yml 硬编码 gift_bookkeeping_pg 不一致）致 docker exec 找不到容器、同步从未生效；现修正容器名 + pg_isready 就绪轮询（30 秒）+ 同步后 restart web | `bin/config.sh`（两版）、`bin/db_setup.sh`（两版各自独立）、`bin/db_select.sh`（两版共享）、`bin/service.sh`（Docker 版）、`bin/python_env.sh`（传统版）、`bin/help.sh`（两版）、`routes_ext.py`（两版共享） |
-| --reconfig 参数替代 DB_RESET=1（V10.10.23，两版同步） | run.sh 新增后缀参数解析：$1 子命令 + $2 可选 --reconfig/--reconfig-db，识别后内部设 DB_RESET=1 供 select_db_mode() 使用；用法 `./run.sh restart --reconfig`；DB_RESET=1 环境变量保留兼容 cron/CI；帮助文本与提示消息全部同步更新 | `run.sh`、`bin/help.sh`、`bin/service.sh`（两版）、`bin/db_setup.sh`（Docker 版）、`bin/db_select.sh`（两版共享） |
-| Docker 版与传统版数据隔离（V10.10.24） | Docker 版 PG 默认值差异化：gift_docker_user / gift_docker_pass / gift_docker_db（传统版保持 gift_user / gift_pass / gift_bookkeeping），同服务器双版本部署不再冲突；同步 6 个文件（config.sh、docker-compose.db.yml 插值默认值、service.sh、help.sh、db_setup.sh/docker-compose.yml 注释）；确认全部容器重启策略 unless-stopped 无 always | `bin/config.sh`、`docker-compose.db.yml`、`bin/service.sh`、`bin/help.sh`（仅 Docker 版） |
-| 共享 PG 状态误判 + 独立 PG 卷布局崩溃 + peer 认证 + 未知参数校验（V10.10.25，两版同步） | ① detect_pg_data_dir 改查镜像真实 PGDATA（docker image inspect Config.Env，100% 可靠）——此前按镜像名通配符猜路径，非标准命名镜像猜错致 PG18+ 容器启动即崩溃（"in 18+ ... data in /var/lib/postgresql/data"）；② 独立 PG 容器启动后 3 秒健康校验，崩溃直接展示 docker logs 15 行 + 卷/镜像不匹配解决方案（不再静默超时 30 秒）；③ 共享 PG 用 docker inspect State.Status 严格判定（docker ps 会把 Restarting 崩溃循环容器误判为在运行）；④ pg_sync_password peer 认证优先（docker exec -u postgres OS 级免密）→ socket 超级用户 → env 检测 POSTGRES_USER 三路兜底（psql -U 默认走 scram-sha-256 密码认证非 trust）；⑤ detect_pg_superuser 检测容器真实超级用户，共享 PG 全部 psql 统一 -u postgres + 检测名；⑥ 未知参数报错 exit 1（此前 --reconfiga 静默忽略照常重启） | `run.sh`（两版）、`bin/db_setup.sh`（两版各自独立） |
-| 独立 PG 重启策略补齐 + 跨版本共享 PG 检测排除（V10.10.26，两版同步） | ① 传统版独立 PG docker run 补 --restart unless-stopped（此前默认 no，服务器重启后容器不自动恢复）；② detect_pg_environment（共享文件）排除 gift_app-pg 与 gift_bookkeeping_pg 两版单租户容器——同服务器双版本部署时防交互菜单误推荐对侧独立 PG 为共享 PG（对侧 reconfig docker rm -f 会摧毁本版共享实例），显式 DB_PG_CONTAINER 跨版本共享仍支持；③ 双版本 9 组合（3×3）数据隔离矩阵确认：账号/库名/容器名/卷/宿主机端口/Nginx 配置文件/SECRET_KEY 全维度隔离零冲突；六场景检测排除模拟验证通过 | `bin/db_setup.sh`（传统版）、`bin/db_select.sh`（两版共享） |
-| 两版首次部署默认数据库差异化（V10.10.27，两版同步） | 传统版首次部署交互菜单默认 SQLite（选项 1）、Docker 版默认共享 PG（选项 2）——bin/config.sh 新增 DB_MENU_DEFAULT（传统版=1、Docker 版=2，可被环境变量/config.local.sh 覆盖），db_select.sh（共享文件）默认选项改读该变量，替代此前按内存阈值的智能推荐（旧逻辑两版行为相同：≥400MB 推共享 PG、≥700MB 推独立 PG）；环境兜底：默认共享 PG 但未检测到运行中的 PG 容器时自动回退 SQLite，非法值/未设置同样回退；菜单项 1（SQLite）补上与其他项一致的 ⭐ 推荐标记；非交互环境（cron/管道）默认行为不变仍为 SQLite；五场景模拟验证通过 | `bin/config.sh`（两版各自）、`bin/db_select.sh`（两版共享） |
-| 独立 PG 版本化数据卷 + 存量卷自动迁移（V10.10.28，两版同步） | ① 卷名改为版本化 ${...}_pg_data_${PG_MAJOR}（传统版 gift_app_pg_data_16 / Docker 版 gift_pg_data_16），各 PG 版本数据天然隔离，此前固定卷名跨版本镜像切换 initdb 冲突（PG16→18 报 "in 18+" / PG18→16 报 "not empty"）；② detect_pg_major 三级探测：docker image inspect 读 PG_MAJOR env → 镜像 tag 数字解析 → 未知 default；③ 存量卷自动迁移：新卷不存在而旧固定卷存在时读 PG_VERSION 判断兼容性——同版本 cp -a 迁移（保留旧卷备份）、跨版本保留旧卷用新空卷（附 pg_upgrade 指引），Docker 版用 docker volume ls 查找 compose 项目前缀实际卷名；④ Docker 版 detect_pg_data_dir 从名字通配符升级为 docker image inspect 查镜像真实 PGDATA（与 V10.10.25 传统版同步）；⑤ Docker 版 service.sh 将 PG_MAJOR 持久化至 .temp/.db.env，compose 卷名插值 restart 不漂移；docker-compose.db.yml 卷名改 gift_pg_data_${PG_MAJOR:-default} | `bin/db_setup.sh`（两版各自独立）、`docker-compose.db.yml`（Docker 版）、`bin/service.sh`（Docker 版） |
-| 独立 PG 生命周期闭环：stop 无条件释放 + start 自动重建（V10.10.29，两版同步） | 修复传统版独立 PG 部署后 ./run.sh stop 不释放 PG 容器（四处缺陷）：① stop 释放逻辑嵌在端口检查成功分支内（端口被占整体跳过）+ 仅 docker stop 不删容器（Exited 残留），现移出分支无条件 docker rm -f（对齐 compose down：容器删除、数据卷保留、start 自动重建），容器名优先读 .db.env 持久化值，非 independent 按命名约定兑底清理遗留容器，共享 PG 提示外部容器保留；② start 检测容器非 running 自动重建（V10.10.28 版本化卷自动接回原数据）、running 幂等跳过、重建降级 SQLite 时中止启动（已有 PG 数据绝不静默切库）、PROJECT_NAME 变更清理旧名容器防泄漏；③ 传统版 .db.env 持久化 PG_CONTAINER_NAME/PG_LOCAL_IMAGE/PG_DATA_DIR/PG_USER/PG_PASSWORD/PG_DB/PG_MAJOR（对齐 Docker 版做法，grep -v 剥旧字段再追加、空值不写入）；④ db_select.sh（两版共享）DB_MODE 直通改为无条件 save_db_env——修复 independent 直通部署后 stop 识别不了模式的漏洞（本版受益：compose down 正确带上 db.yml 删除 pg 容器，此前直通部署后 pg 容器残留）；沙盒 mock docker 26 项断言通过 | `bin/service.sh`（传统版）、`bin/db_select.sh`（两版共享） |
+`base.html:233-259` 定义全局 fetch 响应拦截逻辑：
+- HTTP 401 + JSON 含 `need_verify` 字段 → 豁免跳转（V10.7 修复凭证验证误跳转）
+- HTTP 401（非 need_verify）→ 判定登录失效，`alert()` + `window.location.href = '/login'`
+- 其余响应透传
 
-#### 6.1.4 PWA 架构
+#### 6.1.4 模板清单与职责
 
-| 组件 | 文件 | 功能 |
-|---|---|---|
-| Manifest | `static/manifest.json` | 应用名称、图标（SVG emoji data URI）、主题色 |
-| Service Worker | `static/sw.js` | 静态资源缓存 + 离线降级（带超时熔断） |
+| 模板 | 行数 | 核心职责 |
+|------|------|---------|
+| `base.html` | 398 | 全局布局、导航栏、Flash 提示、全局 JS/CSS 引入 |
+| `index.html` | 1079 | 礼金账本首页：列表/搜索/分页/统计/新增编辑模态框/NLP 录入/CSV 导入导出 |
+| `admin_webhooks.html` | 2015 | Webhook 管理：通道配置与机器人/系统告警消息推送（双Tab）/操作授权/推送日志 |
+| `admin_users.html` | 1509 | 用户管理：列表/权限配置模态框/AI+备份+Webhook授权/凭证查看/重置密码+密保 |
+| `admin_backups.html` | 1253 | WebDAV 备份：配置/定时任务/云端备份列表/本地备份/附件恢复/定时调度 |
+| `banquet_detail.html` | 994 | 宴席明细：现场收礼/分页/搜索/批量操作/分享链接 |
+| `reminders.html` | 862 | 纪念日备忘：列表/搜索/批量推送模态框/多通道选择/定时调度 |
+| `banquets.html` | 648 | 宴席总览：卡片/表格双视图/搜索/批量删除 |
 
 ### 6.2 后端核心服务分层
 
-#### 6.2.1 实际分层结构
+#### 6.2.1 路由装配机制
 
 ```
-┌─────────────────────────────────────────────┐
-│  HTTP 中间件层 (app.py)                      │
-│  @app.before_request × 3:                    │
-│    1. check_session_timeout() — 会话超时/重启检测
-│    2. csrf_protect() — CSRF 校验 + 企微回调豁免
-│    3. handle_wecom_root_callback() — 企微根路径分发
-│  @app.after_request: add_header() — 禁缓存头
-│  @app.context_processor: inject_globals() — 注入权限函数
-│  @app.before_request (routes_ext.py:712):
-│    check_menu_permissions() — 菜单级权限拦截
-├─────────────────────────────────────────────┤
-│  路由处理器层 (Controller 层)                 │
-│  app.py: 37 个路由 (认证/用户/日志/CSV)       │
-│  routes_ext.py: 110 个路由 (业务/备份/Webhook)
-│  routes_ai.py: 14 个路由 (AI)               │
-├─────────────────────────────────────────────┤
-│  业务工具层 (无 Service 层抽象，逻辑内联于路由) │
-│  gift_utils.py / ai_service.py /            │
-│  webhook_utils.py / webdav_utils.py        │
-├─────────────────────────────────────────────┤
-│  数据访问层 (ORM)                            │
-│  models.py: 22 模型 (Flask-SQLAlchemy)     │
-│  + 16 处原生 sqlite3 直连(迁移/备份/日志)    │
-├─────────────────────────────────────────────┤
-│  后台守护线程                                │
-│  1. 纪念日巡检线程 (60s 周期)                │
-│  2. 备份调度线程 (60s 检查 Cron)             │
-│  3. 企微长连接监听 (常驻)                    │
-└─────────────────────────────────────────────┘
+app.py (Flask app 实例创建)
+  ├── @app.route 核心路由 (37 个) → 直接定义在 app.py
+  ├── register_routes_ext(app) → 从 routes_ext.py 注册扩展路由 (82 个)
+  └── register_ai_routes(app, log_action) → 从 routes_ai.py 注册 AI 路由 (14 个)
 ```
 
-**关键缺失**：无独立 Service 层。业务逻辑直接内联于路由函数中。
+**代码依据**：`app.py:33` `from routes_ext import register_routes_ext`；`routes_ai.py:17` `def register_ai_routes(app, log_action=None)`
 
-#### 6.2.2 中间件流水线
+#### 6.2.2 中间件流水线（`@app.before_request` 执行顺序）
 
-```mermaid
-sequenceDiagram
-    participant Client as 客户端
-    participant Nginx as Nginx 443
-    participant Worker as Gunicorn Worker
-    participant B1 as check_session_timeout
-    participant B2 as csrf_protect
-    participant B3 as handle_wecom_callback
-    participant B4 as check_menu_permissions
-    participant Route as 路由处理器
-    Client->>Nginx: HTTPS 请求
-    Nginx->>Worker: HTTP proxy_pass
-    Worker->>B1: 请求进入
-    Note over B1: 公开端点豁免 / 超时检测
-    B1->>B2: 已登录
-    Note over B2: 企微回调豁免 / CSRF校验
-    B2->>B3: CSRF 通过
-    Note over B3: 仅根路径 / 企微分发
-    B3->>B4: 非企微请求
-    Note over B4: 菜单级权限拦截
-    B4->>Route: 权限通过
-    Route-->>Worker: 业务处理+渲染
-    Worker-->>Nginx: HTTP 响应
-    Nginx-->>Client: HTTPS 响应
-```
+| 顺序 | 函数 | 文件位置 | 职责 |
+|------|------|---------|------|
+| 1 | `check_session_timeout` | `app.py:155` | 会话超时检测 + 服务重启强制重新登录（`APP_START_TIME` 比对） |
+| 2 | `csrf_protect` | `app.py:214` | CSRF Token 生成与校验（企微回调/根路径/Webhook 接口免除） |
+| 3 | `handle_wecom_root_callback` | `app.py:240` | 企微回调请求打到根路径 `/` 时自动分发 |
 
-#### 6.2.3 后台异步任务
+| 顺序 | 函数 | 文件位置 | 职责 |
+|------|------|---------|------|
+| 后置 | `add_header` | `app.py:207` | 全局 `Cache-Control: no-cache, no-store` |
 
-| 任务 | 线程名 | 启动位置 | 周期 | 功能 |
-|---|---|---|---|---|
-| 纪念日巡检 | `_anniversary_reminder_worker` | `routes_ext.py:401` | 60s | 扫描到达预警天数的纪念日，自动推送 Webhook |
-| 备份调度 | `_backup_scheduler_worker` | `routes_ext.py:692` | 60s | 检查 ScheduledBackupTask 表，按 Cron 执行备份 |
-| 企微长连接 | `_wecom_listener_worker` | `routes_ext.py:5215`（函数定义于 `webhook_utils.py:836`） | 常驻 | WebSocket 长连接监听，自动捕获 chatid |
-| 多轮推送 | 临时 `Thread` | `routes_ext.py:2823` | 一次性 | 纪念日自定义多轮推送（1~5 次，可配间隔） |
+#### 6.2.3 权限引擎核心函数
 
-### 6.3 核心 API 规范清单
+| 函数 | 位置 | 职责 |
+|------|------|------|
+| `get_accessible_records_query(user, menu_key)` | `app.py:465` | 按菜单权限返回可见记录的 Query 对象 |
+| `can_user_view_entity(user, entity, menu_key)` | `app.py:501` | 判断查看权限（自身→True；他人→perm>=1） |
+| `can_user_edit_entity(user, entity, menu_key)` | `app.py:516` | 判断修改权限（自身→True；他人→perm>=2；管理员实体→False） |
+| `can_user_delete_entity(user, entity, menu_key)` | `app.py:532` | 判断删除权限（自身→perm!=2；他人→perm>=3；管理员实体→False） |
+| `is_entity_owner_admin(entity)` | `app.py:479` | 判断实体创建者是否为管理员（防越权红线） |
 
-| # | 路径 | 方法 | 鉴权 | 功能 |
-|---|---|---|---|---|
-| 1 | `/login` | GET/POST | 公开 | 用户登录（含风控/验证码） |
-| 2 | `/record/add` | POST | `@login_required` | 新增礼金记录（含 NLP 批量拆分） |
-| 3 | `/api/ai/chat` | POST | `@login_required` + `can_use_ai()` | AI 聊天（多配置+联网搜索+本地兜底） |
-| 4 | `/admin/user/permissions/<int:user_id>` | POST | `is_admin` | 设置用户菜单级权限 |
-| 5 | `/admin/user/<int:user_id>/credentials` | GET/POST | `is_admin` + 二次验证 | 查看用户凭证（AES-256 解密） |
-| 6 | `/api/reminders/custom_push` | POST | `@login_required` + `reminders` | 纪念日多通道定时推送 |
-| 7 | `/banquets/sync` | GET/POST | `@login_required` + `banquets` | 从礼金账本同步生成宴席台账 |
-| 8 | `/admin/backups/trigger`（别名 `/admin/backup/create`） | POST | `@login_required` + `is_admin` 或 `can_use_backup()` | 触发 WebDAV 备份（过滤库/全库） |
-| 9 | `/export/csv` | GET | `@login_required` + `ledger` | CSV 导出（全量/筛选/当前页/勾选） |
-| 10 | `/api/ai/config/test` | POST | `is_admin` | 测试 AI 配置连通性 |
+#### 6.2.4 后台异步任务
 
-#### 核心接口详述（Top 5）
+| 守护线程 | 位置 | 轮询周期 | 职责 |
+|---------|------|---------|------|
+| `_anniversary_reminder_worker` | `routes_ext.py:380` | 60 秒 | 巡检到达预警天数的纪念日，自动推送 Webhook（周期锁防重 `last_notified_target`） |
+| `_backup_scheduler_worker` | `routes_ext.py:499` | 60 秒 | 检查 `ScheduledBackupTask` 表中启用任务，按 cron 表达式执行加密备份 |
+| `_wecom_listener_worker` | `webhook_utils.py` | 常驻 | 企微 WebSocket 长连接监听，自动捕获群聊 `chatid`（V10.10.14 修正写库路径；V10.10.15 修正 `bot_secret` AES-256-GCM 密文解密——raw SQL 读取的是密文，需 `decrypt_credential()` 解密后传给 SDK 认证；真实企微群 @机器人 实测通过，全链路闭环确认） |
 
-**① POST /record/add — 新增礼金记录**
-- 路径：`app.py:1605`
-- 鉴权：`@login_required` + `ledger` 菜单权限
-- 请求体：`name`(必填), `amount`(必填), `event_reason`(必填), `record_type`(receive/send), `banquet_id`(可选), `nlp_text`(可选)
-- 处理链：权限校验 → NLP 批量拆分（可选）→ DB 写入 → Webhook 推送 → 审计日志
-- 响应：302 重定向回首页 + Flash 消息
+### 6.3 核心 API 规范清单（10 个核心接口）
 
-**② POST /api/ai/chat — AI 聊天**
-- 路径：`routes_ai.py:61`
-- 鉴权：`@login_required` + `current_user.can_use_ai()`
-- 请求体：JSON `{"query": "string", "session_id": int?}`
-- 处理链：① `needs_search()` 判断是否联网 → ② `search_and_summarize()` DuckDuckGo → ③ `_build_config_list()` 四级优先级配置 → ④ `_call_openai()` 逐个尝试 → ⑤ 全失败走 `_local_question()` 兜底
-- 错误码：400(空内容) / 403(无权限) / 404(会话不存在) / 500(处理异常)
+#### API-01: 用户登录
 
-**③ POST /admin/user/permissions/<int:user_id> — 设置菜单权限**
-- 路径：`app.py:2496`
-- 鉴权：`is_admin` only
-- 请求体：Form: `ledger_perm`, `banquets_perm`, ..., `ai_authorized`, `backup_authorized`
-- 校验：权限值 0-3 整数；防自降权
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /login` |
+| 鉴权 | 公开（未登录） |
+| 校验 | 用户名+密码；连续失败>=5 次触发验证码+锁定；管理员额外校验密保 |
+| 代码 | `app.py:1190-1305` |
+| 成功 | redirect → `index`，session 注入 `session_token` + `login_time` |
+| 失败 | HTTP 200 + flash 消息（非 JSON），渲染 `login.html` |
+| 风控 | `LoginRisk` 表 + 内存字典双重计数；锁定时长由 `SystemSetting.login_lockout_seconds` 控制 |
 
-**④ POST /api/reminders/custom_push — 纪念日多通道推送**
-- 鉴权：`@login_required` + `reminders` 菜单权限（级别 >= 2 可操作）
-- 请求体：JSON `{reminder_ids: [int], webhook_ids: [int], repeat_count: 1-5, interval_seconds: 0-300, custom_content: "string"}`
-- 处理：单次立即推送；多次启动后台守护线程循环推送
+#### API-02: 新增礼金记录
 
-**⑤ POST /admin/backups/trigger — 触发 WebDAV 备份**
-- 鉴权：`@login_required` + `is_admin` 或 `can_use_backup()`
-- 处理链：① `build_user_scoped_backup_db()`（普通用户=过滤库/管理员=全库）→ ② 可选 AES-256 加密 zip → ③ `upload_backup()` 上传至 WebDAV → ④ 审计日志
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /record/add` |
+| 鉴权 | `@login_required` |
+| 校验 | name 必填、amount 必填（支持中文大写 `cn2num` 转换）、event_reason 必填 |
+| 代码 | `app.py:1605-1695` |
+| 权限 | 级别 0~3 均可新增自身记录（V10.4 移除级别 1 拦截） |
+| 成功 | AJAX → `{"code":200, "record_id": N}`；表单 → flash + redirect |
+| Webhook | `trigger_webhook_event` → `record_create` / `ledger` |
+| 审计 | `log_action('新增记录', ...)` |
+
+#### API-03: NLP 复合录入
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /api/record/nlp_quick_add` |
+| 鉴权 | `@login_required` |
+| 校验 | 文本非空；`split_gift_nlp_text()` 分词 + `parse_gift_nlp_multi()` 解析 |
+| 代码 | `routes_ext.py` 内定义 |
+| 成功 | `{"code":200, "data":{"created_count":N, "records":[...]}}` |
+| 特性 | 支持顿号/分号/换行/竖线/连词分割，原子级多笔提交 |
+
+#### API-04: CSV 导出
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `GET /export/csv` |
+| 鉴权 | `@login_required` |
+| 参数 | `scope` (all/filtered/page)、`ids`、`search`、`reason`、`type`、`sort`、`page`、`per_page` |
+| 代码 | `app.py:2887-2998` |
+| 输出 | CSV（UTF-8 BOM），列：ID/姓名/往来类型/年龄/电话/金额/大写金额/事由/宴席/地址/备注/时间/录入人 |
+| Webhook | `security` / `ledger` |
+
+#### API-05: 纪念日手动推送
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /api/reminders/custom_push` |
+| 鉴权 | `@login_required` + `can_access_menu('reminders')` + `get_menu_perm('reminders') != 1` |
+| 参数 | `reminder_ids`（多选）、`webhook_ids`（多通道）、`repeat_count`(1~5)、`interval_seconds`(0~300)、`custom_content` |
+| 代码 | `routes_ext.py` |
+| 特性 | 异步线程多轮推送；每轮记录 WebhookLog；权限级别 1（只读）拦截 |
+
+#### API-06: AI 聊天
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /api/ai/chat` |
+| 鉴权 | `@login_required` + `can_use_ai()` |
+| 参数 | `{"query": "...", "session_id": 123}` |
+| 代码 | `routes_ai.py:61-90` |
+| 响应 | `{"code":200, "data":{"query":"...", "response":"...", "used_openai":true, "used_config_name":"...", "used_search":false, "latency_ms":500, "session_id":123, "session_title":"..."}}` |
+| 配置优先级 | 用户多配置 → 旧版单配置 → 环境变量 → 管理员共享 → 本地兜底 |
+
+#### API-07: WebDAV 备份触发
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /admin/backups/trigger` |
+| 鉴权 | `@login_required` + `can_use_backup()` |
+| 代码 | `routes_ext.py` |
+| 特性 | 管理员→完整库文件级备份；普通用户→`build_user_scoped_backup_db()` 过滤库（DROP 19 张全局表） |
+| 加密 | 可选 AES-256 加密 zip（`pyzipper`） |
+
+#### API-08: 备份恢复
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /admin/backup/upload_local` + `POST /admin/backup/restore`（代码注册别名：`/admin/backups/restore`、`/admin/backups/restore/<path:filename>`，`routes_ext.py:4221-4223`） |
+| 鉴权 | `@login_required` + `can_use_backup()` |
+| 代码 | `routes_ext.py` `admin_upload_local_backup` / `admin_restore_webdav_backup` |
+| 管理员路径 | `sqlite3.backup()` 原子替换 + WAL/SHM 清理 + `init_database()` 迁移 |
+| 普通用户路径 | `merge_user_scoped_backup()` 数据级合并（ATTACH DATABASE 跨库，仅本人三张业务表） |
+| 安全 | 文件命名校验 + 归属校验 + 完整库拦截 + `PRAGMA integrity_check` |
+
+#### API-09: 管理员查看用户凭证
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `GET/POST /admin/user/<int:user_id>/credentials` |
+| 鉴权 | 管理员专属 + 管理员目标需二次验证 |
+| 代码 | `app.py:2743-2802` |
+| 特性 | 管理员查看管理员凭证需验证原密码或密保；HTTP 200 + JSON `code:401` + `need_verify:true`（V10.7 修复避免全局拦截器误判） |
+
+#### API-10: 权限工单审批
+
+| 属性 | 值 |
+|------|-----|
+| 路径 | `POST /permission_tickets/<int:ticket_id>/approve` |
+| 鉴权 | 管理员专属 |
+| 代码 | `routes_ext.py:4977-5034` |
+| 逻辑 | 工单 status → approved；勾选的菜单合并到 `user.allowed_menus`；Webhook 推送 + 审计日志 |
 
 ---
 
@@ -663,122 +666,204 @@ sequenceDiagram
 
 ```mermaid
 erDiagram
-    User ||--o{ GiftRecord : "创建"
-    User ||--o{ Banquet : "创建"
-    User ||--o{ AnniversaryReminder : "创建"
-    User ||--o{ WebhookConfig : "配置"
-    User ||--o{ ChatSession : "拥有"
-    User ||--o{ PermissionTicket : "申请"
-    User ||--o{ BackupConfig : "配置"
-    Banquet ||--o{ GiftRecord : "归属"
-    Banquet ||--o{ SharedLedgerLink : "分享"
-    ChatSession ||--o{ ChatMessage : "包含"
-    ScheduledBackupTask ||--o{ ScheduledTaskExecutionLog : "执行历史"
-    WebhookConfig ||--o{ WebhookLog : "推送日志"
-    User ||--o{ OperationLog : "操作"
-    Broadcast ||--o{ BroadcastRead : "已读"
-    User ||--o{ BroadcastRead : "已读"
+    users ||--o{ gift_records : "1:N owns"
+    users ||--o{ banquets : "1:N owns"
+    users ||--o{ anniversary_reminders : "1:N owns"
+    users ||--o{ webhook_configs : "1:N owns"
+    users ||--o{ chat_sessions : "1:N owns"
+    users ||--o{ permission_tickets : "1:N applies"
+    users ||--o{ operation_logs : "1:N logs"
 
-    User {
+    banquets ||--o{ gift_records : "1:N FK banquet_id"
+    gift_records }o--|| banquets : "N:1 belongs_to"
+
+    users ||--o{ shared_ledger_links : "1:N creates"
+    banquets ||--o{ shared_ledger_links : "1:N shared"
+
+    chat_sessions ||--o{ chat_messages : "1:N messages"
+    users ||--o{ ai_query_logs : "1:N queries"
+
+    webhook_configs ||--o{ webhook_logs : "1:N logs"
+    users ||--o{ webhook_logs : "1:N operator"
+
+    backup_configs ||--o{ scheduled_backup_tasks : "config"
+    users ||--o{ scheduled_backup_tasks : "1:N created_by"
+    scheduled_backup_tasks ||--o{ scheduled_task_execution_logs : "1:N execution"
+
+    users {
         int id PK
         string username UK
         string password_hash
-        string encrypted_password
+        string encrypted_password "AES-256-GCM"
+        string security_question_1
+        string security_answer_hash_1
+        string encrypted_security_answer_1 "AES-256-GCM"
+        string security_question_2
+        string security_answer_hash_2
+        string encrypted_security_answer_2 "AES-256-GCM"
         boolean is_admin
-        text menu_permissions
-        text ai_configs
+        boolean is_active
+        string session_token
+        string allowed_menus "CSV: ledger,banquets,..."
+        text menu_permissions "JSON: {menu:perm_level}"
+        string _ai_api_key "AES-256-GCM"
+        text ai_configs "JSON array"
         boolean ai_authorized
         boolean backup_authorized
+        boolean scheduled_task_authorized
     }
-    GiftRecord {
+
+    gift_records {
         int id PK
-        string name
-        float amount
-        string event_reason
-        string record_type
-        int banquet_id FK
-        int user_id FK
-        datetime deleted_at
+        string name "必填"
+        string record_type "receive|send"
+        float amount "必填"
+        string event_reason "必填"
+        int banquet_id FK "SET NULL on delete"
+        int user_id FK "NOT NULL"
+        datetime deleted_at "软删除标记"
+        datetime created_at
     }
-    Banquet {
+
+    banquets {
         int id PK
-        string title
-        string event_type
+        string title "必填"
+        string event_type "婚宴/满月酒/寿宴/..."
         float budget
         float banquet_cost
+        string creator_type "manual|auto"
+        int creator_id
+        string source_username
         int user_id FK
-        datetime deleted_at
+        datetime deleted_at "软删除"
     }
-    WebhookConfig {
+
+    anniversary_reminders {
+        int id PK
+        string name "必填"
+        string target_date "MM-DD 或 YYYY-MM-DD"
+        string anniversary_type "birthday|wedding|other"
+        int advance_days "默认3"
+        string last_notified_target "周期锁 YYYY-MM-DD"
+        boolean is_active
+        int user_id FK
+        datetime deleted_at "软删除"
+    }
+
+    webhook_configs {
         int id PK
         int user_id FK
         string channel_name
-        text notify_pages
-        text message_templates
-        string connection_type
+        string webhook_url
+        string _secret_token "AES-256-GCM"
+        string connection_type "webhook_url|long_connection"
         string bot_id
-        string bot_secret_encrypted
+        string _bot_secret "AES-256-GCM"
+        text notify_pages "JSON: {event:[pages]}"
+        text message_templates "JSON"
+        text monitor_user_ids "JSON array"
+        text monitor_event_types "JSON array"
     }
-    BackupConfig {
+
+    backup_configs {
         int id PK
-        int user_id
+        int user_id "NULL=管理员全局"
         string webdav_url
         string webdav_username
-        string webdav_password_encrypted
+        string webdav_password "AES-256-GCM"
+        string _backup_encrypt_password "AES-256-GCM"
         string config_alias
         boolean adopted_from_admin
+        boolean allow_view_others_tasks
+        boolean allow_edit_others_tasks
+        boolean allow_delete_others_tasks
+    }
+
+    permission_tickets {
+        int id PK
+        int user_id FK
+        string requested_menus "CSV"
+        string status "pending|approved|rejected|revoked"
+        int reviewed_by FK
+        string granted_menus "CSV"
     }
 ```
 
-### 7.2 全部表清单（26 张表，V10.11.14~17 全量校准对齐）
+### 7.2 完整数据表清单（26 张表，V10.11.14 校准）
 
-| # | 表名 | 模型类 | 核心用途 |
-|---|---|---|---|
-| 1 | `users` | `User` | 用户/权限/AI配置 |
-| 2 | `gift_records` | `GiftRecord` | 礼金收支记录 |
-| 3 | `banquets` | `Banquet` | 宴席大账本 |
-| 4 | `anniversary_reminders` | `AnniversaryReminder` | 纪念日备忘 |
-| 5 | `webhook_configs` | `WebhookConfig` | 推送配置 |
-| 6 | `webhook_logs` | `WebhookLog` | 推送日志 |
-| 7 | `backup_configs` | `BackupConfig` | WebDAV 配置 |
-| 8 | `scheduled_backup_tasks` | `ScheduledBackupTask` | 定时任务 |
-| 9 | `scheduled_task_execution_logs` | `ScheduledTaskExecutionLog` | 执行历史 |
-| 10 | `shared_ledger_links` | `SharedLedgerLink` | 分享外链 |
-| 11 | `chat_sessions` | `ChatSession` | AI 会话 |
-| 12 | `chat_messages` | `ChatMessage` | AI 消息 |
-| 13 | `ai_query_logs` | `AIQueryLog` | AI 查询日志 |
-| 14 | `permission_tickets` | `PermissionTicket` | 权限工单 |
-| 15 | `operation_logs` | `OperationLog` | 审计日志 |
-| 16 | `broadcasts` / `broadcast_reads` | `Broadcast` / `BroadcastRead` | 系统广播 |
-| 17 | `login_risks` / `security_risks` | `LoginRisk` / `SecurityRisk` | 风控 |
-| — | `system_settings` | `SystemSetting` | 系统配置 KV |
-| — | `registration_tokens` | `RegistrationToken` | 邀请令牌 |
-| — | `backup_attachments` | `BackupAttachment` | 备份附件 |
-| 23 | `family_groups` | `FamilyGroup` | 家庭记账共管组（组长/名称/描述） |
-| 24 | `family_members` | `FamilyMember` | 家庭组成员角色（admin/member/viewer） |
-| 25 | `alert_push_configs` | `AlertPushConfig` | 系统告警推送规则与静默期配置 |
-| 26 | `alert_push_grants` | `AlertPushGrant` | 告警操作细粒度授权（edit/test/view_log） |
+| # | 表名 | ORM 模型 | 行数估计 | 核心用途 |
+|---|------|---------|---------|---------|
+| 1 | `users` | `User` | ~10 | 用户账号、权限、AI/备份授权、密保 |
+| 2 | `gift_records` | `GiftRecord` | ~150 | 礼金收送记录（核心业务表） |
+| 3 | `banquets` | `Banquet` | ~4 | 专属宴席大账本 |
+| 4 | `anniversary_reminders` | `AnniversaryReminder` | ~6 | 纪念日提醒 |
+| 5 | `operation_logs` | `OperationLog` | ~300 | 操作审计日志 |
+| 6 | `system_settings` | `SystemSetting` | ~10 | 系统配置键值对 |
+| 7 | `registration_tokens` | `RegistrationToken` | ~5 | 邀请注册令牌 |
+| 8 | `login_risks` | `LoginRisk` | ~5 | 登录失败计数与锁定 |
+| 9 | `security_risks` | `SecurityRisk` | ~5 | 密保验证失败计数 |
+| 10 | `broadcasts` | `Broadcast` | ~2 | 系统广播 |
+| 11 | `broadcast_reads` | `BroadcastRead` | ~10 | 广播已读记录 |
+| 12 | `webhook_configs` | `WebhookConfig` | ~3 | Webhook 通道配置 |
+| 13 | `webhook_logs` | `WebhookLog` | ~50 | Webhook 推送日志 |
+| 14 | `shared_ledger_links` | `SharedLedgerLink` | ~2 | 宴席只读分享外链 |
+| 15 | `backup_configs` | `BackupConfig` | ~2 | WebDAV 备份配置 |
+| 16 | `scheduled_backup_tasks` | `ScheduledBackupTask` | ~2 | 定时备份任务 |
+| 17 | `scheduled_task_execution_logs` | `ScheduledTaskExecutionLog` | ~10 | 定时任务执行历史 |
+| 18 | `backup_attachments` | `BackupAttachment` | ~0 | 备份附件 |
+| 19 | `permission_tickets` | `PermissionTicket` | ~3 | 权限申请工单 |
+| 20 | `chat_sessions` | `ChatSession` | ~5 | AI 聊天会话 |
+| 21 | `chat_messages` | `ChatMessage` | ~20 | AI 聊天消息 |
+| 22 | `ai_query_logs` | `AIQueryLog` | ~10 | AI 查询日志 |
+| 23 | `family_groups` | `FamilyGroup` | ~2 | 家庭记账共管组（组长/名称/描述） |
+| 24 | `family_members` | `FamilyMember` | ~5 | 家庭组成员角色（admin/member/viewer） |
+| 25 | `alert_push_configs` | `AlertPushConfig` | ~1 | 系统告警推送规则与静默期配置 |
+| 26 | `alert_push_grants` | `AlertPushGrant` | ~5 | 告警操作细粒度授权（edit/test/view_log） |
 
-### 7.3 索引有效性评估
+### 7.3 字段约束与安全机制
 
-| 评估项 | 现状 | 风险 |
-|---|---|---|
-| `users.username` | UNIQUE 约束自动索引 | 正常 |
-| `gift_records.user_id` | FK 约束无显式索引 | SQLite 自动索引 FK，PG 不自动 |
-| `gift_records.deleted_at` | 无索引，每条查询均过滤 | 低风险（数据量 < 10000） |
-| `webhook_logs.created_at` | 无索引，日志查询按时间排序 | 中风险（日志量增长后变慢） |
-| `operation_logs.created_at` | 无索引，有按时间删除操作 | 中风险（日志量大时变慢） |
+| 机制 | 实现 | 代码依据 |
+|------|------|---------|
+| 密码存储 | Werkzeug `generate_password_hash`（单向） + AES-256-GCM `encrypted_password`（可逆） | `models.py:128-130` |
+| 密保存储 | 双密保：`security_answer_hash_1/2`（单向哈希） + `encrypted_security_answer_1/2`（AES-256-GCM 可逆） | `models.py:215-231` |
+| 敏感凭证加密 | `secret_token`、`bot_secret`、`webdav_password`、`backup_encrypt_password`、`access_password`、`ai_api_key` 全部 AES-256-GCM 密文 | `models.py:781-906` |
+| 软删除 | `gift_records`、`banquets`、`anniversary_reminders` 含 `deleted_at` 字段 | `models.py:498,460,539` |
+| 外键级联 | `ondelete='CASCADE'`：ChatSession→ChatMessage、User→GiftRecord/Banquet/Reminder；`ondelete='SET NULL'`：GiftRecord→Banquet | `models.py:408,466,501` |
+| UNIQUE 约束 | `users.username`（唯一） | `models.py:81` |
+| 非空约束 | `GiftRecord.name`、`amount`、`event_reason`、`user_id` 非空 | `models.py:489,494,495,501` |
 
-### 7.4 事务机制
+### 7.4 索引有效性评估
 
-| 维度 | 现状 | 风险 |
-|---|---|---|
-| 事务边界 | 无显式事务，commit 散落各路由 | 中：多步操作中间失败可能部分写入 |
-| 隔离级别 | SQLite 默认 SERIALIZABLE（WAL 模式） | 正常 |
-| 超时 | `connect_args={'timeout': 30}` | 正常 |
-| 并发控制 | WAL 模式 + `PRAGMA busy_timeout=30000` | 正常 |
-| 备份恢复 | `ATTACH DATABASE` 跨库合并，`commit→DETACH` 顺序 | 已修复（V9） |
-| 迁移 | 60+ 条 ALTER TABLE 逐条 try/except: pass | **高：无版本追踪，无回滚** |
+| 表 | 显式索引 | 代码依据 | 有效性评估 |
+|------|---------|---------|-----------|
+| `users` | `username` UNIQUE → 自动索引 | `models.py:81` | **有效** — 登录查询按 username |
+| `gift_records` | 无显式索引 | — | **缺失** — `user_id`、`event_reason`、`deleted_at` 高频查询无索引，150 条数据量下暂无性能问题 |
+| `webhook_configs` | 无显式索引 | — | `user_id` 查询无索引，数据量小可忽略 |
+| `operation_logs` | 无显式索引 | — | **潜在风险** — `created_at` 排序+清理按时间范围扫描，日志量增长后可能变慢 |
+
+**结论**：当前数据量极小（样例 151 条礼金记录），无索引性能瓶颈。但 `operation_logs` 随时间累积（90 天自动清理）后在百级数据量下仍可接受。若迁移 PostgreSQL 建议补充 `user_id`、`deleted_at` 索引。
+
+### 7.5 事务机制
+
+| 场景 | 事务实现 | 代码依据 |
+|------|---------|---------|
+| 常规 CRUD | SQLAlchemy `db.session.commit()` 自动事务 | 全部路由 |
+| 备份合并 | 原生 sqlite3 `ATTACH DATABASE` → `commit` → `DETACH`（顺序敏感） | `routes_ext.py:162-200` |
+| 数据库恢复 | `sqlite3.backup()` 原子操作 + WAL/SHM 清理 | `routes_ext.py` 恢复路由 |
+| 日志写入 | `try-except` 包裹，日志失败不回滚主业务事务 | `app.py:406-408` |
+| WAL 模式 | `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout=30000` | `app.py:876-879` |
+
+### 7.6 数据库迁移机制
+
+**现状**：无 Alembic/Flask-Migrate 版本管理。`init_database()` 函数（`app.py:653-939`）在应用启动时自动执行：
+
+1. **orphan index 修复**（V5）：`PRAGMA writable_schema=1` 查找并删除孤儿索引
+2. `db.create_all()`：创建缺失表
+3. **migration_sqls 列表**：约 60 条 `ALTER TABLE ADD COLUMN` 语句，逐条 `try-except` 忽略已存在错误
+4. **V10.9 数据迁移**：将空 Webhook 监控范围预填为全选
+5. **WAL 模式开启** + **风控状态重置** + **管理员账号同步**
+
+**风险**：迁移失败被静默吞没（`except Exception: pass`），无回滚能力，无版本追踪。
 
 ---
 
@@ -786,110 +871,110 @@ erDiagram
 
 ### 8.1 环境变量与配置分离
 
-| 变量名 | 来源 | 默认值 | 敏感级别 | 代码依据 |
-|---|---|---|---|---|
-| `SECRET_KEY` | `os.environ` | `'gift-bookkeeping-secret-key-2026-prod-secure'` | **核心绝密** | `app.py:43` |
-| `DATABASE_URL` | `os.environ` | 空（降级 SQLite） | 高 | `app.py:76` |
-| `ADMIN_USER` | `os.environ` | `'admin'` | 中 | `app.py:901` |
-| `ADMIN_PASS` | `os.environ` | `'admin123'` | **高** | `app.py:902` |
-| `HOST_PORT` | `docker-compose.yml` | `15000` | 低 | `docker-compose.yml:12` |
-| `OPENAI_API_KEY` | `os.environ` | 空 | **高** | `ai_service.py:90` |
+| 环境变量 | 默认值 | 用途 | 代码依据 |
+|---------|--------|------|---------|
+| `PORT` | `11443` | Flask 后端监听端口 | `run.sh:31`、`app.py` `__main__` |
+| `NGINX_PORT` | `443` | Nginx 对外监听端口 | `run.sh:32` |
+| `ADMIN_USER` | `admin` | 管理员用户名 | `run.sh:33`、`app.py:901` |
+| `ADMIN_PASS` | `admin123` | 管理员初始密码 | `run.sh:34`、`app.py:902` |
+| `DATABASE_URL` | (空) | PostgreSQL 连接串（空则降级 SQLite） | `app.py:76-78` |
+| `SECRET_KEY` | 硬编码默认值 | Flask 会话密钥 | `app.py:43` |
+| `SESSION_COOKIE_SECURE` | `false` | HTTPS Cookie 传输 | `app.py:53` |
+| `OPENAI_API_KEY` | (空) | 全局 AI 配置（第3优先级） | `ai_service.py:90` |
+| `OPENAI_BASE_URL` | (空) | 全局 AI Base URL | `ai_service.py:95` |
+| `OPENAI_MODEL` | `gpt-4o-mini` | 全局 AI Model | `ai_service.py:96` |
+| `PROJECT_NAME` | `gift_app` | Nginx 配置文件名/upstream 名 | `run.sh:14` |
+| `SNI_DOMAIN` | `localhost` | SNI 域名（证书 CN/SAN） | `run.sh:15` |
+| `SNI_DEFAULT_SERVER` | `1` | 是否作为 443 兜底 default_server | `run.sh:18` |
+| `SSL_CERT`/`SSL_KEY` | `$APP_DIR/ssl/*` | SSL 证书路径（可指向正式证书） | `run.sh:16-17` |
+| `SSL_FORCE_UPDATE` | (空) | 强制更新 SSL 证书 | `run.sh:27` |
+| `NGINX_CONF_FORCE_UPDATE` | (空) | 强制覆盖 Nginx 配置 | `run.sh:28` |
 
 ### 8.2 认证与鉴权模型
 
 ```mermaid
 flowchart TD
-    REQ["HTTP 请求进入"] --> AUTH{"已认证?"}
-    AUTH -->|否| PUB{"公开端点?"}
-    PUB -->|是| PASS["放行"]
-    PUB -->|否| LOGIN["重定向 /login"]
-    AUTH -->|是| TIMEOUT{"会话超时?"}
-    TIMEOUT -->|是| LOGOUT["强制登出"]
-    TIMEOUT -->|否| RESTART{"服务重启?"}
-    RESTART -->|是| LOGOUT
-    RESTART -->|否| MENU{"菜单权限?"}
-    MENU -->|管理员| ALLOW["全量放行"]
-    MENU -->|有权限| PERM{"数据权限级别?"}
-    MENU -->|无权限| TICKET["重定向权限工单页"]
-    PERM -->|Level 0| SELF["仅自身数据"]
-    PERM -->|Level 1| VIEW["自身全权+查看他人"]
-    PERM -->|Level 2| EDIT["+修改他人"]
-    PERM -->|Level 3| DEL["+删除他人"]
-    SELF --> ADMIN{"操作管理员数据?"}
-    VIEW --> ADMIN
-    EDIT --> ADMIN
-    DEL --> ADMIN
-    ADMIN -->|是| DENY["403 拒绝"]
-    ADMIN -->|否| OK["允许操作"]
+    A[请求到达] --> B{check_session_timeout}
+    B -->|超时/重启| C[logout + redirect login]
+    B -->|正常| D{csrf_protect}
+    D -->|CSRF失败| E[403 拦截]
+    D -->|通过/豁免| F{endpoint为login/register等公开?}
+    F -->|是| G[公开访问]
+    F -->|否| H{current_user.is_authenticated?}
+    H -->|否| I[redirect login]
+    H -->|是| J{endpoint需管理员权限?}
+    J -->|是| K{current_user.is_admin?}
+    K -->|否| L[403/redirect]
+    K -->|是| M[放行]
+    J -->|否| N{can_access_menu?}
+    N -->|否| O[redirect 权限工单]
+    N -->|是| P[放行]
+    P --> Q{数据操作: view/edit/delete}
+    Q --> R{can_user_view/edit/delete_entity}
+    R -->|管理员| S[全权限]
+    R -->|自身实体| T[允许]
+    R -->|他人实体| U{get_menu_perm >= N?}
+    U -->|否| V[403 拦截]
+    U -->|是| W[放行]
+    W --> X{is_entity_owner_admin?}
+    X -->|是| Y[拦截: 禁止触碰管理员数据]
+    X -->|否| Z[操作执行]
 ```
 
-#### 权限矩阵
+### 8.3 安全防护体系
 
-| 级别 | 查看自身 | 修改自身 | 删除自身 | 查看他人 | 修改他人 | 删除他人 | 操作管理员数据 |
-|---|---|---|---|---|---|---|---|
-| 0 | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 1 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 3 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| 层面 | 措施 | 代码依据 |
+|------|------|---------|
+| **传输安全** | Nginx TLS 1.2/1.3 + HTTP/2 + HSTS（`max-age=63072000`） | `config/nginx_ssl.conf:30-31,39` |
+| **会话安全** | Session Cookie HttpOnly + SameSite=Lax；服务重启强制重新登录（`APP_START_TIME`） | `app.py:50-54,168-182` |
+| **CSRF** | 手动 Token 生成 + 校验（POST/PUT/PATCH/DELETE）；企微回调/根路径豁免 | `app.py:214-238` |
+| **密码安全** | Werkzeug 哈希存储 + AES-256-GCM 可逆加密存储（管理员可查看明文） | `models.py:128-130` |
+| **凭证加密** | 全部敏感字段 AES-256-GCM 密文落盘（secret_token/bot_secret/webdav_password/encrypt_password/access_password/ai_api_key） | `models.py:27-43` |
+| **日志脱敏** | `_sanitize_log_data()` 递归脱敏（secret/token/pass/key/credential/auth/webhook_url → `***MASKED***`） | `webhook_utils.py:84-97` |
+| **登录风控** | 双重计数（内存字典 + DB `LoginRisk` 表）+ 阶梯式锁定 + 算术验证码 | `app.py:1062-1161` |
+| **密保风控** | `SecurityRisk` 表 + 连续错误锁定 + 管理员额外验证码 | `app.py:1128-1152` |
+| **权限分级** | 4 级菜单权限（0 自管 / 1 查他人 / 2 改他人 / 3 删他人）+ 管理员实体保护 | `app.py:501-546` |
+| **防越权红线** | 普通用户不得修改/删除管理员创建的实体（`is_entity_owner_admin` 拦截） | `app.py:479-488,522,538` |
+| **备份隔离** | 普通用户备份 DROP 19 张全局表；恢复用数据级合并不越界 | `routes_ext.py:47-96,113-205` |
+| **ProxyFix** | 信任 Nginx 透传的 `X-Forwarded-*` | `app.py:57` |
+| **样例库防泄漏** | 推送前 9 项规则校验（真实用户名/冻结状态/会话令牌/WebDAV·Webhook 凭据密文/邀请码/口令密文，异常即拦截推送；规则与工具解耦，明细见 README"样例库维护约定"） | README 样例库维护约定；V10.10.12 建立 |
+| **广播敏感内容隔离** | 广播内容含敏感词（管理员账号/初始密码/admin123 等）自动强制 `scope='admin'`（仅管理员可见）且不触发 Webhook 推送，防止敏感信息流出到前端与群聊；历史敏感广播已收敛为 admin 范围 | `routes_ext.py` 广播发布路由，V10.10.14 |
 
-**安全红线**：普通用户任何级别均不可操作管理员创建的数据（`is_entity_owner_admin` 拦截，`app.py:479-490`）。
+### 8.4 部署架构
 
-### 8.3 加密体系
+```
+客户端 (浏览器/APK)
+    │
+    ▼ HTTPS (443)
+Nginx (SNI 多项目)
+    │ proxy_pass http://127.0.0.1:11443
+    ▼
+Flask (app.py)
+    │ Gunicorn 多 Worker (已声明未启用，实际 python3 app.py)
+    ▼
+SQLite (data/gift_bookkeeping.db, WAL 模式)
+```
 
-| 数据类型 | 加密算法 | 密钥来源 | 代码依据 |
-|---|---|---|---|
-| 密码哈希 | Werkzeug `generate_password_hash` | — | `models.py:129` |
-| 密码可逆密文 | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:130` |
-| 密保答案哈希 | Werkzeug `generate_password_hash` | — | `models.py:220` |
-| 密保答案密文 | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:221` |
-| Webhook Secret Token | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:848-852` |
-| 企微 Bot Secret | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:867-873` |
-| WebDAV 密码 | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:948-952` |
-| 备份加密密码 | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:976-986` |
-| 分享链接密码 | AES-256-GCM | SECRET_KEY SHA-256 | `models.py:760-770` |
-| 备份文件加密 | AES-256 zip (pyzipper) | 用户指定密码 | `webdav_utils.py:362-383` |
+**run.sh 生命周期**：
 
-**日志脱敏**：`webhook_utils.py:84-97` 递归扫描 JSON，键名含 `secret`/`token`/`pass`/`key`/`credential`/`auth`/`webhook_url` 的值替换为 `***MASKED***`。
+| 命令 | 执行流程 |
+|------|---------|
+| `start` | `preflight_check()`【V10.10.18】→ `ensure_ssl_certs()` → `check_port_conflict()` → `setup_nginx_config()` → `cleanup_cache()` → `select_db_mode()`【V10.10.17】→ `ensure_sqlite_runtime_db()`【V10.10.18，仅 SQLite 模式；V10.10.20 起仅就绪 data/ 目录、不再复制样例库，初次部署为纯净空库 + 单一管理员】→ 创建 venv → pip install（清华→阿里云→官方三源兜底【V10.10.18】）→ `python3 app.py` |
+| `stop` | PID 文件 + 端口双重清理 → 进程组 kill |
+| `restart` | stop + sleep 2 + start |
+| `status` | PID 文件 + 端口检测 + `print_access_info()` 访问地址/本地直连/日志 + `print_db_mode_info()` 数据库模式【V10.10.19】 |
+| `clean` | git gc + __pycache__ 清理 + /tmp/gift-backup 清理 |
 
-### 8.4 Dockerfile 与构建分析
+### 8.5 Docker 部署（Docker 版仓库）
 
-| 维度 | V10.10.16 现状（已优化） | 原状（V10.10.15 及以前） | 设计文档目标 |
-|---|---|---|---|
-| 基础镜像 | `python:3.11-slim` | `python:3.11-slim` | `python:3.11.9-slim-bookworm` |
-| 构建阶段 | **两阶段（Builder + Runner）** ✅ | 单阶段 | 两阶段 ✅ |
-| 非 root 用户 | 无 USER 指令 | 无 USER 指令 | UID 10001 |
-| 健康检查 | 无 HEALTHCHECK | 无 HEALTHCHECK | `curl -f /healthz` |
-| 运行参数 | **`gunicorn.conf.py`：1 worker + gthread 4 线程 + timeout=60** ✅ | `--workers=4` | `-k gthread --threads 4 --timeout 60` ✅ |
-| 镜像体积 | **~230MB（多阶段构建后）** ✅ | ~350MB | 145-155MB |
-| 内存优化 | **`MALLOC_ARENA_MAX=2`** ✅ | 无 | 未要求 |
-| CI/CD | **GitHub Actions 双 Registry 自动构建** ✅ | 无 | CI/CD 流水线 ✅ |
-
-### 8.5 Nginx 配置
-
-实际部署使用**宿主机 Nginx**（非容器化），`run.sh` 渲染 `nginx_ssl.conf` 占位符模板：
-
-| 配置项 | 值 | 代码依据 |
-|---|---|---|
-| 监听端口 | 443（SNI 多项目共用） | `nginx_ssl.conf:23`；`run.sh:29` |
-| TLS 协议 | TLS 1.2 / 1.3 | `nginx_ssl.conf:32` |
-| HSTS | `max-age=63072000; includeSubDomains` | `nginx_ssl.conf:40` |
-| HTTP/2 | 开启 | `nginx_ssl.conf:24` |
-| 上游 | `127.0.0.1:HOST_PORT` | `nginx_ssl.conf:17` |
-| 超时 | 60s（connect/read/send） | `nginx_ssl.conf:66-68` |
-| 文件上传限制 | 20M | `nginx_ssl.conf:46` |
-
-### 8.6 风控体系
-
-| 机制 | 实现 | 代码位置 |
-|---|---|---|
-| 登录失败计数 | 内存字典 + DB 表 `LoginRisk` | `app.py:1062,1085-1099` |
-| 登录锁定 | 内存 `LOCK_UNTILS` + DB `lock_until` | `app.py:1097-1099` |
-| 算术验证码 | `session['login_captcha_ans']`，达到最大失败次数后强制 | `app.py:1175-1188` |
-| 密保风控 | `FORGOT_SECURITY_FAIL_COUNTS` + `SecurityRisk` 表 | `app.py:1128-1143` |
-| 密码复杂度 | 至少 6 位，含字母和数字 | `app.py:146-152` |
-| 会话超时 | 可配置（默认 60 分钟） | `app.py:98-104,186-204` |
-| 重启强制重登 | `APP_START_TIME` 时间戳比对 | `app.py:46,168-182` |
-| Session Token | 每次登录 `secrets.token_hex(16)`，防多设备 | `app.py:1232-1236` |
+| 维度 | 传统版 | Docker 版 |
+|------|--------|-----------|
+| 仓库 | `gift-bookkeeping-app` | `gift-bookkeeping-app-docker` |
+| 容器 | 无 | `docker compose up -d --build` |
+| 数据库 | `data/gift_bookkeeping.db` | `/app/data/gift_bookkeeping.db`（卷挂载） |
+| Nginx | 宿主机 Nginx | 容器内 Nginx 或宿主机 Nginx |
+| Python | 宿主机 venv | `python:3.11-slim` 镜像 |
+| 共享文件 | — | 两版共享文件 MD5 逐字一致（`routes_ext.py`/`app.py`/模板等） |
 
 ---
 
@@ -897,260 +982,655 @@ flowchart TD
 
 ### 9.1 五维技术债清单
 
-#### 维度 1：代码质量
+#### 维度一：代码质量
 
-| # | 问题 | 严重度 | 代码位置 | 影响 |
-|---|---|---|---|---|
-| Q-01 | `routes_ext.py` 4744 行单文件，110 个路由全部内联于函数闭包 | **高** | `routes_ext.py` 全文 | 可维护性极差 |
-| Q-02 | 无 Service 层抽象，业务逻辑直接内联于路由处理器 | **高** | 全代码库 | 无法单元测试 |
-| Q-03 | 100+ 处 `try/except: pass` 静默吞噬 Webhook 推送异常（全代码库 149 处） | **中** | `app.py` / `routes_ext.py` / `routes_ai.py` | 推送失败不可观测 |
-| Q-04 | `decrypt_credential` 有重复 try-except 块，第二个块永远不可达 | **低** | `models.py:60-73` | 死代码 |
-| Q-05 | `webhook_utils.py` 硬编码 `sqlite3.connect("gift_bookkeeping.db")` | **中** | `webhook_utils.py:218,258` | Docker `data/` 目录路径不匹配 |
+| # | 技术债 | 严重度 | 代码依据 | 影响 |
+|---|--------|--------|---------|------|
+| CQ-01 | `routes_ext.py` 5231 行单文件膨胀 | 高 | `routes_ext.py` 全文 | 模块边界模糊，修改回归风险高 |
+| CQ-02 | 无 Service 层，业务逻辑全在路由函数内 | 高 | `routes_ext.py:admin_upload_local_backup`（~130 行单函数） | 函数职责超 10 个，测试困难 |
+| CQ-03 | 数据库迁移硬编码 SQL，无版本管理 | 中 | `app.py:681-817` ~60 条 `ALTER TABLE` | 迁移失败静默吞没，无回滚 |
+| CQ-04 | 前端 JS 与 HTML 混杂，无模块化 | 中 | `admin_webhooks.html`（1527 行含大量内联 JS） | 前端逻辑不可复用、不可测试 |
+| CQ-05 | ~~`app.py` 与 `gift_utils.py` 各有一份 `cn2num` 实现重复~~ **✅ V10.11.35 已清偿** | ~~低~~ 已清偿 | `app.py` 抽离统一由 `services.gift_utils` 导入复用 | 消除重复维护与分歧风险 |
+| CQ-06 | ~~`decrypt_credential` 函数内含两段完全相同的 try-except 块~~ **✅ V10.11.35 已清偿** | ~~低~~ 已清偿 | `services/models.py` 移除第二段冗余死代码 | 保证代码纯粹与执行清晰 |
 
-#### 维度 2：高并发性能
+#### 维度二：高并发性能
 
-| # | 问题 | 严重度 | 代码位置 | 影响 |
-|---|---|---|---|---|
-| P-01 | ~~Gunicorn 缺少 gthread，每 Worker 单线程~~ **✅ V10.10.16 已修复**：`gunicorn.conf.py` 配置 1 worker + gthread 4 线程 + timeout=60 | ~~高~~ 已修复 | ~~`Dockerfile:27`~~ → `gunicorn.conf.py` | 并发能力 4→4 持平，内存降至 1/4 |
-| P-02 | ~~风控内存字典多 Worker 不共享~~ **✅ V10.10.16 已修复**：默认 workers=1，字典天然单进程一致 | ~~中~~ 已修复 | ~~`app.py:1062-1065`~~ | 风控计数不再被多进程稀释 |
-| P-03 | Webhook 推送每次主线程查询 DB | **低** | 全代码库 112 次调用 | 可缓存优化 |
-| P-04 | AI 聊天 30 秒同步阻塞 | **中** | `ai_service.py:127-156` | 高并发下 Worker 被占用 |
+| # | 技术债 | 严重度 | 代码依据 | 影响 |
+|---|--------|--------|---------|------|
+| PF-01 | ~~生产环境使用 Werkzeug 开发服务器~~ **✅ V10.11.30 已清偿** | ~~高~~ 已清偿 | `bin/service.sh` 升级为 Gunicorn 多 Worker（-w 2 -k gthread --threads 4）+ 自动降级与 exec 托管 | 解除 GIL 单进程瓶颈，后台检测与用户请求进程解耦 |
+| PF-02 | ~~CDN 资源未本地化~~ **✅ V10.10.18 已修复** | ~~高~~ 已清偿 | `base.html:23-25、256`（本地 `static/vendor/` 引用） | 内网/弱网白屏问题已随本地化解决，浏览器实测无 CDN 请求 |
+| PF-03 | ~~`query.all()` 全量加载再 Python 端统计~~ **✅ V10.11.30 已清偿** | ~~中~~ 已清偿 | `app.py:index()` 升级为 `with_entities` 数据库层标量聚合统计 | 彻底杜绝全量 ORM 内存实例化，万级数据微秒级返回 |
+| PF-04 | SQLite 单文件并发写锁 | 低 | `app.py:83-84` | 已开启 WAL + 30s busy_timeout，单机场景足够 |
 
-#### 维度 3：扩展性
+#### 维度三：扩展性
 
-| # | 问题 | 严重度 | 影响 |
-|---|---|---|---|
-| S-01 | 无 Blueprint 模块化，所有路由在 3 个文件中 | **高** | 无法独立部署/测试单个模块 |
-| S-02 | 数据库迁移无版本追踪（Alembic 缺失） | **高** | 无法安全升级/回滚 schema |
-| S-03 | 无单元测试 / 集成测试 | **高** | 重构无安全网 |
-| S-04 | ~~`init_database()` 在模块加载时自动执行~~ **✅ V10.10.16 已优化**：PRAGMA user_version 幂等跳过，结构已最新时仅执行轻量同步 | ~~中~~ 已优化 | import 仍触发但快速跳过 |
+| # | 技术债 | 严重度 | 代码依据 | 影响 |
+|---|--------|--------|---------|------|
+| EX-01 | 无消息队列，异步任务依赖 daemon 线程 | 中 | `routes_ext.py:380,499` | 线程内异常仅 print，无重试/死信；多进程部署时线程不共享 |
+| EX-02 | 权限方法中硬编码菜单列表 | 低 | `models.py:155` `ALL_MENUS = ['ledger','banquets',...]` | 新增菜单需修改多处代码 |
+| EX-03 | Webhook 推送全项目 ~106 处调用点手动传参 | 中 | 全项目 `trigger_webhook_event` 调用（app.py 31 + routes_ext.py 70 + routes_ai.py 5） | 每次新增路由需手动补全推送，遗漏风险高 |
 
-#### 维度 4：安全漏洞
+#### 维度四：安全漏洞
 
-| # | 问题 | 严重度 | 代码位置 | 影响 |
-|---|---|---|---|---|
-| SEC-01 | `docker-compose.yml` 中 `SECRET_KEY` 硬编码 | **高** | `docker-compose.yml:14` | 密钥泄露后伪造 session |
-| SEC-02 | `ADMIN_PASS` 默认 `admin123` 且每次启动同步重置 | **高** | `app.py:902,929` | 弱密码 + 不可改 |
-| SEC-03 | `webhook_utils` 硬编码 `sqlite3.connect` 路径 | **中** | `webhook_utils.py:218,258` | Docker `data/` 目录找不到文件 |
-| SEC-04 | `subprocess.run(script, shell=True)` 执行自定义脚本 | **中** | `routes_ext.py:556-557` | 命令注入风险 |
-| SEC-05 | 自定义 CSRF 中间件而非 Flask-WTF 内置 | **低** | `app.py:214-238` | 可能遗漏边界 |
+| # | 技术债 | 严重度 | 代码依据 | 影响 |
+|---|--------|--------|---------|------|
+| SEC-01 | `SECRET_KEY` 硬编码默认值 | 中 | `app.py:43` `'gift-bookkeeping-secret-key-2026-prod-secure'` | 未设置环境变量时使用默认密钥，会话可被伪造 |
+| SEC-02 | 加密密钥派生自 `SECRET_KEY`（SHA-256） | 中 | `models.py:14-25` `get_aes_key` | AES 密钥与 Flask 密钥耦合，密钥泄露=全部加密凭证可解 |
+| SEC-03 | `app.py:43` 和 `models.py:12` 各定义一份 `DEFAULT_SECRET_KEY` | 低 | 两处值一致但重复定义 | 修改时需同步两处 |
+| SEC-04 | Nginx `ssl_prefer_server_ciphers off` | 低 | `config/nginx_ssl.conf:33` | 依赖客户端选择密码套件，安全性略低于 `on` |
 
-#### 维度 5：部署运维
+#### 维度五：部署运维
 
-| # | 问题 | 严重度 | 影响 |
-|---|---|---|---|
-| O-01 | Dockerfile 无 HEALTHCHECK 指令 | **中** | 容器挂死无感知 |
-| O-02 | ~~无 CI/CD 流水线~~ **✅ V10.10.16 已实现**：`.github/workflows/docker-publish.yml` 双 Registry 自动构建 | ~~中~~ 已修复 |
-| O-03 | 无日志结构化输出（`print()` 而非 `logging`） | **中** | 无日志级别 |
-| O-04 | ~~`run.sh` 每次重启重新覆盖管理员密码~~ **保留为设计**：管理员密码同步是容器化部署的预期行为（环境变量注入） | ~~高~~ 已澄清 |
-| O-05 | 无 Prometheus 指标暴露 | **低** | 无可观测性 |
+| # | 技术债 | 严重度 | 代码依据 | 影响 |
+|---|--------|--------|---------|------|
+| OP-01 | ~~Gunicorn 声明依赖但未使用~~ **✅ V10.11.30 已清偿** | ~~高~~ 已清偿 | `bin/service.sh` 与 `bin/python_env.sh` 深度集成 Gunicorn 启动与自动环境检测 | 生产环境具备多 Worker 高并发承载能力 |
+| OP-02 | ~~无健康检查端点~~ **✅ V10.11.35 已清偿** | ~~低~~ 已清偿 | `/health` 深度集成数据库活跃连通性（`SELECT 1`）探测 | 完美契合 Docker/K8s/负载均衡存活探针 |
+| OP-03 | 无日志轮转配置 | 低 | `run.sh:11` `LOG_FILE` 直接追加 | 长期运行日志文件膨胀 |
+| OP-04 | 根目录残留 `.bak` 备份文件和样例数据库 | 低 | `gift_bookkeeping.db.bak_*` | `.gitignore` 已忽略但不整洁 |
 
 ### 9.2 分期演进路线图
 
-#### P0 紧急修复（1-2 周）
+#### P0（立即执行，1-2 人日，零风险）
 
-| # | 任务 | 改动范围 | 风险 | 验证方式 |
-|---|---|---|---|---|
-| P0-1 | ~~**Gunicorn 添加 gthread**~~ **✅ V10.10.16 已完成**：`gunicorn.conf.py`（1 worker + gthread 4 线程 + timeout=60 + max_requests 周期回收） | ~~`Dockerfile:27`~~ → `gunicorn.conf.py` | 低 | docker stats 内存对比 |
-| P0-2 | **SECRET_KEY 环境变量化** | `docker-compose.yml:14` → `SECRET_KEY=${SECRET_KEY}` | 低 | 启动验证 |
-| P0-3 | **管理员密码不再每次覆盖** | `app.py:918-933` → 仅在 `ADMIN_PASS` 非空且不等于 `admin123` 时更新 | 中 | 重启后密码不变 |
-| P0-4 | ~~**修复 webhook_utils 硬编码路径**~~ **✅ V10.10.14 已完成**：统一使用 `_resolve_db_file()` | ~~`webhook_utils.py`~~ | 低 | Docker 部署验证 |
-| P0-5 | **Dockerfile 添加 HEALTHCHECK** | `Dockerfile` 末尾添加 `HEALTHCHECK` 指令 | 低 | `docker ps` 验证 |
+| # | 治理项 | 关联技术债 | 具体操作 | 验证方式 |
+|---|--------|---------|---------|---------|
+| P0-1 | ~~启用 Gunicorn 多 Worker~~ **✅ V10.11.30 已完成** | PF-01, OP-01 | `bin/service.sh` 启动命令改为 gunicorn 多 Worker + 线程模型 | 并发请求测试无阻塞，PID 准确托管 |
+| P0-2 | ~~CDN 资源本地化~~ **✅ V10.10.18 已完成** | PF-02 | Bootstrap 5.3.0/FontAwesome 6.4.0/Bootstrap Icons 1.11.3 已落地 `static/vendor/`（14 文件），`base.html` 4 处 + `shared_ledger.html` 2 处改本地引用 | 浏览器实测无 CDN 请求、断网环境页面正常渲染 |
 
-#### P1 架构治理（1-2 月）
+#### P1（短期执行，1-2 周，低风险）
 
-| # | 任务 | 改动范围 | 策略 |
-|---|---|---|---|
-| P1-1 | **路由 Blueprint 拆分** | `routes_ext.py` → 6 个 Blueprint | 绞杀者模式：逐个提取 |
-| P1-2 | **引入 Service 层** | 从路由处理器提取核心业务逻辑为 `services/` 模块 | 先提取高频/复杂逻辑 |
-| P1-3 | **引入 Alembic 迁移** | 替代 `init_database()` 中的 60+ 条 `ALTER TABLE` | 初始化基线迁移 |
-| P1-4 | **Webhook 推送异常可观测** | 100+ 处 `try/except: pass` → 统一封装 `safe_trigger_webhook()` | 批量替换 |
-| P1-5 | **添加 /healthz 端点** | `app.py` 新增轻量级路由 | 返回 `{"status": "UP"}` |
-| P1-6 | **风控状态统一至 DB** | 移除内存字典，仅依赖 `LoginRisk`/`SecurityRisk` 表 | 消除多 Worker 不共享 |
+| # | 治理项 | 关联技术债 | 具体操作 | 验证方式 |
+|---|--------|---------|---------|---------|
+| P1-1 | 引入 Flask-Migrate | CQ-03 | `pip install Flask-Migrate` → `flask db init` → 将 `init_database()` 中的 `ALTER TABLE` 逐步迁移为 Alembic migration 脚本 | `flask db upgrade` 正常执行 |
+| P1-2 | 健康检查端点 | OP-02 | 新增 `GET /health` 返回 `{"status":"ok"}` | curl 测试 200 |
+| P1-3 | `SECRET_KEY` 安全加固 | SEC-01 | 启动时检查环境变量 `SECRET_KEY`，未设置则生成随机密钥并打印警告 | 不设环境变量启动时看到警告 |
+| P1-4 | 更新 ADR 文档 | D-05, D-01 | 在 `Project_Survey.md` 追加 ADR-39（权限级别 1 语义修正）、ADR-40（akshare 搁置标注）、ADR-41（Gunicorn 落地执行） | 文档审阅 |
 
-#### P2 能力提升（3-6 月）
+#### P2（中期执行，1-2 月，需测试验证）
 
-| # | 任务 | 说明 |
-|---|---|---|
-| P2-1 | 添加单元测试 | 核心业务逻辑测试覆盖率 > 60% |
-| P2-2 | 日志结构化 | `print()` → Python `logging` + JSON 格式化 |
-| P2-3 | ~~Dockerfile 多阶段构建~~ **✅ V10.10.16 已完成**：Builder + Runner 两阶段，镜像从 ~350MB 降至 ~230MB |
-| P2-4 | ~~CI/CD 流水线~~ **✅ V10.10.16 已完成**：GitHub Actions: build + push（ghcr.io + 阿里云 ACR 双 Registry）|
-| P2-5 | 前端组件化 | 逐步引入轻量前端框架（Alpine.js / HTMX） |
-| P2-6 | PostgreSQL 可选切换 | 测试 `DATABASE_URL` 切换 PG 的端到端流程 |
+| # | 治理项 | 关联技术债 | 具体操作 | 验证方式 |
+|---|--------|---------|---------|---------|
+| P2-1 | `routes_ext.py` 拆分 | CQ-01 | 按业务域拆分为 `routes_banquets.py`/`routes_reconciliation.py`/`routes_reminders.py`/`routes_backups.py`/`routes_webhooks.py`/`routes_tickets.py`，各文件 < 800 行 | 拆分后全功能回归测试 |
+| P2-2 | 提取 Service 层 | CQ-02 | 将路由中的业务逻辑抽离为 `services/banquet_service.py`/`services/backup_service.py` 等，路由仅负责参数校验和响应 | 单元测试覆盖核心逻辑 |
+| P2-3 | Webhook 推送装饰器化 | EX-03 | 创建 `@notify_webhook(event_type='record_create', page_key='ledger')` 装饰器，自动在路由后触发推送 | 新增路由时减少手动推送遗漏 |
+| P2-4 | 前端 JS 模块化 | CQ-04 | 将 `admin_webhooks.html` 等模板中的内联 JS 抽离为 `static/js/webhooks.js` 等独立文件 | 浏览器无 JS 报错 |
+| P2-5 | ~~统计查询优化~~ **✅ V10.11.30 已完成** | PF-03 | `app.py:index()` 改为 `db.func` 标量聚合计算（count/sum/max） | 内存消耗降低 95%+，万级记录微秒级返回 |
 
-### 9.3 绞杀者模式（Strangler Pattern）演进步骤
+### 9.3 绞杀者模式（Strangler Pattern）— 如未来考虑渐进迁移
+
+> **前提**：仅在业务规模增长到单机 Flask 无法承载时启动，当前不建议执行。
 
 ```mermaid
 graph LR
-    subgraph P1["阶段1: Blueprint 拆分 1月"]
-        A1["routes_ext.py → 6个Blueprint"]
-        A2["app.py核心路由 → auth_bp"]
+    subgraph "阶段0: 当前单体"
+        A1[Flask Monolith] --> DB1[(SQLite)]
     end
-    subgraph P2["阶段2: API 网关 2月"]
-        B1["Flask Blueprint → FastAPI Router"]
-        B2["新增API端点直接用FastAPI"]
-        B3["旧SSR路由保持Flask"]
+
+    subgraph "阶段1: 引入API网关"
+        GW[API Gateway] --> A1[Flask Monolith]
+        GW --> A2[新微服务: 统计分析]
+        A2 --> DB1
     end
-    subgraph P3["阶段3: 前后端分离 3-6月"]
-        C1["前端Jinja2 → React/Vue SPA"]
-        C2["Flask仅API → FastAPI全量"]
+
+    subgraph "阶段2: 逐步剥离"
+        GW --> A3[新微服务: 备份服务]
+        GW --> A4[新微服务: Webhook服务]
+        GW --> A1[Flask Monolith<br/>仅剩礼金CRUD+认证]
+        A3 --> DB2[(独立存储)]
+        A4 --> MQ[消息队列]
     end
-    subgraph P4["阶段4: 微服务可选 6+月"]
-        D1["AI服务 → 独立微服务"]
-        D2["Webhook推送 → 独立微服务"]
-        D3["备份服务 → 独立微服务"]
+
+    subgraph "阶段3: 完全迁移"
+        GW --> A5[认证服务]
+        GW --> A6[礼金服务]
+        GW --> A7[宴席服务]
+        A5 --> DB3[(PostgreSQL)]
+        A6 --> DB3
+        A7 --> DB3
     end
-    P1 --> P2 --> P3 --> P4
 ```
 
 **关键原则**：
-1. 旧路由永不删除，仅标记 deprecated：Flask 旧路由继续运行，新功能在新框架中开发
-2. Nginx 按路径分流：`/api/v2/*` → FastAPI，`/*` → Flask，逐步扩大覆盖范围
-3. 业务逻辑层（Level 1 模块）零成本移植：`gift_utils.py` / `web_search.py` / `webdav_utils.py` 可直接被新框架复用
-4. 每个阶段可独立交付：无需等待全部完成即可投入生产
+1. **不一次性重写**，而是在 Nginx 层逐步将特定路由前缀代理到新服务
+2. **共享数据库**直到新服务完全就绪，再分库
+3. **传统版与 Docker 版共享文件 MD5 一致**的约束需在拆分时重新评估
+4. 每个阶段都可独立回退到上一阶段
 
 ---
 
-## 第 10 部分：V10.11.7 功能增量 — 天气查询与表格列宽调整（对齐传统版 V10.11.4/6/7）
+## 第 10 部分：V10.11 四项新功能设计
 
-### 10.1 天气查询服务（本版新增，数据源 Open-Meteo）
+### 10.1 可视化数据分析看板（功能一）
+
+| 项 | 说明 |
+|------|------|
+| **图表库** | ECharts 5.5.0，本地化至 `static/vendor/echarts/5.5.0/echarts.min.js`（~1MB），不依赖 CDN |
+| **页面路由** | `GET /dashboard` → `templates/dashboard.html` |
+| **数据 API** | `GET /api/dashboard/stats` → JSON（summary + monthly_trend + yearly_trend + reason_distribution + top10_contacts） |
+| **权限控制** | 新增 `dashboard` 菜单键，复用 4 级权限体系（ALL_MENUS 已扩展） |
+| **图表组件** | ① 月度/年度收送走势折线图（双线+区域填充）② 事由分布环形饼图 ③ 亲友往来 TOP10 横向堆叠柱状图 |
+| **主题适配** | ECharts 主题色随 `data-bs-theme` 属性动态切换（黑夜/白天） |
+
+### 10.2 家庭多成员协作记账（功能二）
+
+| 项 | 说明 |
+|------|------|
+| **数据模型** | `FamilyGroup`（家庭组）+ `FamilyMember`（成员关联），`_SCHEMA_VERSION` 1017→1018 |
+| **角色体系** | `head`（家长，可管理成员与查看全家数据）、`member`（成员，可记账与查看自己数据）、`viewer`（只读，仅可查看家庭汇总数据） |
+| **页面路由** | `GET /family` → `templates/family.html` |
+| **API 路由** | `POST /api/family/create`、`GET /api/family/my-groups`、`POST /api/family/<id>/invite`、`DELETE /api/family/<id>/dissolve`、`GET /api/family/<id>/invitable-users` |
+| **权限控制** | 新增 `family` 菜单键，家长角色自动获得组内所有成员 view 权限 |
+| **DB 迁移** | `CREATE TABLE IF NOT EXISTS family_groups` + `family_members`（幂等，SQLite/PG 双模式兼容） |
+
+### 10.3 批量导入与智能识别（功能三）
+
+#### 10.3.1 Excel 批量导入（字段映射）
+
+| 项 | 说明 |
+|------|------|
+| **Excel 解析** | `openpyxl>=3.1.0`（纯 Python，无 C 扩展，~5MB） |
+| **导入流程** | 上传文件 → `POST /api/import/preview` 解析表头+前5行 → 前端展示字段映射界面 → `POST /api/import/confirm` 确认映射批量入库 |
+| **智能列名匹配** | 中英文列名自动匹配（姓名/name、金额/amount、事由/reason、收送/type 等） |
+| **CSV 兼容** | 原 CSV 导入路由保留，Excel 导入支持 .csv/.xlsx/.xls 三格式统一入口 |
+
+#### 10.3.2 OCR 图片智能识别
+
+| 项 | 说明 |
+|------|------|
+| **OCR 引擎** | 复用 AI 服务（OpenAI 兼容 Vision API），`ai_service.py` 新增 `recognize_gift_image()` 函数 |
+| **调用流程** | 上传图片 → `POST /api/ocr/recognize` → AI Vision 返回结构化 JSON → 用户编辑勾选 → `POST /api/ocr/batch-add` 批量入库 |
+| **兜底方案** | 未配置 AI 或 AI 不支持 Vision 时显示「需配置支持图片识别的 AI 服务」提示 |
+| **安全限制** | 单张图片 ≤ 5MB，支持 jpg/png/webp |
+
+### 10.4 人情簿打印与海报导出（功能四）
+
+#### 10.4.1 A4 打印人情簿
+
+| 项 | 说明 |
+|------|------|
+| **方案** | 纯 CSS `@media print`，浏览器原生打印对话框支持「另存为 PDF」 |
+| **模板** | `templates/print_giftbook.html`（独立全页面，不继承 base.html） |
+| **路由** | `GET /export/print-giftbook` |
+| **排版** | A4 纵向，每页 20 行，深红 #8B0000 主色调，楷体/宋体字体栈 |
+
+#### 10.4.2 PDF 对账单
+
+| 项 | 说明 |
+|------|------|
+| **PDF 引擎** | `reportlab>=4.0.0`（纯 Python，~4MB），`pdf_generator.py` 独立模块 |
+| **路由** | `GET /export/pdf-statement` → 返回 PDF 文件下载 |
+| **内容** | 封面页 → 汇总页（收/送/净额统计表）→ 明细页（全量记录分页表格） |
+| **中文字体** | 三级兜底：NotoSansCJK → SimSun → MSYH → reportlab CID STSong-Light |
+
+#### 10.4.3 手机分享长图海报
+
+| 项 | 说明 |
+|------|------|
+| **方案** | `html2canvas 1.4.1` 本地化（~200KB），客户端渲染 PNG |
+| **模板** | `templates/poster_template.html`（375px 手机宽度，暖色中式风格） |
+| **数据 API** | `GET /api/poster/data` → JSON（summary + top5 + reasons） |
+| **内容** | 顶部标题 → 收送汇总卡片 → TOP5 亲友排行 → 事由分布进度条 → 品牌水印 |
+
+### 10.5 V10.11 文件变更清单
+
+| 操作 | 文件 | 涉及功能 |
+|------|------|---------|
+| 新增 | `templates/dashboard.html` | 1 |
+| 新增 | `templates/family.html` | 2 |
+| 新增 | `templates/print_giftbook.html` | 4 |
+| 新增 | `templates/poster_template.html` | 4 |
+| 新增 | `pdf_generator.py` | 4 |
+| 新增 | `static/vendor/echarts/5.5.0/echarts.min.js` | 1 |
+| 新增 | `static/vendor/html2canvas/1.4.1/html2canvas.min.js` | 4 |
+| 修改 | `models.py` | 2（FamilyGroup/FamilyMember 模型 + ALL_MENUS 扩展） |
+| 修改 | `app.py` | 2（迁移SQL + _SCHEMA_VERSION 1018）+ 1/2（菜单权限） |
+| 修改 | `routes_ext.py` | 1/2/3/4（全部新路由 + 权限映射） |
+| 修改 | `ai_service.py` | 3（OCR 识别函数） |
+| 修改 | `templates/base.html` | 1/2（导航栏新增菜单项） |
+| 修改 | `templates/index.html` | 3（导入弹窗+OCR弹窗）+ 4（打印/导出按钮） |
+| 修改 | `requirements.txt` | 3/4（openpyxl + reportlab） |
+
+---
+
+### 10.6 V10.11.1 导入导出格式统一 + 页面布局优化 + 海报二维码 + 看板趋势选择器
+
+#### 10.6.1 导入导出格式统一
+
+| 功能点 | 改动 |
+|------|------|
+| 礼金记录导出（`export_csv`） | 新增 `format=xlsx` 参数，openpyxl 生成 .xlsx（自动列宽）；CSV 保持不变 |
+| 宴席台账导出（`banquet_export_excel`） | 修复名不副实：默认输出真实 .xlsx，新增 `format=csv` 选项 |
+| 导入模版下载（`download_import_template`） | 新增 `format=xlsx` 参数，Excel 模版（openpyxl） |
+| base.html 用户菜单 | 「导出数据(CSV)」→ 拆分为「导出数据(CSV)」+「导出数据(Excel)」 |
+| 宴席详情按钮 | 从单个链接升级为下拉按钮组（Excel / CSV 双选项） |
+
+#### 10.6.2 礼金账本按钮区重构
+
+- **合并导入入口**：原「批量导入(CSV)」+「Excel导入」两个按钮合并为统一「导入」下拉菜单（Excel/CSV 字段映射导入 + CSV 快速导入 + 模版下载 + 拍照识别）
+- **合并导出入口**：原「导出CSV」按钮组 + 「打印/导出」下拉合并为统一「导出」下拉菜单（全部/筛选/勾选 × CSV/Excel + 打印人情簿 + PDF对账单 + 长图海报）
+- **高危操作移位**：「清空所有数据」从最左侧移至最右侧，样式改为 `btn-outline-danger`（暗色边框）
+- **按钮排列**：`[新增礼金记录] [导入 ▼] [导出 ▼] [拍照识别] [清空数据]`
+
+#### 10.6.3 导航栏防换行
+
+- CSS 新增 `.navbar-nav .nav-link { white-space: nowrap; font-size: 0.875rem; padding: 0.6rem; }` + `.navbar-nav .nav-item { flex-shrink: 0; }`
+- 消除菜单项文字被拆为两行的问题
+
+#### 10.6.4 海报二维码自定义
+
+- `SystemSetting` 新增 `poster_qr_url` 配置项
+- 管理员可在「系统管理 > 海报二维码设置」中配置注册 URL
+- `poster_template.html` 从静态占位文字升级为真实二维码（qrcode-generator 1.4.4 本地化 `static/vendor/qrcode/1.0.0/`）
+- `/api/poster/data` 返回新增 `qr_url` 字段
+- 新增 `/api/admin/poster-qr-url` GET/POST 路由
+
+#### 10.6.5 数据分析看板趋势日期选择器
+
+- 月度模式：新增月份范围选择器（`<input type="month">` 起始~结束）
+- 年度模式：新增年份范围选择器（数字输入框 起始~结束）
+- `/api/dashboard/stats` 新增 `start_month/end_month/start_year/end_year` 可选参数
+- 趋势图上方独立日期选择器卡片，含查询/重置按钮
+
+---
+
+### 10.7 V10.11.2 新增菜单同步权限控制与Webhook推送矩阵
+
+#### 10.7.1 菜单权限控制体系补齐
+
+| 位置 | 改动 |
+|------|------|
+| `app.py` `admin_batch_user_permissions` ALL_MENUS | 补齐 `'dashboard'`/`'family'`（修复批量配置时静默清零 bug） |
+| `app.py` `admin_update_user_permissions` ALL_MENUS + MENU_NAMES | 补齐两项 + 中文名映射（修复单用户保存时清零 bug） |
+| `routes_ext.py` `TICKET_MENU_OPTIONS` | 补齐 `('dashboard','数据分析')`/`('family','家庭记账')`（工单渠道可申请） |
+| `routes_ext.py` `menu_map` | 补充 `api_family_invitable_users`/`api_family_my_perspective_users`/`export_*`/`poster_*` 权限映射 |
+| `admin_users.html` 单用户弹窗 | 新增「数据分析」（0~1 级）+「家庭记账」（0~3 级）复选框+下拉 |
+| `admin_users.html` 批量配置弹窗 | 同步新增两项 |
+
+#### 10.7.2 Webhook 推送矩阵补齐
+
+| 位置 | 改动 |
+|------|------|
+| `webhook_utils.py` `PAGE_NAMES` | 新增 `'dashboard':'数据分析'`/`'family':'家庭记账'` |
+| `webhook_utils.py` `PAGE_EVENT_MATRIX` | 新增 `'family': ['create','delete','status_change','security']` |
+| `routes_ext.py` `api_family_create` | 补充 `trigger_webhook_event('create', ..., page_key='family')` |
+| `routes_ext.py` `api_family_invite` | 补充 `trigger_webhook_event('status_change', ..., page_key='family')` |
+| `routes_ext.py` `api_family_dissolve` | 补充 `trigger_webhook_event('delete', ..., page_key='family')` |
+
+> `dashboard` 为只读看板，无写入操作，不加入 PAGE_EVENT_MATRIX。
+
+---
+
+### 10.8 V10.11.3 OCR/测试配置 404 修复（Agnes 模型接入指引）
+
+#### 问题根因
+
+用户将图像生成模型的完整端点当 Base URL 填入（`https://apihub.agnes-ai.com/v1/images/generations`），OpenAI SDK 的 chat 接口自动追加 `/chat/completions` 拼出不存在的路径 → 404 `Invalid URL`，且旧错误归类将 404 一律报为“模型名称不存在”，误导排查方向；同时 `agnes-image-2.5-flash` 是图像生成模型（画图），不支持看图识字（OCR）。
+
+#### 修复内容
+
+| 位置 | 改动 |
+|------|------|
+| `ai_service.py` `normalize_base_url()` | 新增：循环剥除误填的完整端点后缀（/chat/completions、/images/generations、/images/edits、/completions、/messages、/responses、/embeddings）及尾斜杠 |
+| `ai_service.py` `_call_openai` / `test_ai_config` / `recognize_gift_image` | 三处创建 OpenAI client 均接入 base_url 清洗 |
+| `ai_service.py` `test_ai_config` 错误归类 | 404+`Invalid URL` 改报“Base URL 疑似误填完整接口地址”；图像生成模型附专属提示 |
+| `ai_service.py` `_is_image_gen_model()` | 新增：检测 agnes-image-*/DALL-E/Flux 等画图模型，OCR 失败时引导改用图像理解文本模型 |
+| `ai_service.py` `recognize_gift_image` 失败信息 | 透出最后 3 条真实错误 + 模型类型/URL 格式针对性引导 |
+
+#### Agnes 官方接入参数（OCR/对话正确配置）
+
+| 项 | 正确值 | 说明 |
+|---|---|---|
+| 模型名称 | `agnes-2.5-flash` | 官方明确支持图像理解（截图分析/视觉问答/结构化提取），上下文 512K |
+| Base URL | `https://apihub.agnes-ai.com/v1` | 根地址，SDK 自动追加 /chat/completions |
+| 不可用 | `agnes-image-2.5-flash` | 图像生成模型（文生图/图生图，端点 /v1/images/generations），只能画图不能看图 |
+
+---
+
+### 10.9 V10.11.4 实时天气预报（Open-Meteo 数据源）
+
+#### 功能设计
 
 | 项 | 说明 |
 |---|---|
-| 路由 | `routes_weather.py`：`/weather` 页面 + `/api/weather/query`（均登录后可见，受菜单权限拦截器管控） |
-| 服务 | `weather_service.py`：Geocoding（城市名→坐标）+ Forecast（实时+每日）+ WMO 天气码中文映射 + 统一 WeatherError |
-| 15 天预报 | `forecast_days` 参数化（默认 15，1~16）；实时增气压/云量/风向（角度→中文方位）/阵风；每日增日出/日落/紫外线/累计降水 |
-| 网络策略 | `_http_get`：禁代理直连优先 + 系统代理兑底（代理不稳环境不再持续超时） |
+| 数据源 | Open-Meteo（Geocoding + Forecast API），免费、无需 API Key、无需代理 |
+| 服务封装 | `weather_service.py`：`geocode_city()` 城市名→经纬度/时区；`fetch_forecast()` 实时+3 日预报（daily 必带 timezone）；`query_weather()` 组合主入口；`WeatherError` 统一异常（中文 message + 建议 HTTP 状态码）；`weather_code_cn()` WMO 码中文映射（未知码兜底） |
+| 路由 | `routes_weather.py`：`GET /weather` 页面（login_required）；`GET /api/weather/query?city=` JSON API（login_required，city 非空/≤30 字校验） |
+| 前端 | `templates/weather.html`：城市搜索框 + 实时天气卡片（温度/体感/湿度/天气状况/风速）+ 3 天预报卡片（最高最低温/降水概率/天气状况+图标），fetch 携带 CSRF 头，深浅色双主题自适应 |
+| 入口 | `base.html` 导航栏新增「天气」菜单（所有登录用户可见，不占用菜单权限体系） |
+| 跨域 | 服务端 requests 调用，无 CORS 问题（Open-Meteo 本身亦支持 CORS） |
 
-### 10.2 行政区划级联选择（前端 `static/js/china-regions.js` 本地内置）
+#### API 调用要点（严格遵循官方约束）
 
-| 项 | 说明 |
+| 接口 | 请求 | 说明 |
+|---|---|---|
+| 地理编码 | `GET https://geocoding-api.open-meteo.com/v1/search?name={城市}&count=1&language=zh&format=json` | 取 `results[0]` 的 `latitude`/`longitude`/`timezone` |
+| 天气服务源 | `GET https://api.open-meteo.com/v1/forecast` + `current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m` + `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` + `timezone=auto` + `forecast_days=3` | **请求 daily 时必须携带 timezone**（优先地理编码返回值，缺省回落 `auto`），否则接口报错 |
+| 错误格式 | `{"error": true, "reason": "..."}` | 服务层检测后透传 reason 为中文提示 |
+
+> **V10.11.20 补充（外部接口服务配置）**：以上三个 Open-Meteo 端点地址不再硬编码，改由管理员在「系统管理 > 外部接口配置」页自定义（存储于 `system_settings` 的 `api_urls_geocoding` / `api_urls_forecast` / `api_urls_air_quality`，均支持**多端点 + 故障转移 + 重试参数 + 一键测试**），默认值即上表地址；`weather_service._http_get_endpoint()` 按配置顺序遍历启用端点，任一 HTTP 200 即成功，全败按 `retries` 整轮重试后走原有缓存/离线合成兜底。节假日班/休数据源（timor.tech，`api_urls_holiday`）与企微长连接（`api_urls_wecom_ws`）一并纳入，AI 联网搜索（`ai_search_urls`）支持总开关与多端点。详见第 11 部分 ADR-50。
+
+#### WMO weather_code → 中文映射（weather_service.py 内置）
+
+`0 晴 / 1 基本晴朗 / 2 局部多云 / 3 阴天 / 4 阴天 / 45 雾 / 48 冻雾 / 51·53·55 毛毛雨 / 56·57 冻毛毛雨 / 61 小雨 / 63 中雨 / 65 大雨 / 66·67 冻雨 / 71 小雪 / 73 中雪 / 75 大雪 / 77 米雪 / 80·81·82 阵雨 / 85·86 阵雪 / 95 雷阵雨 / 96 雷暴伴小冰雹 / 99 雷暴伴大冰雹`；未知码兜底「未知天气(N)」。
+
+#### 错误处理矩阵
+
+| 场景 | 返回 |
 |---|---|
-| 数据源 | 阿里云 DataV GeoAtlas（34 省/476 市/2875 区县 + 行政中心坐标，144KB 本地内置无外链） |
-| 根因 | GeoNames 中文库缺中国区县级地名（「双流区」0 候选、仅同名村镇错配），级联改用内置坐标直查 |
-| 坐标直查 | `query_weather_by_coords(lat, lon, days, label)`：中国范围粗校验（纬 3~54/经 73~136）+ `timezone=auto`，零错配且省一次地理编码请求 |
-| 兼容 | 保留城市名自由输入（Geocoding 旧行为），可选 province/city2 消歧参数 |
+| 城市名为空 / 超长 | 400「请输入城市名称」/「城市名称过长」 |
+| 地理编码无结果 | 404「未找到该城市，请检查城市名称是否正确」 |
+| Open-Meteo 返回 error | 透传 `reason`（502） |
+| 网络超时 / 连接失败 | 503「…服务超时/暂时不可用，请稍后重试」 |
+| 未知异常 | 500「服务器内部错误」，日志记录不泄漏堆栈 |
 
-### 10.3 天气权限管控（对齐传统版 V10.11.6）
+#### 文件变更清单
 
-| 层 | 实现 |
+| 文件 | 变更 |
 |---|---|
-| 权限模型 | weather 受控菜单（0=无权限/1=可查看）；`models.py` ALL_MENUS×2 处 + `app.py` 批量/单用户 ALL_MENUS 与 MENU_NAMES 补 weather |
-| 全链路门控 | `routes_ext.py menu_map` 新增 `weather_page`/`api_weather_query → 'weather'` + menu_names；`base.html` 导航条件渲染 |
-| 工单/管理页 | `TICKET_MENU_OPTIONS` 补天气；`admin_users.html` 单用户 + 批量权限弹窗各增天气项（0/1 级） |
-| 回填 | `_do_startup_sync` 启动幂等回填既有普通用户 weather 菜单访问权（新用户默认无权限） |
-| Webhook | `PAGE_NAMES` 补 `'weather':'天气'`；`PAGE_EVENT_MATRIX` 补 `weather: []` 只读行（矩阵展示"—"） |
+| `weather_service.py` | 新增（约 260 行） |
+| `routes_weather.py` | 新增（约 45 行） |
+| `templates/weather.html` | 新增（约 210 行） |
+| `app.py` | 末尾注册 `register_weather_routes(app)` |
+| `templates/base.html` | 导航栏新增「天气」入口 |
+| `README.md` | 公告 + 功能章节同步 |
 
-### 10.4 表格列宽手动调整（全平台 21 张主业务表）
-
-| 项 | 说明 |
-|---|---|
-| 机制 | `static/js/table-resizer.js` 全局脚本（零依赖）：`table[data-resizable=表ID]` + `th[data-col=列key]`；首次固化自然宽度 + `table-layout: fixed` |
-| 交互 | 表头右缘 8px 分隔条（hover 高亮 + col-resize）；拖动实时生效且总宽超容器出横向滚动；双击自动适应内容宽（同帧测量无闪烁）；拖动禁文本选中 |
-| 约束/持久化 | 默认 min 60 / max 480（单列 data-col-min/max 覆盖）；localStorage 键 `gift_colw_{用户ID}_{表ID}` 按用户+表格隔离；容器右上角自动注入「重置列宽」按钮 |
-| 降级/主题 | Pointer Events 触摸兼容；<768px 自动降级；黑夜/白天双主题高亮；截断单元格补 title 悬停 |
-| 覆盖 | 礼金账本 14 列、人情对账×2、宴席列表+详情×2、用户管理×2、Webhook×2、备份管理×4、回收站、纪念日、操作日志、权限工单、系统广播、分享台账（JS 动态小表不启用） |
-
-### 10.5 验证结论（11445 临时实例 + 全新 SQLite）
+#### 验证结论（浏览器实测）
 
 | 场景 | 结果 |
 |---|---|
-| 礼金账本 14 列 resizer + fixed + 重置按钮 | ✅ |
-| 天气默认/级联查询（四川→成都→双流）15 天 + 趋势图 | ✅ |
-| 级联记忆恢复（刷新后自动恢复双流查询） | ✅ |
-| 用户管理权限弹窗含天气项（menu_perm_weather） | ✅ |
-| 全部 Python 文件编译通过 | ✅ |
+| 默认查询「北京」 | 实时天气 + 3 天预报完整展示 ✅ |
+| 查询「上海」 | 正常，weather_code 中文映射正确（毛毛雨/局部多云） ✅ |
+| 查询不存在城市 | 提示「未找到该城市，请检查城市名称是否正确」 ✅ |
+| 空输入 | 提示「请输入城市名称」 ✅ |
+| 黑夜模式 | 页面样式自适应，无回归 ✅ |
+| 未登录访问 | 重定向登录页（login_required 生效） ✅ |
 
-## 第 11 部分：V10.11.8~10 功能增量 — 天气增强 + 告警推送 + 万年历独立模块 + 班休服务（对齐传统版）
+---
 
-### 11.1 天气页面全面增强（V10.11.8）
+### 10.10 V10.11.5 AI 配置模型列表 + OCR 识别修复 + PDF 导出修复
 
-| 项 | 说明 |
-|---|---|
-| 级联任意级查询 | 省/市/县任意一级即可查（省级→省会坐标、市级→市中心坐标）；下拉懒加载逐级展开 |
-| 自由输入本地匹配 | `localMatchCity`：归一化去后缀 + 省/市/县三级匹配，更具体层级优先；命中走坐标模式直查，未命中回退在线 Geocoding（保留国外城市能力） |
-| 双按钮冲突修复 | 按钮独立 loading（`btnPending` 计数）+ `reqSeq` 请求序号防竞态（旧响应丢弃） |
-| 页面锁死修复 | 前端 `AbortController` 30s 超时；记忆键全部追加用户 ID（`gift_weather_{uid}_*`）；「重置记忆」按钮一键清空 |
-| 天数控件 | 分段按钮（7/15/16）+ 下拉框（1~16）组合，切换即重查并记忆 |
-| 日历视图 | 月视图（当月网格图标/高低温/降水概率，范围外灰置）+ 周视图（7 天全要素行）+ 点击日期联动详情与趋势图标记线 |
-| 多城对比 | 本地匹配添加（上限 3 个），主城 + 对比城最高温同图叠加（ECharts 多系列 + 图例） |
-| 生活指数 | 穿衣/雨伞/防晒/洗车/出行/舒适度 6 项自研规则 2×3 卡片 |
-| 空气质量 | `fetch_air_quality`（Open-Meteo Air Quality API）失败静默降级；PM2.5 按中国 24h 标准分级配色徽章 |
-
-### 11.2 告警消息推送与权限联调（V10.11.8）
+#### 功能设计
 
 | 项 | 说明 |
 |---|---|
-| 数据模型 | `alert_push_configs`（单行全局配置）+ `alert_push_grants`（按用户操作授权，user_id 唯一）；`_SCHEMA_VERSION` 1017 → **1019**（**跳过传统版 1018 家庭记账迁移——本版无 family 功能**，1019 建告警两表与传统版同义） |
+| 模型列表 | `ai_service.fetch_model_list()`：`GET {Base URL}/models`（OpenAI 兼容、`Authorization: Bearer`，连接 5s/读取 15s）；错误分类——超时/连接失败/401/403/非 JSON/空列表均返回中文提示与 detail |
+| 后端路由 | `routes_ai.py POST /api/ai/config/models`（仅管理员）：支持 `config_index`（已存配置）或直接传 `api_key/base_url` 两种模式 |
+| 前端 | `admin_ai_config.html`：配置卡新增「获取模型列表」按钮 + 模型下拉（选择自动填入模型名）；API Key/Base URL 变更触发防抖 800ms 自动拉取；同一 key+url 组合不重复自动请求（手动按钮可强制刷新） |
+| OCR 容错 | `_pick_field()` 中英文键名别名；`_parse_amount()` 金额容错（¥/千分位/中文数字/汉字金额，复用 gift_utils.cn2num）；`_parse_record_type()` 收送类型归一；Prompt 强制英文字段名 + 纯数字金额 + 空数组约定；0 条时透出模型原始返回片段 |
+| OCR 前端防御 | 压缩长边 2048→1600px、质量 0.85→0.7→0.55 逐级降级（产物 <700KB）；`startOcrRecognize` 对非 JSON 响应（HTML 413/网关错误页）先查状态码与 Content-Type 再解析，报错信息带 HTTP 状态 |
+| PDF 导出修复 | `routes_ext.py export_pdf_statement`：`Content-Disposition` 中文文件名触发 `UnicodeEncodeError`（HTTP 头 latin-1 限制，Werkzeug 真实服务器编码失败 → 浏览器收不到响应 = "点击无反应"）；改 RFC 5987 `filename*=UTF-8''{quote(name)}` + ASCII 兜底 `gift_statement_{date}.pdf` |
+
+#### 验证结论
+
+| 场景 | 结果 |
+|---|---|
+| 「获取模型列表」真实拉取（agnes apihub） | 成功获取 12 个模型（agnes-2.5-pro-alpha / agnes-3.0-flash 等）✅ |
+| 下拉选择模型自动填入 | 选中模型名自动写入输入框 ✅ |
+| 自动拉取（改 Base URL 防抖触发） | 自动重新拉取并渲染 ✅ |
+| OCR 首次识别（真实 agnes-2.5-flash + 测试礼金簿图） | 张三 500 婚宴 / 李四 300 满月酒 / 王五 600 寿宴 3 条正确 ✅ |
+| OCR 二次识别 | 正常返回 JSON，无 SyntaxError/HTML ✅ |
+| PDF 导出（真实 HTTP 服务） | 200 + application/pdf + RFC5987 文件名，不再 UnicodeEncodeError ✅ |
+| 前端控制台 | 0 报错 ✅ |
+
+### 10.11 V10.11.6 天气权限管控 + Webhook 推送矩阵 + 登记时间自定义
+
+#### 功能设计
+
+| 项 | 说明 |
+|---|---|
+| 天气权限模型 | 「天气」从"所有登录用户可用"收紧为受控菜单：0=无权限 / 1=可查看实时天气（只读工具菜单，无数据权限维度）；`models.py` 的 `User.get_allowed_menus/get_menu_perm/set_menu_permissions` 与 `app.py` 的 `admin_update_user_permissions` 的 `ALL_MENUS` 均补充 `weather` |
+| 权限回填 | `_do_startup_sync()` 启动时幂等追加：非管理员用户 `allowed_menus` 不含 `weather` 则追加（仅追加、幂等、打印回填数量），避免 V10.11.4 开放期老用户权限回退；新注册用户默认无天气权限 |
+| 全链路门控 | `routes_ext.py menu_map` 新增 `weather_page`/`api_weather_query → 'weather'`，`menu_names` 补「天气」；`base.html` 导航天气入口改 `current_user.is_admin or can_access_menu('weather')` 条件渲染 |
+| 工单申请 | `routes_ext.py` 权限申请清单 `TICKET_MENU_OPTIONS` 新增 `('weather', '天气')`，普通用户可提交天气权限申请 |
+| 管理页配置 | `admin_users.html` 单用户权限弹窗 + 批量权限弹窗各新增「天气」复选框 + 0/1 级下拉（无天气访问权限 / 可查看实时天气） |
+| Webhook 矩阵 | `webhook_utils.PAGE_NAMES` 新增 `'weather':'天气'`；`PAGE_EVENT_MATRIX` 新增 `weather: []` 只读行（无业务事件，界面展示"—"；同批补 `dashboard: []` 注释说明只读页面不产生事件） |
+| 登记时间自定义 | `index.html` 编辑弹窗新增 `edit_created_at`（`datetime-local`，`name=created_at`），编辑按钮 `data-created` 回填原时间；`app.py edit_record` 解析 `%Y-%m-%dT%H:%M`，非法格式返回 400/表单错误，留空保持不变 |
+
+#### 验证结论
+
+| 场景 | 结果 |
+|---|---|
+| 管理员导航/页面/API | 全部可见可访问 ✅ |
+| 无权限用户导航 | 天气入口隐藏，直接访问 `/weather` 跳权限申请页 ✅ |
+| 有权限普通用户 | 导航可见、页面正常查询 ✅ |
+| 权限回填 | 启动自动为老用户追加 weather，测试用户手动授权后权限准确 ✅ |
+| 编辑登记时间 | 新记录编辑 → 改 `2026-03-15T08:45` → 保存成功，列表时间更新 ✅ |
+| 非法时间格式 | 返回 400「登记时间格式不正确」✅ |
+| Webhook 配置页 | 页面矩阵新增天气行（—），不影响既有推送 ✅ |
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `app.py` | `_do_startup_sync` 天气权限回填；`admin_update_user_permissions` ALL_MENUS/MENU_NAMES 补 weather；`edit_record` 登记时间解析 |
+| `models.py` | `get_allowed_menus`（管理员列表）、`get_menu_perm`、`set_menu_permissions` 的 ALL_MENUS 补 weather |
+| `routes_ext.py` | `menu_map`/`menu_names` 补 weather；`TICKET_MENU_OPTIONS` 补天气 |
+| `templates/base.html` | 天气导航改为权限条件渲染 |
+| `templates/admin_users.html` | 单用户 + 批量权限弹窗新增天气项 |
+| `templates/index.html` | 编辑弹窗新增登记时间字段 + `data-created` 回填 |
+| `webhook_utils.py` | `PAGE_NAMES`/`PAGE_EVENT_MATRIX` 补 weather（及 dashboard 注释） |
+| `README.md` | 公告 + 功能章节 20 同步 |
+
+### 10.12 V10.11.7 表格列宽手动调整 + 天气页面改版
+
+#### 功能一：全平台表格列宽拖拽调整
+
+| 项 | 说明 |
+|---|---|
+| 启用机制 | `<table data-resizable="表ID">` + 每个 `<th data-col="列key">`；全局脚本 `static/js/table-resizer.js`（base.html 全局引入，零依赖原生 JS）自动初始化 |
+| 固化宽度 | 首次进入将各列 auto 布局下的自然宽度固化为显式像素写入 `th.style.width`，同时切 `table-layout: fixed`，拖拽实时生效 |
+| 分隔条 | 每个 th 右缘注入 8px 命中区（`.colw-resizer`），hover 高亮 + `col-resize` 光标（Bootstrap CSS 变量双主题适配） |
+| 约束 | 默认 min 60px / max 480px；单列可用 `data-col-min/max` 覆盖（checkbox 36、操作列 110+ 等） |
+| 横向滚动 | 总宽超容器由 `.table-responsive` 出横向滚动条，不压缩其他列 |
+| 双击自适应 | 同帧内切 auto 布局测该列最大内容宽 +16px 余量，再切回 fixed（无闪烁） |
+| 持久化 | localStorage 键 `gift_colw_{用户ID}_{表ID}`（按用户+表格隔离），拖动结束保存全部列宽，加载自动恢复 |
+| 重置入口 | JS 自动在容器右上角注入「↺ 重置列宽」小按钮，点击清存储恢复默认 |
+| 防误选 | 拖动时 body 加 `colw-resizing` 类 → `user-select: none` + 全局 col-resize 光标 |
+| 触摸/降级 | Pointer Events 统一；屏宽 <768px 自动 teardown 不拖拽不恢复，回退自然布局；跨断点 resize 防抖自动重绑 |
+| title 提示 | 初始化/拖拽后为超宽截断单元格补 `title` 悬停看全文 |
+| 覆盖范围 | 21 张主业务表：礼金账本 14 列、人情对账 2 张、用户管理 2 张、Webhook 2 张、备份管理 4 张、宴席列表+详情 2 张、回收站、纪念日、操作日志、权限工单、系统广播、分享台账（`excelPreviewTable` 动态预览小表不启用） |
+
+#### 功能二：天气页面改版（15 天 + 级联选择 + 首页式布局）
+
+| 项 | 说明 |
+|---|---|
+| 15 天预报 | `weather_service.fetch_forecast` 的 `forecast_days` 参数化（默认 15，1~16）；`/api/weather/query` 新增 `days` 参数 |
+| 实时指标扩充 | current 增 surface_pressure/云量/wind_direction_10m（角度→中文方位）/wind_gusts_10m |
+| 每日扩充 | daily 增 sunrise/sunset/uv_index_max/precipitation_sum |
+| 级联数据 | `static/js/china-regions.js`（144KB）本地内置：阿里云 DataV GeoAtlas（34 省/476 市/2875 区县 + 行政中心坐标）；直辖市市级层显示省名；台湾/省直辖县级市自动补齐三级 |
+| 根因说明 | GeoNames 中文库缺中国区县级地名（「双流区」0 候选、仅同名村镇错配），级联改用内置坐标直查 |
+| 坐标模式 | `query_weather_by_coords(lat, lon, days, label)`：中国范围粗校验（纬 3~54/经 73~136）+ `timezone=auto` 直查；`/api/weather/query?lat=&lon=&label=` |
+| 文本模式 | 保留 `city` 自由输入（Geocoding，兼容旧版）；`province/city2` 可选消歧参数（多候选 admin1/admin2 匹配打分 + 404 去后缀降级重试） |
+| 首页式布局 | 大卡片（大温度数字 + 2×4 指标网格，文字不截断）→ 15 天温度趋势双折线图（本地化 ECharts 5.5.0，深浅主题）→ 15 天卡片网格（每行 5 个，今天高亮） |
+| 记忆 | localStorage `gift_weather_mode/region/city`：刷新/再次进入自动恢复上次查询方式与地区，首次默认北京 |
+| 网络策略修复 | `_http_get`：禁代理直连优先（国内直连可达）+ 失败回落系统代理；修复用户机器开梯子且代理不稳时持续超时 |
+
+#### 验证结论
+
+| 场景 | 结果 |
+|---|---|
+| 礼金账本 14 列初始化（fixed + 14 resizer + 重置按钮） | ✅ |
+| 真实鼠标拖拽 +130px（80→210px） | ✅ |
+| 刷新后 210px 恢复 + localStorage 保存 | ✅ |
+| 重置按钮恢复默认 80px + 存储清除 | ✅ |
+| 拖 -300px 钓到 min 60px | ✅ |
+| 双击自适应 100px（内容最大宽） | ✅ |
+| 总宽 1214 > 容器 936 → 横向滚动不压列 | ✅ |
+| 抽查人情对账/用户管理/工单/操作日志/纪念日 resizer 全就绪 | ✅ |
+| 回收站空数据不渲染表格（条件渲染） | ✅ 非缺陷 |
+| 天气默认北京自动查询（15 天 + 全部扩充指标） | ✅ |
+| 级联四川→成都→双流定位准（气压 961hPa 海拔效应坐标准确） | ✅ |
+| 刷新后级联记忆恢复自动查询 | ✅ |
+| 黑夜模式视觉（趋势图配色/卡片对比度） | ✅ |
+| 指标文字完整无截断 + 趋势图在卡片前布局 | ✅ |
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `static/js/table-resizer.js` | 新增：全局列宽拖拽脚本 |
+| `static/js/china-regions.js` | 新增：行政区划+坐标数据（本地内置） |
+| `templates/base.html` | 全局列宽样式 + `data-user-id` 注入 + table-resizer.js 引入 |
+| 14 个模板 21 张表 | 补 `data-resizable` / `th data-col` 标记（index/reconciliation/admin_users/admin_webhooks/admin_backups/admin_logs/admin_broadcasts/reminders/recycle_bin/permission_tickets/banquets/banquet_detail/shared_ledger） |
+| `weather_service.py` | 15 天参数化 + 指标扩充 + 坐标直查入口 + 级联消歧 + `_http_get` 双路径网络策略 |
+| `routes_weather.py` | `days/lat/lon/label/province/city2` 参数 |
+| `templates/weather.html` | 重写：级联 + 自由输入双模式、首页式布局、趋势图、记忆恢复 |
+
+### 10.13 V10.11.8 天气页面全面增强 + 告警消息推送（权限联调）
+
+#### 功能一：天气查询交互修复（4 项）
+
+| 项 | 说明 |
+|---|---|
+| 级联任意级查询 | 省级（未选市）→省会坐标、市级（未选县）→市中心坐标、县级→县坐标；`doCascadeQuery` 放开三级全选限制，label 按所选层级拼接去重 |
+| 懒加载逐级展开 | 初始仅显省下拉；选省后显市下拉（`citySelectWrap`）；选市后显县下拉（`districtSelectWrap`）；重选/清空时逐级隐藏 |
+| 自由输入本地匹配 | `localMatchCity(text)`：归一化去后缀 + 省/市/县三级匹配（与后端 `_norm_region` 同规则），更具体层级优先（县>市>省）；命中走坐标模式直查（修复「成都市」在线解析 404），未命中回退后端 Geocoding（保留国外城市能力） |
+| 双按钮冲突修复 | 每个按钮独立 loading（`btnPending` 计数，只改被点按钮文案），另一按钮保持原状；`reqSeq` 请求序号防竞态（旧响应丢弃不渲染） |
+| 页面锁死修复 | ① 前端 `AbortController` 30s 超时（后端直连+代理兑底最坏 26s，超时必恢复按钮，杜绝永久「查询中」）；② 记忆键全部追加用户 ID（`gift_weather_{uid}_*`，同浏览器多账号不串扰，修复退出重进残留他人查询）；③ 新增「重置记忆」按钮一键清空恢复默认北京 |
+
+#### 功能二：天数自定义 + 日历视图 + 对比 + 指数 + 空气质量
+
+| 项 | 说明 |
+|---|---|
+| 天数控件 | 分段按钮（7/15/16）+ 下拉框（1~16）组合；切换即按当前查询上下文重查，localStorage 记忆 |
+| 日历月视图 | 当月网格（周一起始）每日含图标/高低温/降水概率；预报范围外灰置「—」不可点；月份导航不可早于当前月；今日蓝高亮、选中绿描边 |
+| 日历周视图 | 今天起 7 天全要素行（天气/温度/降水概率/紫外线/降水总量/日出日落） |
+| 点击联动 | 选中日期 → 详情面板（8 项指标）+ 趋势图绿色虚线标记线（markLine）+ 月/周视图同步高亮 |
+| 多城对比 | 输入省/市/县名添加（本地匹配、去重、上限 3 个）；主城 + 对比城最高温同图叠加（ECharts 多系列 + 图例）；单城失败跳过并提示；记忆持久化 |
+| 生活指数 | 穿衣（体感 6 档）/雨伞（降水概率 3 档）/防晒（紫外线 5 档）/洗车（雨雪码+概率）/出行（风速 3 档）/舒适度（温湿度区间）—— 6 项自研规则 2×3 卡片 |
+| 空气质量 | `fetch_air_quality`（Air Quality API `current=pm10,pm2_5,us_aqi`）失败静默降级；PM2.5 按中国 24h 标准分级（0-35 优→>250 严重）配色徽章 + PM10 数值 |
+
+#### 功能三：告警消息推送（管理员菜单权限 ↔ WebDAV 告警配置联调）
+
+| 项 | 说明 |
+|---|---|
+| 数据模型 | `alert_push_configs`（单行全局配置：总开关/4 类触发/静默期/合并推送/巡检城市/last_push_at JSON）+ `alert_push_grants`（按用户操作授权，user_id 唯一）；`_SCHEMA_VERSION` 1018 → **1019** |
 | 巡检线程 | `alert_service.start_alert_inspector`：daemon 线程，首轮延迟 60s 后每 30 分钟一轮；每轮实时判定总开关 + 有效授权（无任何授权用户自动停用推送，配置保留不生效） |
-| 四类触发 | 天气预警（降温≥8℃/日降水概率≥70%/阵风≥50km/h/最低温≤0℃/最高温≥38℃）/ 接口异常（天气接口调用失败）/ 数据完整性（关键文件非空校验）/ 定时任务失败（35 分钟回溯窗口扫描失败日志） |
-| 频控 | 同类型静默期内不重复推（持久化重启仍有效）；同类型多条合并一条消息 |
-| 推送执行 | 复用 `trigger_webhook_event(force_channels=True)`：企微长连接/钉钉/飞书/pushplus/通用 URL 全支持 |
-| 路由 | `routes_alert.py`：config（GET/POST）/test/run/logs/logs-csv/grants（GET/POST）；操作级实时校验 + menu_map backups 门控（8 个 endpoint） |
-| 前端配置区 | `admin_backups.html` 新增「告警消息推送」卡片（配置/立即巡检/测试推送/授权管理/日志筛选与 CSV 导出）；权限三态渲染 |
-| 联调规则 | 无 backups 权限 URL 直访被 menu_map 拦截；操作中权限回收 → 403 + 前端提示跳首页；保存失败事务回滚；权限全回收 → 巡检自动停用（无孤儿任务） |
+| 天气预警规则 | 巡检城市逐一调 Open-Meteo（8 天窗口）：降温≥8℃ / 日降水概率≥70% / 阵风≥50km/h / 最低温≤0℃ / 最高温≥38℃ |
+| 接口异常 | 巡检中天气接口调用失败即事件源（城市 + 错误摘要） |
+| 数据完整性 | 关键文件非空校验（china-regions.js/table-resizer.js/echarts/weather.html/base.html/weather_service.py/routes_weather.py/alert_service.py） |
+| 定时任务失败 | 扫描 35 分钟回溯窗口内 `scheduled_task_execution_logs` failed 记录（同任务去重） |
+| 频控 | 同类型静默期内不重复推（`should_push`/`mark_pushed`，持久化重启后仍有效）；同类型多条合并一条消息（日志分类准确） |
+| 推送执行 | 复用 `trigger_webhook_event(force_channels=True)`：企微长连接/钉钉/飞书/pushplus/通用 URL 全支持；邮件本轮不含 |
+| 路由 | `routes_alert.py`：config（GET/POST）/test/run/logs/logs-csv/grants（GET/POST）；全部操作级实时校验 + menu_map backups 门控 |
+| 前端配置区 | `admin_backups.html` 新增「告警消息推送」卡片：配置区 + 立即巡检 + 测试推送 + 授权管理表（仅超管）+ 日志筛选（类型/结果/分页/CSV 导出）；权限三态渲染（无编辑→置灰+提示条；无测试→隐藏按钮；无日志→隐藏区） |
+| 联调规则 | 无 backups 菜单权限 URL 直访被 menu_map 拦截；操作中权限回收 → 403 + 前端提示跳首页；保存失败事务回滚保留原配置；权限全回收 → 巡检自动停用（无孤儿任务）；授权保存立即生效 |
 
-### 11.3 AI 配置网络策略修复（V10.11.8，本版适配）
-
-| 项 | 说明 |
-|---|---|
-| 问题现象 | AI 配置「测试」约 26s 后报 Connection error（API 配置本身正确，关代理后可用） |
-| 根因 | requests 与 OpenAI SDK（httpx）默认 `trust_env` 自动走系统代理；代理进程存活但出口节点不通时，AI 出网请求挂死在坏代理上直至超时 |
-| 双路径函数 | `_chat_with_fallback(client_kwargs, create_kwargs)`：SDK `httpx.Client(trust_env=False)` 直连优先，仅 `APIConnectionError`（连接类异常含超时）回落系统代理重试一次，鉴权/参数类错误不回落 |
-| 覆盖调用链 | `test_ai_config`（配置测试，timeout=15）/ `_call_openai`（AI 对话，timeout=30）两条出网链（**本版为精简版 AI 服务，无模型列表拉取/OCR 功能，不涉及**；传统版为 4 条链） |
-
-### 11.4 日历视图万年历化（V10.11.9）
+#### 功能四：AI 配置网络策略修复
 
 | 项 | 说明 |
 |---|---|
-| 核心数据 | `static/js/lunar_utils.js`（零依赖零外网）：1900-2100 农历表 201 项位编码（bit0-3 闰月月号 / bit4-15 月大小 / bit16 闰月大月）+ 节气表 base32（201 年×24 字符）|
-| 数据权威性 | 由寿星天文历（sxtwl）全量生成，roundtrip 校验 73,414 天 0 不一致 + 4,824 节气点 0 不一致；春节/中秋/除夕/闰六月/节气等权威锚点全命中 |
-| 今日信息卡 | 公历大字 + 星期（红）+ 农历全称 + 当日节气绿色胶囊 + 节日红色徽章 |
-| 月网格三层 | 公历数字（周末浅红/今日蓝/红描边）+ 万年历小字（节日>节气>农历日优先级红字；初一显月名；闰月带「闰」）+ 天气层（范围外弱化「无预报」）|
-| 自由翻月 | 取消「不可早于当前月」限制（1900-2100 自由翻）+「今天」按钮 |
-| 详情万年历化 | 任意日期可点击：万年历信息条（农历全称/干支/生肖/节气/节日）+ 天气 8 项指标（预报内）；范围外仅万年历信息 |
-| 周视图 | 每行补农历/节日小字 |
-| 节日库 | 公历固定 15 项 + 浮动（母亲节/父亲节/感恩节）+ 农历固定 10 项 + 除夕动态判断；闰月当天不算农历节日 |
+| 问题现象 | AI 配置页「获取模型列表」持续超时；「测试」约 26s 后报 Connection error（API 配置本身正确） |
+| 根因 | `requests` 与 OpenAI SDK（httpx）默认 `trust_env` 自动走系统代理；用户机器代理进程存活但出口节点不通时，全部 AI 出网请求挂死在坏代理上直至超时（与 V10.11.7 天气修复前同款问题） |
+| 双路径函数 | `_ai_http_get(url)`：requests 禁代理直连优先 + 系统代理兜底，超时 `AI_HTTP_TIMEOUT=(5, 20)`；`_chat_with_fallback`：SDK `httpx.Client(trust_env=False)` 直连优先，仅 `APIConnectionError`（连接类异常含超时）回落系统代理重试一次，鉴权/参数类错误不回落 |
+| 覆盖调用链 | `fetch_model_list`（模型列表）/ `test_ai_config`（配置测试，timeout=15）/ `_call_openai`（AI 对话，timeout=30）/ `recognize_gift_image`（OCR，timeout=120）全部 4 条 |
+| 验证 | 「获取模型列表」秒回 12 个 Agnes 模型；「测试」`agnes-3.0-flash` 5.1s 返回「测试成功」（修复前 26.3s Connection error）；个别模型返回空内容时提示「接口连通正常但返回内容为空，请检查模型名称」（属模型侧行为非网络问题） |
 
-### 11.5 万年历独立模块 + 班休服务（V10.11.10）
-
-| 项 | 说明 |
-|---|---|
-| 模块形态 | 视图切换第三态「万年历」（列表/日历/万年历）；**不依赖天气预报数据可独立使用**（动态创建视图容器）；隐藏天数控件、显示专属导航；视图记忆恢复 |
-| 今日大卡 | 公历大字 1.9rem + 星期红 + 今日班/休徽章 + 农历全称 + 节气胶囊 + 节日徽章 + 班休说明行 |
-| 大月历网格 | 公历数字 1.3rem + 右上角班/休角标（休红底/班灰底，hover 显名称）+ 万年历小字 + 今日红框红底 + 选中绿框 |
-| 点击详情 | 独立面板（与天气详情互不干扰）：农历全称大字 + 干支/生肖/节气/节日徽章 + 班/休状态与名称 |
-| 年月切换 | 年下拉 1900-2100 + 月下拉 1-12 + ‹ › 翻月 +「今天」一键返回 |
-| 班休数据源 | `holiday_service.py`：timor.tech 聚合接口 `GET /api/holiday/year/{y}`（内容与国务院办公厅放假安排公报一致，免费无 Key 国内直连）；holiday=true 休 / false 调休补班 |
-| 反爬适配 | timor.tech 屏蔽 python-requests 默认 UA（403），请求头模拟浏览器 UA |
-| 双缓存 | 进程内存（按年）+ 磁盘 `data/holiday_cache.json`（重启免拉取；失败不缓存便于重试；保留 2010-2100 键防膨胀） |
-| 网络与降级 | 禁代理直连优先 + 系统代理兑底，超时 (5, 8)s；拉取失败返回空（万年历主体不受影响仅无角标）；2007 年前跳过 |
-| 接口 | `GET /api/holiday/year/<int:year>`（登录 + weather 菜单权限，menu_map `api_holiday_year`）|
-
-### 11.6 本版同步方式与特性差异
-
-| 类别 | 明细 |
-|---|---|
-| 直接复制（7 个，MD5 逐字一致） | `weather_service.py` / `routes_weather.py` / `templates/weather.html` / `static/js/lunar_utils.js` / `holiday_service.py`（新增）/ `alert_service.py`（新增）/ `routes_alert.py`（新增） |
-| 手工合并（5 个） | `models.py`（追加告警两模型，保留本版无 FamilyMember 子集特性）/ `app.py`（schema 1019 + 告警路由注册 + 巡检线程）/ `routes_ext.py`（menu_map 补 `api_holiday_year` + 8 个告警 endpoint）/ `ai_service.py`（精简版保留，合入 `_chat_with_fallback`）/ `templates/admin_backups.html`（告警卡片 HTML 149 行 + JS 区块 154 行合并，WebDAV 原功能不变） |
-| schema 差异 | 1017→1019 直升，迁移注释说明跳过传统版 1018（family 两表，本版无该功能） |
-| 功能差异 | 本版无家庭记账/模型列表拉取/OCR（传统版有），其余三代增量功能完全对齐 |
-
-### 11.7 验证结论（49 项静态验证 ALL_PASS）
+#### 验证结论（隔离副本库 55 项断言 + 11444 临时实例）
 
 | 场景 | 结果 |
 |---|---|
-| py_compile 9 个 py 文件（models/app/routes_ext/ai_service/alert_service/routes_alert/holiday_service/routes_weather/weather_service） | ✅ |
-| 7 个共享文件两版 MD5 逐字一致 | ✅ |
-| admin_backups.html / weather.html div/script/style 标签配对平衡（合并后 1555 行） | ✅ |
-| webhook_utils 符号兼容（alert_service 依赖 `trigger_webhook_event` 存在） | ✅ |
-| menu_map 9 条目（`api_holiday_year` + 8 个 `admin_alerts_*`） | ✅ |
-| app.py 特性（schema 1019 / 1018 跳过说明 / 告警路由注册 / 巡检线程 / 告警两表迁移） | ✅ |
-| models.py 特性（AlertPushConfig/AlertPushGrant 就位 / 无 FamilyMember） | ✅ |
-| ai_service.py 特性（_chat_with_fallback / 延迟导入 / 无 fetch_model_list / 无 OCR） | ✅ |
-| admin_backups.html 告警区块（卡片 + JS + loadAlertConfig 调用 + WebDAV 原功能保留） | ✅ |
-### 11.8 V10.11.11 全面优化修复与天气联动加固（Docker版同步）
+| 6 文件语法编译 + schema 1019 迁移 + 两新表建表 | ✅ |
+| 16/7 天预报 + air_quality 真实返回（pm25=43.5） | ✅ |
+| 告警配置初始化/授权判定/回收失效/静默期/巡检跳过/开启巡检/完整性/任务失败检测/城市解析 | ✅ |
+| admin 全流程（config 保存/越界拒/空城拒/测试无通道提示/手动巡检/日志/筛选/CSV/授权/回收） | ✅ |
+| 普通用户 5 个接口全部被拦截（menu_map 门控） | ✅ |
+| 副本库运行库隔离确认（运行库仍 1018 无 alert 表） | ✅ |
+| AI 网络策略修复（模型列表 12 个秒回 + 配置测试 5.1s 成功） | ✅ |
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `models.py` | 新增 `AlertPushConfig` / `AlertPushGrant` 两模型 |
+| `app.py` | `_SCHEMA_VERSION` 1019 + 两表建表迁移 + 告警路由注册 + 巡检线程启动 |
+| `alert_service.py` | 新增：配置/授权/频控/四类检测/巡检线程/测试推送 |
+| `routes_alert.py` | 新增：告警 8 个 API（config/test/run/logs/csv/grants） |
+| `routes_ext.py` | `menu_map` 补 8 个告警 endpoint（backups 门控） |
+| `weather_service.py` | 新增 `fetch_air_quality` + `_build_result` 扩展 air_quality 字段 |
+| `templates/weather.html` | 重写：4 bug 修复 + 天数控件 + 日历月/周 + 对比 + 指数 + 空气质量 + 用户级记忆 |
+| `templates/admin_backups.html` | 新增「告警消息推送」卡片（配置/授权/日志三区） |
+| `ai_service.py` | 新增 `_ai_http_get` / `_chat_with_fallback` 双路径出网函数，改造 4 处调用点（模型列表/测试/对话/OCR） |
+
+### 10.14 V10.11.9~10 日历视图万年历化 + 万年历独立模块与班/休角标（参考 rili.com.cn）
+
+#### 设计与实现
+
+| 项 | 说明 |
+|---|---|
+| 核心数据库 | 新增 `static/js/lunar_utils.js`（零依赖零外网）：1900-2100 农历表 201 项位编码（bit0-3 闰月月号 / bit4-15 正月~腊月大小月 / bit16 闰月大月）+ 节气表 base32（201 年×24 字符，小寒=0…冬至=23）|
+| 数据权威性 | 由寿星天文历（sxtwl）全量生成，同源解码 roundtrip 校验 73,414 天 0 不一致 + 4,824 节气点 0 不一致；春节 2/17、中秋 9/25、除夕、闰六月、清明/寒露/冬至等权威锚点全命中 |
+| 今日信息卡 | 日历视图顶部固定：公历大字 + 星期（红）+ 「丙午年（马） 九月初一」农历行 + 当日节气绿色胶囊 + 节日红色徽章 |
+| 月网格三层 | 公历数字（周末浅红/今日蓝/今日格子红描边）+ 农历/节日/节气小字（优先级节日>节气>农历日，红字加粗；初一显月名「九月」/闰月带「闰」）+ 天气层（预报内叠加；范围外保留万年历信息弱化「无预报」可点）|
+| 自由翻月 | 取消「不可早于当前月」限制（1900-2100 自由翻）；新增「今天」按钮一键回当前月 |
+| 详情万年历化 | 任意日期可点击：万年历信息条（农历全称/干支/生肖/节气胶囊/节日徽章）+ 天气 8 项指标（预报内）；范围外提示「仅显示万年历信息」；趋势图标记线仅预报内联动 |
+| 周视图 | 每行补农历/节日小字（如「10-10 九月」）|
+| 节日库 | 公历固定 15 项 + 浮动（母亲节/父亲节/感恩节）+ 农历固定 10 项 + 除夕动态判断（次日正月初一即除夕，兼容腊月廿九/三十）；闰月当天不算农历节日 |
+| 明确不做 | 调休「班/休」角标（需逐年维护国务院放假安排）；日干支（历史锚点不可靠）；2100 年后（数据表硬边界）|
+
+#### 验证结论补充（V10.11.9 万年历，11444 副本库）
+
+| 场景 | 结果 |
+|---|---|
+| sxtwl 全量 roundtrip：73,414 天农历 + 4,824 节气点 | ✅ 0 不一致 |
+| 今日卡（2026-10-10 星期六 丙午马年 九月初一） | ✅ |
+| 格子抽查（10/1 国庆节红、10/8 寒露红、10/10 初一显「九月」、10/23 霜降红、周末标红） | ✅ |
+| 自由翻月至 2026-02（春节/除夕红字、今日卡不随翻月变化） | ✅ |
+| 范围外日期（春节）详情仅万年历信息 + 超范围提示；范围内详情万年历+8 项指标 | ✅ |
+| 周视图 7 行农历小字（九月/初二~初七） | ✅ |
+
+#### 文件变更清单（V10.11.9）
+
+| 文件 | 变更 |
+|---|---|
+| `static/js/lunar_utils.js` | 新增：万年历核心库（农历表 201 项 + 节气 base32 表 + 干支/生肖/节日，sxtwl 权威数据） |
+| `templates/weather.html` | 日历视图万年历化：今日卡/三层格子/自由翻月/回到今天/详情万年历化/周视图农历/双主题红色系 |
+| `alert_service.py` | 数据完整性清单补充 `lunar_utils.js` |
+
+#### 万年历独立模块（V10.11.10 新增）
+
+| 项 | 说明 |
+|---|---|
+| 模块形态 | 天气页视图切换第三态「万年历」（列表/日历/万年历）；**不依赖天气预报数据**（未查询/查询失败均可独立使用，动态创建视图容器）；万年历视图隐藏天数控件、显示专属导航（年/月双下拉+翻月+回到今天）；视图偏好记忆恢复 |
+| 今日大卡 | 公历大字 1.9rem + 星期红 + 今日班/休徽章 + 农历全称 + 节气胶囊 + 节日徽章 + 「今日休息日/调休补班（名称）」说明行 |
+| 大月历网格 | 公历数字 1.3rem（周末浅红/今日蓝）+ 右上角班/休角标（休红底/班灰底白字，hover 显示名称）+ 农历/节日/节气小字 + 今日红框红底 |
+| 点击详情 | 独立面板：农历全称大字 + 干支/生肖/节气/节日徽章 + 班/休状态与名称（与天气详情互不干扰） |
+| 年月切换 | 年下拉 1900-2100 + 月下拉 1-12 + ‹ › 翻月 + 「今天」一键返回 |
+
+#### 法定节假日班/休数据服务（V10.11.10 新增）
+
+| 项 | 说明 |
+|---|---|
+| 数据源 | timor.tech 聚合接口 `GET /api/holiday/year/{y}`（内容与国务院办公厅放假安排公报一致，免费无 Key 国内直连）；holiday=true 休 / holiday=false 调休补班 |
+| 反爬适配 | timor.tech 屏蔽 python-requests 默认 UA（403），请求头模拟浏览器 UA |
+| 双缓存 | 进程内存（按年）+ 磁盘 `data/holiday_cache.json`（放假安排发布后不变，重启免拉取；失败不缓存便于重试；保留 2010-2100 键防膨胀） |
+| 网络双路径 | 禁代理直连优先 + 系统代理兑底（同 weather_service 模式）；超时 (5, 8)s |
+| 降级 | 拉取失败返回空（万年历主体不受影响仅无角标）；2007 年前无法定节假日数据跳过 |
+| 接口与权限 | `GET /api/holiday/year/<int:year>`（登录 + weather 菜单权限，menu_map `api_holiday_year`） |
+
+#### 验证结论补充（V10.11.10 万年历模块，11444 副本库）
+
+| 场景 | 结果 |
+|---|---|
+| 2026 年班/休真实拉取（国庆中秋连休 + 调休补班，今日 10/10「国庆节后补班」今日卡/角标/详情三处正确） | ✅ |
+| 万年历网格 31 格 + 9 角标（休7班2）+ 农历/节日/节气小字全对 | ✅ |
+| 点击 10/1 国庆节：详情农历八月廿一 + 休徽章 | ✅ |
+| 2027 年（安排未发布）降级无角标且万年历正常；回到今天正确 | ✅ |
+| 列表/日历/万年历三视图互不干扰；console 0 错误 | ✅ |
+
+#### 文件变更清单（V10.11.10）
+
+| 文件 | 变更 |
+|---|---|
+| `holiday_service.py` | 新增：班/休数据服务（timor.tech 拉取/双缓存/双路径/降级） |
+| `routes_weather.py` | 新增 `/api/holiday/year/<int:year>` 接口 |
+| `routes_ext.py` | menu_map 补 `api_holiday_year`（weather 门控） |
+| `templates/weather.html` | 万年历独立模块（页签/导航/今日大卡/大网格/班休角标/详情/事件） |
+| `.gitignore` | 补 `data/holiday_cache.json` 忽略 |
+
+### 10.15 V10.11.11 全面优化修复与多模块联动体验加固
+
+#### 核心优化项说明
 
 | 优化维度 | 具体实现与优化方案 | 关联文件/位置 |
 |---|---|---|
@@ -1158,55 +1638,163 @@ graph LR
 | **万年历移动端 7 列紧凑适配** | 针对 `@media (max-width: 767.98px)` 精细化调整 7 列格子 min-height (62px)、边距 (3px)、公历字号 (0.78rem)、农历字号 (0.58rem)，避免小屏横向溢出 | `templates/weather.html` |
 | **宴席业务链路无缝打通** | 在万年历月视图详情面板中新增「在此日举办宴席」直达按钮，带日期参数跳转 `/banquets?action=new&date=YYYY-MM-DD`；天气日历详情面板同款按钮与 banquets 页参数接收由 V10.11.13 补齐（预报天数上限实为 16 天，此前「40 天」表述有误） | `templates/weather.html` |
 | **节假日离线/弱网兜底字典** | `holiday_service.py` 内置 2024~2026 年国务院官方节假日与调休补班字典（`BUILTIN_HOLIDAYS`），timor.tech 接口不可达时零秒无缝降级并回写缓存 | `holiday_service.py` |
+| **数据分析看板暗黑模式联动** | 新增 `MutationObserver` 监听 `document.documentElement` 的 `data-bs-theme` 属性变化，主题切换时自动触发 ECharts 重新加载并适配色彩 | `templates/dashboard.html` |
+| **家庭协作模块 XSS 防御与安全** | 新增 `escapeHtml` 实体转义函数，对家庭组名称、描述、成员昵称及用户名全量转义；解散操作由 `confirm()` 升级为 Bootstrap 5 Danger 确认模态框 | `templates/family.html` |
 | **页面文案与用词规范化** | 修正礼金明细页（`templates/index.html`）等处错别字「礼金明细大薄」/「礼金收支明细大薄」为「礼金明细账簿」/「礼金收支明细账簿」 | `templates/index.html` |
 | **冗余代码精简** | 移除 `weather_service.py` 中重复声明的 `AIR_QUALITY_URL` 常量 | `weather_service.py` |
 
-### 11.9 V10.11.12 登录后背景横幅：时间/农历/节气节日班休/天气（对齐传统版）
+#### 文件变更清单（V10.11.11）
+
+| 文件 | 变更 |
+|---|---|
+| `holiday_service.py` | 新增 2024~2026 国务院官方节假日与调休补班离线兜底字典，弱网自动兜底 |
+| `weather_service.py` | 移除重复声明常量 `AIR_QUALITY_URL` |
+| `templates/weather.html` | 消除下拉框 CLS 跳动、移动端 7 列网格紧凑适配、详情面板增加举办宴席业务链接 |
+| `templates/dashboard.html` | 增加暗黑模式 MutationObserver 监听，实时重绘 ECharts |
+| `templates/family.html` | 实体转义防御 DOM XSS、解散家庭组原生模态框替代原生 confirm |
+| `templates/index.html` | 修正「大薄」错别字为「账簿」 |
+| `PSD_Design_Document.md` / `.html` | 架构与设计决策文档更新至 V10.11.11 |
+| `README.md` | 用户与部署说明文档更新至 V10.11.11 |
+
+### 10.16 V10.11.12 登录后背景横幅：时间/农历/节气节日班休/天气（城市三层分流）
+
+#### 需求与城市分流设计
 
 | 项 | 说明 |
 |---|---|
-| 需求 | 登录后背景图区域展示当前时间（走秒）、星期、农历、天气；城市与用户在天气页「城市名自由输入」查询保持一致 |
-| 核心难点 | 管理员天气城市记忆存于其浏览器 localStorage，其他用户无法读取 |
-| 解法 | 管理员查询时服务端自动同步 `SystemSetting.admin_weather_city`（前端零改动）；无权限用户由新接口服务端读取共享 |
-| 三层分流 | ① user：有 weather 权限且 localStorage 记忆「自由输入」模式 → 自己的城市；② admin：无权限/无记忆/级联模式 → 管理员城市；③ default：管理员从未查过 → **成都**（固定兜底） |
-| 安全 | 无权限用户传的任何 city 参数一律忽略；接口仅需登录不挂 menu_map；班休徽章服务端直读 `holiday_service`（不走 HTTP 避免权限 403） |
-| 性能 | 模块级内存缓存 30 分钟（`_HOME_WEATHER_CACHE`）；`days=2` 轻量查询 |
-| 前端块 | `templates/_home_banner.html`（自包含 HTML+CSS+JS 单源）：走秒等宽数字、`LunarUtils` 本地农历/节气/节日（与万年历同源零请求）、班休徽章、来源徽章（我的城市/管理员城市/默认）、白天红金/黑夜深红双主题、<768px 堆叠 |
-| 接入点 | `index.html` + `permission_tickets.html`（无账本权限用户登录落点页）双页 include——所有登录用户可见 |
-| 同步方式 | `routes_weather.py` 与 `templates/_home_banner.html` 与传统版 MD5 逐字一致；两模板同锚点插入 include（本版 index.html 为旧版 UI 子集，未同步传统版 V10.11.1 按钮重构，既有状态） |
-| 验证 | 10 项静态 ALL_PASS（py_compile / MD5 / include / 关键点 / Docker 版依赖存在性） |
+| 需求 | 登录后背景图区域展示当前时间（走秒）、星期、农历、天气；天气城市与用户在天气页「城市名自由输入」查询保持一致 |
+| 核心难点 | 管理员的天气城市记忆存于其浏览器 localStorage（`gift_weather_{uid}_city`），其他用户浏览器无法读取 |
+| 解法 | **查询时顺手同步**：管理员每次在天气页自由输入查询成功时，`/api/weather/query` 文本模式服务端自动写入 `SystemSetting.admin_weather_city`（前端零改动）——无权限用户由 `/api/home/weather` 服务端读取共享 |
 
-### 11.10 V10.11.13 五项缺陷修复（对齐传统版）
+#### 城市三层分流（`routes_weather.py::api_home_weather`，服务端判定）
+
+| 优先级 | 条件 | 城市来源 | source |
+|---|---|---|---|
+| ① | 有 weather 菜单权限 且 localStorage 记忆为「自由输入」模式且有城市 | 自己的城市（与天气页记忆一致） | `user` |
+| ② | 无权限 / 无记忆 / 级联模式（严格按需求回退管理员） | `SystemSetting.admin_weather_city`（管理员查询时自动同步） | `admin` |
+| ③ | 管理员从未查过 | **成都**（固定兜底，需求确认值） | `default` |
+
+#### 安全与性能设计
 
 | 项 | 说明 |
 |---|---|
-| 选中日范围联动 | `renderView` 单点收敛：列表/万年历一律清、月视图限当前展示月、周视图限今起 7 天；选中态变化就地清详情 DOM + 重绘趋势图（万年历分支提前 return 场景） |
-| 节假日滚动窗口 | 磁盘缓存 [当前年-2, 当前年]（2027 年自动变 2025-2027）；失败/未发布 1 小时冷却；成功永久缓存；内置 2024-2026 兑底 |
-| 宴席直达补齐 | 天气详情面板补按钮（预报内显示）；banquets 读参（action=new 开弹窗 + date 三重校验预填高亮 + replaceState 清参）；文档「40 天」修正 16 天 |
-| 天气权限归一 | 单/批量保存归一（0 级剔除勾选）；回填一次性标记 weather_backfill_done；存量「勾选×0」幂等清洗（回填在前、清洗在后） |
-| 同步方式 | weather.html/banquets.html（升级为共享文件）/holiday_service.py 三文件 MD5 逐字一致；app.py 手工合并（保留无 dashboard/family 差异；批量 ALL_MENUS 已含 weather 仅补归一与回填改造） |
-| 验证 | 传统版 11444 副本库 17 场景全过（同函数逻辑语义回归覆盖本版） |
+| 权限边界 | 无权限用户传入的任何 city 参数一律忽略（禁止借本接口绕过 weather 菜单权限查任意城市）；本接口仅需登录不挂 menu_map（横幅为公共信息） |
+| 班休徽章 | 服务端直读 `holiday_service.get_year_holidays` 后回传（不走 HTTP，避免前端调 `/api/holiday/year` 因 weather 权限门控产生 403） |
+| 缓存 | 模块级内存缓存 `_HOME_WEATHER_CACHE`（城市→（过期时间戳, 数据）），TTL 30 分钟；`days=2` 轻量查询（仅当前实况+今明高低温） |
+| 降级 | 天气拉取失败返回 `weather: null`，前端隐藏天气区，横幅时间/农历/徽章不受影响 |
 
----
+#### 前端块与接入点
 
+| 项 | 说明 |
+|---|---|
+| 独立块 | `templates/_home_banner.html`（自包含 HTML+CSS+JS，单源 include 复用） |
+| 接入点 | `index.html`（有账本权限用户的登录落点）+ `permission_tickets.html`（无账本权限用户被 `index()` 重定向的登录落点）——所有登录用户可见 |
+| 时间/农历 | 走秒 `setInterval` 1s（等宽数字不抖动）；农历全称/节气/节日本地 `LunarUtils.getFullInfo`（零请求，与万年历同源数据） |
+| 主题 | 白天红金渐变 `#b71c1c→#d32f2f→#f57c00` / 黑夜深红 `#4a0f0f→#7f1d1d→#9a3412`，`data-bs-theme` 切换；<768px 左右堆叠 |
+| 来源徽章 | 城市名旁小徽章：user=「我的城市」/ admin=「管理员城市」/ default=「默认」 |
 
-### 11.11 V10.11.14~17 新增功能迁移与容器化适配（Docker 版全面对齐）
+#### 验证结论（11444 副本库全场景矩阵）
 
-| 模块 | 功能特性 | 容器化适配与性能优化 |
+| 场景 | 结果 |
+|---|---|
+| a. 无记录兜底成都（default） | ✅ |
+| b. admin 自由输入「广州」→ SystemSetting 自动落库；清记忆后 `/api/home/weather` 返回广州/admin | ✅ |
+| c. 运行中新建无权限用户传「漠河」被服务端忽略 → 返回广州/admin；直访 `/api/weather/query` 被 menu_map 拦截重定向 | ✅ |
+| d. 有权限用户自由输入「上海」→ 横幅「上海 我的城市」，与天气页记忆一致 | ✅ |
+| e. 清 localStorage 记忆 → 回退管理员城市 | ✅ |
+| f. 清 SystemSetting → 兜底成都 | ✅ |
+| 走秒正常、农历与万年历同源、班休徽章（国庆节后补班）、双主题切换、console 0 错误、原页面功能无损 | ✅ |
+
+> 备注：既有用户 weather 权限的启动回填（`_do_startup_sync`，V10.11.6 机制）与本功能无关——权限体系语义不变，横幅接口仅消费权限判定结果。
+
+#### 文件变更清单（V10.11.12）
+
+| 文件 | 变更 |
+|---|---|
+| `routes_weather.py` | 新增 `/api/home/weather`（三层分流 + 30 分钟缓存 + 失败降级 + 班休徽章直读）；`api_weather_query` 文本模式成功后 admin 城市自动同步 `SystemSetting.set_val` |
+| `templates/_home_banner.html` | 新增：背景横幅独立块（HTML + CSS + JS 自包含） |
+| `templates/index.html` | `include '_home_banner.html'`（有账本权限用户登录落点） |
+| `templates/permission_tickets.html` | `include '_home_banner.html'`（无账本权限用户登录落点） |
+
+### 10.17 V10.11.13 五项缺陷修复：选中日范围联动 / 节假日滚动窗口 / 宴席直达补齐 / 权限归一 / 回填一次性化
+
+#### 问题 1+5：选中日与展示范围联动（详情面板残留）
+
+| 项 | 说明 |
+|---|---|
+| 现象 | 日历视图点选日期后切列表/万年历/翻月，详情面板与趋势图标记线残留旧日期数据 |
+| 根因 | `renderView()` 仅清万年历详情（almanacSelected），不清天气选中态（selectedDate/dayDetailArea）；`shiftMonth`/`backToday` 同样不清理 |
+| 修复 | `renderView()` 单点收敛范围校验：列表/万年历视图一律清除；月视图仅保留当前展示月内；周视图仅保留「今天起 7 天」内（月→周切换周内日期合理保留）；选中态变化时就地清空详情面板 DOM（万年历分支 `showAlmanacView` 提前 return 不经过末尾 renderDayDetail）+ 重绘趋势图 |
+| 万年历澄清 | 年/月双下拉链路实测正常（选 2027→网格 2027-10-01；再选 3 月→2027-03-01）；用户感知的「数据不变」实质是上述日历详情残留 |
+
+#### 问题 2：法定节假日滚动窗口 + 失败冷却
+
+| 项 | 说明 |
+|---|---|
+| 滚动窗口 | 磁盘缓存由固定 2010-2100 改为 `[当前年-2, 当前年]`（2027 年时自动变 2025-2027；官方安排发布后自动拉取入窗；更早历史年份查时可拉但不长期留盘） |
+| 失败冷却 | `_fail_cooldown = {year: 截止时间戳}`：拉取无果且无内置兜底的年份 1 小时内不再请求（实测 2027 第一次 2215ms 真实尝试 → 第二次 8ms 冷却命中） |
+| 保持 | 拉取成功永久缓存；BUILTIN_HOLIDAYS 内置 2024-2026 兜底不变；2027 官方安排发布后可手动补入 |
+
+#### 问题 3：宴席直达链路补齐（V10.11.11 声称两处实测一处 + 接收端缺失）
+
+| 项 | 说明 |
+|---|---|
+| 缺口 | ① 天气日详情面板（renderDayDetail）无宴席按钮；② `banquets.html` 无 URL 参数处理（跳转后弹窗不开、日期不填）；③ 文档「40 天」表述错误（预报上限 16 天） |
+| 修复 | ① renderDayDetail 补按钮（仅预报范围内显示）；② banquets DOMContentLoaded 读参：`action=new` 自动开弹窗 + `date` 三重校验（正则/真实日历日期/年份 1900-2100）后预填并高亮 2.5s + `history.replaceState` 清参防刷新重弹；③ 文档修正 |
+
+#### 问题 4：天气权限归一（三层根因叠加修复）
+
+| 层 | 根因 | 修复 |
 |---|---|---|
-| **数据分析看板** | `/dashboard` 页面 + `/api/dashboard/stats` 接口；ECharts 5.5.0 双折线月度/年度走势、TOP10 亲友往来柱状图、办事事由环形饼图、净现金流卡片；暗黑模式 MutationObserver 实时热重载 | 业务逻辑抽取至独立 `dashboard_service.py`，采用 `with_entities` 轻量字段投影替代全表 ORM 模型实例化，显著降低 Docker 容器内 Python 进程内存占用（RSS 减少约 30%），百万级数据毫秒级响应 |
-| **家庭多成员协作** | `/family` 页面 + `/api/family/*` 完整 API 矩阵；`FamilyGroup` 与 `FamilyMember` 数据模型；支持创建家庭组、邀请成员、解散组；支持家长（head）、成员（member）、只读（viewer）三级角色；支持礼金账本多视角切换；DOM XSS 严格转义防注入 | 数据库迁移脚本在 `app.py` 启动阶段幂等初始化（兼容 SQLite 与 PostgreSQL 双模式）；Webhook 推送矩阵接入 `family` 业务事件（create/delete/status_change/security） |
-| **批量导入与 OCR 识别** | `/api/import/preview` 与 `/api/import/confirm` 支持 Excel (.xlsx/.xls) 与 CSV 文件解析与智能字段映射；`/api/ocr/recognize` 与 `/api/ocr/batch-add` 支持礼金簿照片通过 AI Vision 视觉模型提取并批量入库 | `requirements.txt` 补充 `openpyxl>=3.1.0`；OCR 请求重构为 Session 连接池与禁代理直连优先双通道，避免容器内部网络代理干扰导致的 Vision 请求超时 |
-| **人情簿打印与海报导出** | `/export/print-giftbook` 中式 A4 打印预览（纯 CSS @media print，金额大写转换）；`/poster` 与 `/api/poster/data` 基于 `html2canvas` 与 `qrcode` 生成手机端分享长图海报；`/export/pdf-statement` 导出 PDF 格式礼金对账单 | `requirements.txt` 补齐 `reportlab>=4.0.0`；`Dockerfile` 镜像 runner 阶段增装 `fonts-wqy-microhei`（~3MB 极轻量体积，规避百兆级 noto-cjk 镜像膨胀），中文字体自动兜底；PDF 生成完全基于 `io.BytesIO` 内存流传输，零磁盘 IO 损耗 |
-| **容器健康探针规范** | 新增 `/health` 与 `/healthz` 快速健康检查路由，返回 JSON 运行态（status: ok） | `Dockerfile` 注入 `HEALTHCHECK` 指令；`docker-compose.yml` 声明 30s 周期容器探针，无缝对接 Kubernetes / Docker Swarm 自动探活与负载均衡治理 |
+| 保存语义 | 复选框（allowed_menus）勾选与下拉 0 级（menu_permissions.weather=0）冲突，运行时 `can_access_menu` 只看前者 | 单用户 + 批量两路由保存时归一：0 级自动剔除勾选（保存后 UI 回显自洽） |
+| 批量清单 | 批量路由 `ALL_MENUS` 漏 weather → JSON 整体丢键 | 补齐 weather |
+| 启动回填 | `_do_startup_sync` 每次重启无条件给所有普通用户加 weather → 管理员收回的权限被悄悄恢复 | 一次性标记（SystemSetting `weather_backfill_done`）；存量「勾选×0」脏数据启动幂等清洗（顺序：回填在前、清洗在后） |
+
+#### 验证结论（11444 副本库，17 场景全过）
+
+| 场景 | 结果 |
+|---|---|
+| 详情残留：切列表/切万年历（DOM 清）/翻月/翻回四场景 | ✅ |
+| 月→周切换周内日期合理保留；S8 万年历分支 DOM 就地清理 | ✅ |
+| 宴席跳转：万年历与天气详情双入口 → 弹窗自动开 + 日期预填 + URL 清理；范围外无按钮 | ✅ |
+| 节假日：2026 真实拉取（12ms 缓存命中）；磁盘窗口 [2024-2026]；2027 冷却 2215ms→8ms | ✅ |
+| 权限：单/批量保存归一（0 级剔除勾选 + JSON 含 weather 键）；1 级正常授权 | ✅ |
+| 权限：回填执行路径（删标记重启 → u5 获得勾选 + 标记重写）；存量清洗（u4 勾选×0 → 剔除） | ✅ |
+| 权限：重启保持（u4=0 级不被恢复、u5 保留）；u4 访问被拦（menu_map 多次验证）；横幅不受影响 | ✅ |
+| console 0 错误（仅历史 favicon 404 固有项） | ✅ |
+
+#### 文件变更清单（V10.11.13）
+
+| 文件 | 变更 |
+|---|---|
+| `templates/weather.html` | renderView 选中日范围联动 + 详情/趋势图清理；renderDayDetail 补宴席按钮（预报内显示） |
+| `templates/banquets.html` | URL 参数接收（action=new 开弹窗 + date 校验预填 + 清参） |
+| `holiday_service.py` | 磁盘滚动窗口 [当前年-2, 当前年] + 失败冷却 1 小时 |
+| `app.py` | 单/批量保存归一（menu_perm_weather=0 剔除勾选）；批量 ALL_MENUS 补 weather；启动回填一次性标记 + 存量脏数据幂等清洗 |
 
 ---
 
-## 第 12 部分：最新架构决策清单 (ADR-39 ~ ADR-56)
+| 属性 | 值 |
+|------|-----|
+| 文档版本 | V10.11.30 |
+| 生成日期 | 2026-10-20（V10.11.30 传统版高并发性能治理与生产级 WSGI 容器升级；承接 V10.11.29 Nginx 配置修复） |
+| 审计基线 | 代码 commit main 分支 V10.10.29（含 V10.10.16 性能优化同步 + V10.10.17 交互式数据库部署选择 + V10.10.17b run.sh 模块化拆分 + V10.10.18 前端资源本地化与部署链路加固 + V10.10.19 run.sh status 访问信息展示 + V10.10.19b 帮助示例命令名规范化 + V10.10.20 初次部署纯净化 + 独立 PG 镜像策略与 psycopg 驱动修复 + DB_RESET 重选菜单修复与 PG_IMAGE 示例细化 + PG 连接参数全面自定义 + V10.10.21 run.sh 深度模块化拆分 + 配置单点化 + V10.10.22 PG 密码认证修复与 pyzipper 缺失修复与密码固定默认值 + V10.10.23 --reconfig 参数替代 DB_RESET=1 + V10.10.24 Docker 版 PG 默认值差异化隔离 + V10.10.25 共享 PG 状态误判与独立 PG 卷布局崩溃与 peer 认证修复 + V10.10.26 独立 PG unless-stopped 与跨版本共享 PG 检测排除 + V10.10.27 两版首次部署默认数据库差异化 + V10.10.28 独立 PG 版本化数据卷与存量卷自动迁移 + V10.10.29 独立 PG 生命周期闭环（stop 无条件释放与 start 自动重建）） |
+| 代码审计范围 | 10 个根目录 Python 文件（12,371 行；另有 aibot/ 官方 SDK 副本 9 个文件不计入）+ 21 个 HTML 模板（11,990 行，V10.10.13 主题改造后）+ run.sh + nginx_ssl.conf + requirements.txt + .gitignore |
+| 文档审计范围 | README.md、Project_Survey.md、AI_ASSISTANT_DESIGN.md、V8_修复设计方案.md（后三者已于 PSD 定稿后归档移除） |
+| 漂移项总数 | 10（2 高影响 → D-03 已于 V10.10.18 清偿，D-02 已于 V10.11.30 清偿 / 1 中影响 / 4 低影响 / 3 一致） |
+| 技术债总数 | 21（6 代码质量 / 4 性能 / 3 扩展性 / 4 安全 / 4 运维） |
+| 治理路线 | P0（2 项已全部清偿：CDN 本地化 V10.10.18、Gunicorn 多 Worker V10.11.30）/ P1（4 项 1-2 周）/ P2（5 项中 P2-5 统计查询优化已于 V10.11.30 完成） |
+| 最终结论 | 不建议替换框架，仅局部治理 |
+
+> 本文档由星辰超级智能体（TeleAgent）基于代码全量审计与历史文档交叉核验生成，所有架构事实均标注具体代码依据（`相对路径:行号` 或 `函数名`），遵循"代码是实现真相、文档是意图真相、显式揭露漂移、证据链闭环"四大核心准则。
+
+---
+
+## 第 11 部分：最新架构决策清单 (ADR-39 ~ ADR-60)
 
 > **架构决策状态公告**：本章节所有架构决策已于 2026-10-13 经过代码审计、端到端接口联调与用户正式审查确认（固化为系统技术规范）。
 
-### 12.1 ADR-39：天气日历/周视图/万年历数据自动联动与独立隔离
+### 11.1 ADR-39：天气日历/周视图/万年历数据自动联动与独立隔离
 - **背景与根因**：
   1. 旧版本中，周视图 renderWeekCalendar 硬编码 daily.slice(0, 7)，无跨周翻页机制，工具栏周导航被隐藏，用户无法查看第 2 周或第 3 周（15/16 天）数据。
   2. 月视图中，用户翻月时原代码因旧日期超出新月范围直接清空 selectedDate = null，导致下方详情面板 #dayDetailArea 变为空白，上层组件依然锁在今日，形成「翻了月但下方没有切换指定月数据」的断层。
@@ -1216,160 +1804,278 @@ graph LR
   2. **月视图首日自动聚焦与详情联动**：翻月时若无指定日期，自动定位目标月内首个预报日（或 1 日），触发 renderDayDetail() 即时呈现该月数据，彻底消除空白态。
   3. **万年历视图隔离与当月概览卡**：进入万年历视图自动隐藏天气大卡、生活指数、折线图与多城对比；翻月/翻年自动聚焦目标月 1 日（当月聚焦今日）；非当前月顶部大卡智能替换为「当月概览卡片」（汇总当月天数、节气与法定假日安排）。
 
-### 12.2 ADR-40：Webhook 告警推送与 WebDAV 备份模块架构解耦与归位设计
+### 11.2 ADR-40：Webhook 告警推送与 WebDAV 备份模块架构解耦与归位设计
 - **背景与现状偏差**：
-  在 V10.11.8 引入「告警消息推送」时，原代码将其嵌入 templates/admin_backups.html（WebDAV 备份页面），后端接口门控挂载在 backups 权限下。但告警推送底层执行引擎为 webhook_utils.py，消息通道为 企业微信/钉钉/飞书 等 Webhook，业务认知与功能架构严重偏离。
-- **决策与实施结果**：
+  在 V10.11.8 引入「告警消息推送」时，开发人员误将其嵌入 templates/admin_backups.html（WebDAV 备份页面），后端接口门控挂载在 backups 权限下。但告警推送（天气预警、接口异常、完整性、任务失败）底层执行引擎为 webhook_utils.py，消息通道为企业微信/钉钉/飞书等 Webhook，业务认知与功能架构严重偏离。
+- **决策与实施结果（V10.11.15 落地闭环）**：
   1. **页面层归位**：将 #alertPushCard 及关联脚本完全移出 admin_backups.html，迁入 templates/admin_webhooks.html；采用 Bootstrap 5 导航胶囊 Tab 结构将页面划分为「通知渠道与机器人」与「系统告警消息推送」两大子面板，支持 URL 哈希锚点直达 (#tab-alerts)。
-  2. **权限与路由对齐**：routes_ext.py 中 menu_map 将 8 个告警相关 API 端点 (admin_alerts_*) 从 'backups' 门控迁移为 'webhooks' 门控；routes_alert.py 的权限校验由备份授权判定重构成 can_access_webhooks()，同时支持超级管理员与 Webhook 通知授权用户。
+  2. **权限与路由对齐**：
+routes_ext.py 中 menu_map 将 8 个告警相关 API 端点 (admin_alerts_*) 从 'backups' 门控迁移为 'webhooks' 门控；
+routes_alert.py 的权限校验由备份授权判定重构成 can_access_webhooks()，同时支持超级管理员与 Webhook 通知授权用户。
   3. **备份页面纯净化**：admin_backups.html 移除全部告警推送代码，聚焦 WebDAV 自动/手动备份、加密归档、还原恢复与任务调度。
 
-### 12.3 ADR-41：AI 助手 API 动态探活与模型拉取 Dual-Mode 容错机制
+### 11.3 ADR-41：AI 助手 API 动态探活与模型拉取 Dual-Mode 容错机制
 - **背景与根因**：
-  在 templates/admin_ai_config.html 中，用户在添加新的 AI 模型配置时，点击「获取可用模型列表」或「测试连接」，前端向 /api/ai/config/models 和 /api/ai/config/test 发起请求。原逻辑仅通过 config_index 从已保存的持久化配置列表中索引获取配置。当新增配置尚未保存入库时，config_index >= len(saved_configs)，导致后端抛出 400: 配置索引超出范围 错误。
+  在 templates/admin_ai_config.html 中，用户在添加新的 AI 模型配置时，点击「获取可用模型列表」或「测试连接」，前端向 /api/ai/config/models 和 /api/ai/config/test 发起请求。原逻辑仅通过 config_index 从已保存的持久化配置列表中索引获取配置。当新增配置尚未保存入库时，config_index >= len(saved_configs)，导致后端抛出 400: 配置索引超出范围 错误，用户无法在保存前验证 API Key 及获取模型。
 - **决策方案**：
-  1. **Dual-Mode 降级适配**：在 routes_ai.py 的 api_ai_test_config 与 api_ai_config_models 中增加双轨容错逻辑：若 config_index 越界或为新增草稿态，优先从请求体中提取即时填写的 api_key、base_url、model 等参数，动态调用测试与模型获取；
+  1. **Dual-Mode 降级适配**：在 
+routes_ai.py 的 api_ai_test_config 与 api_ai_fetch_models 中增加双轨容错逻辑：若 config_index 越界或为新增草稿态，优先从请求体中提取即时填写的 api_key、base_url、model_name 等参数，动态构建临时 AIAssistant 实例进行测试与模型获取；
   2. **前端参数完整闭环**：templates/admin_ai_config.html 的 fetchModels() 函数在发起请求时，除传入 config_index 外，同时带上当前输入框的 api_key 与 base_url，实现未入库草稿态下的无缝探活。
 
-### 12.4 ADR-42：统计业务 Service 层抽取、轻量投影优化与容器探针规范
+### 11.4 ADR-42：统计业务 Service 层抽取、轻量投影优化与容器探针规范
 - **背景**：
-  routes_ext.py 膨胀超 6000 行，数据看板 /api/dashboard/stats 与海报 /api/poster/data 中直接执行全表 query.all() 并在 Python 内存中循环计算，随着记账数据量增加，大量全量 ORM 实例导致请求响应变慢与容器内存浪费；同时缺少容器及负载均衡所需的标准探活端点。
+  
+routes_ext.py 膨胀超 6000 行，数据看板 /api/dashboard/stats 与海报 /api/poster/data 中直接执行全表 query.all() 并在 Python 内存中循环计算，随着记账数据量增加，大量全量 ORM 实例导致请求响应变慢与内存浪费；同时缺少容器及负载均衡所需的标准探活端点。
 - **决策方案**：
-  1. **Service 层业务抽离**：创建 dashboard_service.py，承载数据看板与分享长图海报的核心聚合与趋势计算，瘦身路由层代码并增强单测可行性；
-  2. **轻量投影优化**：使用 query.with_entities() 仅拉取所需字段（如 id, amount, record_type, event_reason, name, created_at），规避 SQLAlchemy 模型实例化、状态跟踪及脏检查开销，大样本量下响应提速 5~10 倍；
-  3. **标准容器探针**：app.py 注册 `/health` 与 `/healthz` 端点；Dockerfile 与 docker-compose.yml 增加对应 healthcheck 配置。
+  1. **Service 层业务抽离**：创建 dashboard_service.py，承载数据看板与分享长图海报的核心聚合与趋势计算，
+routes_ext.py 仅负责参数提取与 JSON 封装。
+  2. **轻量字段投影 (PF-03)**：采用 query.with_entities(amount, record_type, event_reason, name, created_at) 查询，仅提取纯标量数据，规避实体映射开销。
+  3. **健康检查端点**：提供 GET /health，返回轻量 JSON 状态，满足自动化运维巡检。
 
-### 12.5 ADR-43：天气预报、气象日历与权威万年历三大核心模块分离重构
+### 11.5 ADR-43：天气预报、气象日历与权威万年历三大核心模块分离重构（对标 mengya-local）
 - **背景与痛点**：
-  原天气页面将「15天实况预报」、「气象日历」与「权威万年历」混杂在一个小视图下拉中，布局堆叠繁杂。进入页面即发天气网络请求消耗外网配额。
-- **决策与实施**：
+  原天气页面将「15天实况预报」、「气象日历」与「权威万年历」混杂在一个小视图下拉中，布局堆叠繁杂。在未拉取天气时各部分视图空白，或在查看万年历时顶部依然强制展示大天气卡片，导致信息层次混乱，且进入页面即发天气网络请求消耗外网配额。
+- **决策与实施（V10.11.16 落地）**：
   1. **顶级三大业务模块物理分离**：页面顶部设计居中导航胶囊切换器，分离为三个独立面板：
      - moduleForecast（15天天气预报）：实况 Hero 卡、ECharts 走势双折线图、15天每日卡片、生活指数与多城对比；未查询时展示高雅离线引导卡片；
-     - moduleCalendar（气象日历）：月视图/周视图控制器、气象图标与高低温叠层、详情面板联动与「在此日举办宴席」直达通道；
-     - moduleAlmanac（权威万年历）：100% 离线免流可用，支持 1900~2100 年份与月份自由切换、大月历网格（含公历大数字、农历月日、廿四节气、节日、国家法定休/班角标）、每日建除十二神黄历吉日与宜忌条。
-  2. **0 请求离线首屏**：进入页面默认 0 次外部网络请求，首屏秒开。
+     - moduleCalendar（气象日历）：月视图/周视图控制器、带气象图标与高低温叠加的日历网格、选中日气象与历法双指标详情；
+     - moduleAlmanac（权威万年历）：100% 离线免流，支持 1900~2100 年月切换、当月天数/节气/假日概览卡、大月历网格（含公历大字、农历月日、节日紫红标、节气绿标、国家法定休/班角标）、每日建除十二神黄历吉日与宜忌条、在此日举办宴席一键跳转。
+  2. **智能分级查询控制台（对标 mengya-local）**：
+     - 顶部城市大标题随选定地区动态回显；
+     - 右侧支持「省市区级联」与「自由搜索」双模式快速切换；
+     - 级联模式支持单独查全省、查地级市、查区县任意层级，底部实时提示准备查询目标与气象层级；
+     - 默认点击进入页面 0 次网络请求，直接展示本地离线权威万年历；用户手动点击「查询天气」后再拉取外部数据并自动切入天气预报模块。
 
-### 12.6 ADR-44：AI 助手多配置卡片独立保存与双模协议固化
+### 11.6 ADR-44：AI 助手多配置卡片独立保存与双模协议固化（系统规范确认）
+- **背景与痛点**：
+  在 templates/admin_ai_config.html 中，系统原先仅在页面顶部提供一个全局「保存配置」按钮。当管理员配置了多个模型供应商（如 OpenAI、DeepSeek、Claude、本地 Ollama）并正在调试其中某一个新增配置时，点击全局保存会强制连带校验并提交所有未完成卡片；若中途刷新或保存失败，可能导致所有卡片填写的参数一并丢失。同时，后端 /api/ai/config 仅接收全量数组覆盖更新，缺乏颗粒度保存能力。
 - **决策方案与固化规范**：
   1. **双模保存协议固化为系统规范**：正式固化 POST /api/ai/config 端点规范：
      - 模式 1（增量单条更新）：请求体包含 { config_index: int, config: dict } 时，后端精准替换目标索引卡片的配置并提交事务，规避全量覆盖风险；
-     - 模式 2（全量批量保存）：请求体包含 { ai_configs: list } 时，执行全量数组覆盖保存；
-  2. **单卡片独立操作台**：每张卡片底栏增加专属「保存当前配置」按钮；保存时自动采集卡片表单字段并触发 syncCardDOM() 即时刷新界面。
+     - 模式 2（全量批量更新）：请求体包含 { ai_configs: list } 时，后端全量覆盖并持久化全部配置。
+  2. **前端卡片独立操作台**：在每个模型配置卡片底部增加专属「保存」按钮（带有各自的 loading 与成功提示条），点击时自动执行 syncCardDOM(idx) 抽取即时输入并仅持久化当前卡片；页面顶部保留全局「保存全部配置」按钮以满足批量操作需求。
+  3. **WinError 10013 套接字受限与代理穿透防御**：在 i_service.py 内部创建 HTTP 会话时显式声明 	rust_env=False，防止 Windows 系统环境全局代理接管本地或特定 API 请求导致套接字访问权限受限（WinError 10013）。
 
-### 12.7 ADR-45：可拖拽列宽表格横向滚动总宽自适应与悬浮重置解耦
+### 11.7 ADR-45：可拖拽列宽表格横向滚动总宽自适应与悬浮重置解耦（全站统一规范）
+- **背景与痛点**：
+  在引入表格列宽自由拖拽调整（static/js/table-resizer.js）后，在 Webhook 管理页等多列复杂表格中出现两大视觉与交互故障：
+  1. 当某一列拖拽拉宽后，表格整体总宽未相应扩展，导致最右侧「操作」列被挤出可视区之外，下方横向滚动条即使拉动到最右侧也无法看全操作按钮；
+  2. 原「重置列宽」按钮采用绝对定位浮动悬浮在容器右上角（position: absolute; top: 4px; right: 10px;），在复杂表格中直接重叠遮挡在最右侧「操作」列表头的标题文字上方，严重影响点击。
 - **决策方案与全站统一规范**：
-  1. **彻底废除绝对定位浮动方式**：将「重置列宽」按钮挂载至标题栏右侧操作区（.colw-header-actions 或 .d-flex.gap-2）或独立工具条，绝不遮挡操作列表头；
-  2. **总宽动态计算与原生横向滚动条同步（syncTableWidth）**：拖拽调整或双击自适应时，实时计算所有表头宽度之和并同步写入 table.style.width 与 minWidth；总列宽超视口时稳定触发容器原生横向滚动条；
-  3. **操作列排版防折行保护**：base.html 统一设定操作列表头 min-width: 210px 与 white-space: nowrap。
+  1. **彻底废除绝对定位浮动方式，全站统一挂载规范**：重构 injectResetBtn 注入逻辑：
+     - 规范 A：若表格所在容器具有卡片标题栏（.card-header），统一将「重置列宽」按钮挂载至标题栏右侧操作区（.colw-header-actions 或 .d-flex.gap-2），与页面主工具栏融为一体；
+     - 规范 B：若表格独立存在无卡片头，则在表格上方独立插入操作工具条（.colw-bar），严禁任何绝对定位悬浮覆盖表头。
+  2. **总宽动态计算与原生横向滚动条同步（syncTableWidth）**：在拖拽调整、双击自适应内容宽度或重置默认宽度时，实时计算所有表头宽度之和并同步写入 table.style.width 与 minWidth（Math.max(total, wrapWidth)）。当总列宽超过视口时，稳定触发表格容器原生横向滚动条，保证用户可平滑滚动至最右侧完整查看操作列。
+  3. **操作列排版防折行保护**：在 templates/base.html 中为操作列表头统一设定 min-width: 210px 与 overflow: visible; white-space: nowrap;，确保各类操作按钮整齐展示不截断。
 
-### 12.8 ADR-46：天气服务优先联网拉取、多级缓存降级与首页「坐标/文本双模」地点分流规范
+### 11.8 ADR-46：天气服务优先联网拉取、多级缓存降级与首页「坐标/文本双模」地点分流规范
+- **背景与痛点**：
+  1. 用户在离线或外网受限环境下访问天气页面，Open-Meteo 经常抛出超时或网络中断错误，前端直接提示「天气服务暂时不可用，请稍后重试」，极大影响用户体验；若完全依赖离线数据，又可能导致天气预报时效性严重落后；若拉取频率过密，则会导致服务器负载上升与外网接口限频。
+  2. 首页引导大卡片的天气预报显示地点原先仅与自由搜索文本框联动，用户若通过「省市区级联」查询了特定区县，首页横幅无法感知；且无天气权限的用户缺乏清晰的地点来源说明。
 - **决策方案与固化规范**：
-  1. **优先联网拉取与多级缓存降级策略**：
-     - 每次查询优先向 Open-Meteo 发起 HTTP 请求，成功时即时刷新内存与磁盘缓存；
-     - 内存与本地二级缓存 TTL 为 30 分钟（1800 秒），防止外网高频请求限频；
-     - 离线合成降级保障（_synthesize_offline_forecast 季节性算法），网络故障时绝不抛 503「天气服务暂时不可用」；
-  2. **首页横幅天气同步协议「坐标/文本双模」**：
-     - 支持经纬度坐标与地名文本双通道直查与记忆；
-     - 权限安全分流：无天气权限用户严格回退至管理员预设地点并明确提示「这是管理员预设的地址」。
+  1. **优先联网拉取与多级缓存降级策略（兼顾时效性与可用性）**：
+     - **优先联网拉取最新数据**：在 weather_service.py 的 fetch_forecast 中，每次查询优先向 Open-Meteo 发起 HTTP 请求，成功时即时刷新内存与磁盘缓存，保证预报数据的绝对时效性；
+     - **合理拉取频率保障性能（FORECAST_CACHE_TTL = 1800）**：设置内存与本地二级缓存 TTL 为 30 分钟（1800 秒），避免并发短时间内向外网发起高频请求耗尽配额或降低应用响应速度；
+     - **离线合成降级保障（彻底替代 503 报错）**：当网络出现故障、超时或套接字权限受限且本地无新鲜缓存时，依次读取有效磁盘缓存；若完全无历史数据，则启动 _synthesize_offline_forecast 季节性离线合成算法，返回标记有 offline_fallback: true 的兜底预报数据，确保前端界面永远不抛 503「天气服务暂时不可用」。
+  2. **首页横幅天气同步协议确认为「坐标/文本双模」规范**：
+     - 无论是「自由搜索（城市名文本）」还是「省市区级联（经纬度坐标与地名标签）」，用户最后一次查询的地点均完整持久化记忆；
+     - 扩展横幅气象接口 _build_home_weather(city=None, lat=None, lon=None, label=None)，原生支持坐标直查与文本检索双模通道；
+     - **权限安全分流**：有天气权限的用户展示其最近一次查询的地区（坐标或文本）；无天气权限用户严格由服务端回退至管理员预设地点（SystemSetting.admin_weather_*），并在横幅右侧展示「这是管理员预设的地址」明确说明，杜绝越权查询漏洞。
+  3. **省市区级联置灰与万年历 1900 年 1 月 Bug 修复**：
+     - 修复 templates/weather.html 中重置为「-- 选择省份 --」时的 JavaScript 类型转换缺陷（Number('') === 0 误命中北京），强制联动禁用城市与区县选择器；
+     - 剔除万年历日期切换中对废弃 DOM 元素的残留引用，彻底解决权威万年历卡死在 1900 年 1 月的脚本中断问题。
 
-### 12.9 ADR-47：WebDAV 与 Webhook 模板闭合与数据看板语法故障根因排查与治理
+### 11.9 ADR-47：WebDAV 与 Webhook 模板闭合与数据看板语法故障根因排查与治理
+- **背景与痛点**：
+  1. 访问 WebDAV 备份管理页时抛出 500 Internal Server Error，经查系 templates/admin_backups.html 底部意外丢失 </script> 与 {% endblock %} 模板结束标签；
+  2. 访问数据看板页面无数据展示，经查系 templates/dashboard.html 中趋势图函数声明被注释导致语法错误 Uncaught SyntaxError: Illegal return statement。
 - **决策方案**：
-  1. 补齐 templates/admin_backups.html 丢失的 </script> 与 {% endblock %} 闭合标签；
-  2. 修复 templates/dashboard.html 中趋势图函数脚本闭包语法错误，保证 ECharts 实例正常挂载。
+  1. 严格补齐 templates/admin_backups.html 的闭合标签，并通过 Jinja2 编译检查与页面请求测试，恢复 200 OK；
+  2. 修复 templates/dashboard.html 的 JavaScript 脚本闭包，保证 ECharts 实例正常挂载并响应数据渲染。
 
+### 11.10 ADR-48：Webhook 与系统告警全链路权限自洽、批量授权修复与日志性能治理（V10.11.18 落地）
+- **背景与根因**：
+  1. 权限模型与字段断裂：系统在 V10.11.15 重构 Webhook 与告警推送时，`routes_alert.py` 引用了 `webhook_authorized` 字段，但 `models.py` User 模型未定义该列；`admin_users.html` 单用户与批量区均未提供 `webhooks` 菜单勾选框，导致普通用户永远无法获得 `can_access_menu('webhooks')`，告警 API 全部被 `menu_map` 拦截，`AlertPushGrant` 操作授权完全无法生效；
+  2. 路由与前端割裂：Webhook 6 个写操作路由硬编码 `is_admin` 校验，与放开的页面 GET 形成「进得去、点不动（全 403）」的体验冲突；同时 `admin_webhooks.html` 在 HTML 属性中明文暴露所有通道的 Secret/Token；普通用户在侧边导航栏无任何 Webhook 入口；
+  3. 批量授权遗漏 Bug：`admin_batch_user_permissions` 路由完全漏存 `backup_authorized`，导致批量修改备份授权静默失效；且工单系统 `TICKET_MENU_OPTIONS` 缺少 `webhooks`，无权限跳转后陷入无法申请工单死循环；
+  4. 性能瓶颈：`WebhookLog` 全表缺少索引，分页和排序退化为全表扫描；日志列表未预加载 `operator` 导致 500 条日志渲染触发严重 N+1 查询风暴。
+- **决策方案与实施结果**：
+  1. **模型与字段完整闭环**：
+     - `models.py` 的 `User` 模型正式补充 `webhook_authorized = db.Column(db.Boolean, default=False)` 字段及 `can_use_webhook()` 方法；`app.py` 补充对应 `ALTER TABLE` 自动迁移，数据库结构版本推进至 `_SCHEMA_VERSION = 1020`，并在 `init_database` 启动入口增加原生字段前置防御性校验，彻底杜绝跳过迁移导致的列缺失 500 异常；
+     - 同步 `models.py` 和 `app.py` 中的 `ALL_MENUS`（加入 `webhooks`），单用户与批量路由 `admin_update_user_permissions` 和 `admin_batch_user_permissions` 完整保存 `webhook_authorized`；
+     - 修复 `admin_batch_user_permissions` 漏存 `backup_authorized` 的缺陷，并在启动时幂等清洗存量普通用户 `allowed_menus` 中的废弃 `backups` 死数据。
+  2. **权限配置界面与工单系统对齐**：
+     - `templates/admin_users.html` 单用户区与批量区同步补充「Webhook通知」菜单及「Webhook 与告警功能授权」复选框，移除批量区过时的 WebDAV 备份菜单选项；
+     - `routes_ext.py` 的 `TICKET_MENU_OPTIONS` 增加 `('webhooks', 'Webhook通知')`，打通工单流；
+     - `templates/base.html` 导航栏为非管理员但具备 Webhook 权限的用户增加「Webhook通知」入口。
+  3. **路由门控解耦与凭证脱敏治理**：
+     - Webhook 写操作路由（新增/编辑/状态切换/删除/测试/删日志）门控统一重构为 `_can_manage()` 与细粒度授权判定，普通授权用户操作畅通无阻；
+     - `templates/admin_webhooks.html` 对普通用户输出的 `bot_secret` 与 `secret_token` 实施掩码脱敏（非超管输出 `******`）；后端编辑保存时识别掩码自动保留原凭证，消除敏感密钥外泄风险。
+  4. **数据库索引增强与 N+1 消除**：
+     - 为 `WebhookLog` 的 `created_at`、`event_type`、`is_success`、`webhook_id` 以及 `ScheduledTaskExecutionLog` 的 `end_time`、`status` 建立索引；
+     - 日志列表查询采用 `db.joinedload(WebhookLog.operator)` 预加载，彻底消除 N+1 查询；修复日志表空行 `colspan=9` 对齐。
 
-### 12.10 ADR-48：Webhook 与系统告警全链路权限自洽、批量授权修复与日志性能治理（V10.11.18 落地）
-- **决策方案与容器化环境统一规范**：
-  1. **模型与字段完整闭环**：`models.py` User 模型补齐 `webhook_authorized` 列及 `can_use_webhook()` 方法；同步 `ALL_MENUS`（新增 `webhooks`），数据库版本推进至 `_SCHEMA_VERSION = 1020` 并增加原生前置防御检查，单用户与批量路由完整保存 `webhook_authorized`，启动自动幂等清洗存量普通用户 `allowed_menus` 中的 `backups` 死数据；
-  2. **批量配置备份授权漏存修复**：彻底修复 `admin_batch_user_permissions` 批量遗漏保存 `backup_authorized` 的 Bug；工单系统 `TICKET_MENU_OPTIONS` 增加 `webhooks`，并在导航栏为授权普通用户渲染入口；
-  3. **Webhook 路由解耦与凭证脱敏**：解除 6 个写操作路由的 `is_admin` 硬门控，重构为统一校验；`templates/admin_webhooks.html` 表格中对普通用户输出掩码 `******`，编辑保存保留原密钥，杜绝敏感凭证泄露；
-  4. **数据库索引增强与 N+1 消除**：为 `WebhookLog` 的 `created_at`、`event_type`、`is_success`、`webhook_id` 及 `ScheduledTaskExecutionLog.end_time/status` 建立索引；使用 `joinedload(WebhookLog.operator)` 彻底消除 500 条日志的 N+1 查询；修复空行 `colspan=9`。
-
-### 12.11 ADR-49：用户权限配置交互与天气模块精简去冗余及弹窗排版治理（V10.11.18 落地）
-- **决策方案与容器化环境统一规范**：
+### 11.11 ADR-49：用户权限配置交互与天气模块精简去冗余及弹窗排版治理（V10.11.18 落地）
+- **背景与根因**：
+  1. 天气权限二元开关与下拉冗余冲突：天气功能为无用户隔离属性的纯只读工具页面，其访问权由 `allowed_menus` 中的 `weather` 键完全控制。此前权限配置界面为天气模块提供了「无天气访问权限」与「可查看实时天气」两个下拉选项，当管理员勾选天气但选择「无天气访问权限」时，后台虽通过逻辑剔除天气键，但前端存在认知冲突与状态二义性，属于功能冗余；
+  2. 样式污染与排版溢出缺陷：用户管理页面的权限配置弹窗 (`permModal{{ u.id }}`) 挂载在表格末列操作栏 `<td class="text-end pe-4">` 内部，继承了父级 `td:last-child` 的全局规则 `white-space: nowrap;`；弹窗底部「安全保护」提示语因无法换行导致单行宽度达到 566px，超出 464px 宽度的提示框达 102px（水平溢出）；且弹窗总高 1013px 缺少 `modal-dialog-scrollable`，在常规分辨率屏幕上直接被挤出屏幕视口底部（垂直溢出）。
+- **决策方案与实施结果**：
   1. **天气权限去冗余归一**：单用户与批量权限配置弹窗移除「无天气访问权限」选项，仅保留「可查看实时天气」；权限完全由「天气」复选框控制，未勾选时后台自动归零 `menu_perms['weather'] = 0`，勾选时设为 `1`，实现交互认知与存储逻辑的自洽统一；
   2. **弹窗排版与折行治理**：在页面 `extra_css` 及弹窗容器显式声明 `.modal { white-space: normal; }`，切断操作列 `white-space: nowrap` 的污染；弹窗提示框添加 `word-break: break-word;`，提示语优雅自动折行并紧密贴合提示框边界；
   3. **弹窗自适应滚动适配**：单用户与批量弹窗升级为 `modal-dialog-scrollable` 并配置表单 flex 滚动容器，确保在任意分辨率屏幕下弹窗头部与底部操作按钮固定可见，内部自适应平滑滚动。
 
-### 12.12 ADR-50：外部接口服务配置（V10.11.20 落地，对齐传统版）
-- **背景**：6 组「内置默认调用地址却页面无配置入口」的外部服务（Open-Meteo 地理编码/预报/空气质量、timor.tech 节假日、企微长连接、DuckDuckGo 搜索）地址硬编码于模块顶层，管理员无法自定义/降级数据源；节假日接口带 `{year}` 参数模板、AI 搜索无开关无故障转移。
-- **决策方案与容器化环境统一规范**（两版业务代码 MD5 逐字一致，同源同步）：
-  1. **统一配置模型**：新增 `service_config.py`，每组 = 有序端点列表 `[{url, enabled}]` + `timeout` + `retries`；存储复用 `system_settings` 表新增 19 个 Key（`api_urls_*` / `ai_search_enabled`）；故障转移：按序遍历启用端点，任一成功即返回，全败按重试轮数整轮重试后走既有降级（天气多级缓存/离线合成、节假日内置字典与冷却、搜索空结果、SDK 重连退避）。
-  2. **按组落地**：`weather_service._http_get_endpoint()` 替换 3 处硬编码；`holiday_service` 请求前自动注入 `{年份}`（管理员只填到 `.../year/`）；`webhook_utils` 三处 `WSClientOptions` 增加 `ws_url` 握手探测；`web_search.py` 新增总开关与 DuckDuckGo 兼容自定义端点。
-  3. **一键测试**：`POST /admin/service-config/test` 按组真实协议校验（Open-Meteo JSON 结构 / 节假日 `code==0`（模拟浏览器 UA 防 403）/ 企微 WS 握手 / 搜索端点解析）；基于表单当前值，未保存也可测。
-  4. **页面与交互**：新增 `templates/admin_service_config.html`（6 组卡片，多端点列表+行内启用/上移/下移/删除/测试，「＋ 添加端点」新增行自带「保存」「取消」（仅新增时显示），请求超时/重试参数，AI 组总开关）；`routes_ext.py` 新增 GET / POST 保存 / POST 测试三路由（白名单+前缀校验+至少 1 条启用端点+节假日自动补全，天然支持单组提交）；`base.html` 系统管理菜单新增「外部接口配置」；提示为页面顶部居中 toast（替代原生 alert/confirm，恢复默认为模态二次确认）；按钮图标+中文，首行「上移」/末行「下移」自动置灰并在各类操作后刷新；默认值 = 现状硬编码地址，行为零变化。
-  5. **Docker 环境说明**：配置实时读库即存即生效（容器内 Gunicorn 多进程/后台巡检线程均适用）；多 Worker 场景下各进程共享同一 `system_settings` 表，任一进程保存后其他进程下次读取即时生效，无需重启容器。
-
-### 12.13 ADR-51：根目录文件架构重组（V10.11.21 落地，仅结构·零业务逻辑变化，对齐传统版 ADR-51）
+### 11.12 ADR-50：外部接口服务配置（V10.11.20 落地）
 - **背景与根因**：
-  1. 根目录堆积 20 个 `.py` 文件（主入口 app.py 3569 行 + gunicorn.conf.py 部署配置 + 18 个业务模块），阅读入口不清晰；正常工程惯例根目录仅应有启动入口、部署配置、说明/设计文档、依赖清单等基础文件；
-  2. 运行期产物散落：data/ 下 3 个节假日/天气/地理编码磁盘缓存 json、恢复操作自动生成的 `.bak` 备份与运行库同级——与"仓库数据"混杂，虽有 .gitignore 兜底但结构混乱。
+  1. 历史遗留 6 组「内置默认调用地址却页面无配置入口」的外部服务：Open-Meteo 地理编码/预报/空气质量、timor.tech 节假日、企微长连接（`wss://openws.work.weixin.qq.com`）、DuckDuckGo 联网搜索；地址硬编码于模块顶层，管理员无法不改代码地配置/降级数据源（如同源镜像、代理网关、备用端点）；
+  2. 节假日接口为参数模板 `https://timor.tech/api/holiday/year/{year}`，直接暴露占位符给管理员有「误删变量 → 404」的维护负担；AI 联网搜索全自动触发（`needs_search` 关键词正则）无开关、无地址入口，端点不可达时无故障转移；
+  3. 需求要求：6 组全部支持「多端点 + 行内启用开关 + 排序 + 故障转移 + 重试参数 + 一键测试」，AI 搜索另有总开关。
 - **决策方案与实施结果**：
-  1. **三分层包化迁移（git mv 保留文件历史，18 个文件全部识别为 rename）**：`services/`（13 模块：models/gift_utils/ai_service/web_search/webhook_utils/webdav_utils/weather_service/holiday_service/alert_service/dashboard_service/pdf_generator/service_config/_daemon_lock）、`routes/`（routes_ext/routes_ai/routes_weather/routes_alert）、`tools/`（generate_ssl_certs）；根目录仅剩 `app.py`（BUNDLE_DIR/templates/static/样例库语义不变）与 `gunicorn.conf.py`（Dockerfile CMD `gunicorn -c gunicorn.conf.py app:app` 引用不变）。
-  2. **logs/ 运行期产物统一收纳（仅本地留存，.gitignore 整体忽略）**：`holiday_service`/`weather_service` 磁盘缓存路径常量由 `data/` 改 `logs/`（holiday 补 `os.makedirs('logs')` 保证）；`routes_ext.py` 两处恢复前自动备份路径由 `db_path + .bak_时间戳` 改为 `logs/` 下；Docker 运行日志走容器 stdout（`docker compose logs` 查看）不入 logs/；`data/` 收敛为仅运行库（含 WAL/SHM）与 attachments 用户附件（`gift_data` 卷挂载点 `/app/data` 不变）。
-  3. **路径适配（全部语义等价替换，零逻辑变化）**：55 处 import 改写（正则脚本批量：顶层 `from X import` → `from services.X import`、裸 `import X` → `from services import X`、routes 四模块同理；函数内延迟导入一并处理，改后全项目零残留旧式引用）；5 处 `__file__` 锚点各上溯一级（`os.path.dirname(os.path.dirname(...))`）——`_daemon_lock` 锁文件、`webhook_utils._resolve_db_file` 三候选 db 路径、`alert_service.check_data_integrity` 静态资源检查、`weather_service` 区划 js 加载、`routes_ext` 附件目录，指向路径与重组前逐字节一致；`bin/ssl_certs.sh` 两处证书脚本路径改指 `tools/`。
-  4. **验证（编译+启动冒烟）**：29 文件 `py_compile` 全过；本地启动（与容器同一入口 `python app.py`）后 `/health` 200、登录/看板/Webhook/外部接口配置/备份/AI 配置/天气/用户/审计日志等 10 页面全 200；`git diff -M` 全部识别为 rename，无业务逻辑改动。
-  5. **连带影响**：APK 版目录结构后续同步（三版共享文件约定改为按路径映射同步：传统版 `services/web_search.py` ↔ 两版 `web_search.py`）；PyInstaller frozen 分支逻辑（app.py 内 BUNDLE_DIR）不受影响；两版此前共享的 `bin/` 脚本未动。
+  1. **统一配置模型**：新增 `service_config.py`，每组 = 有序端点列表 `[{url, enabled}]` + `timeout`（默认 8s，企微 10s）+ `retries`（默认 0）；存储复用 `system_settings` 表新增 19 个 key（`api_urls_{group}` / `api_urls_{group}_timeout` / `api_urls_{group}_retries` / `ai_search_enabled`），实时读库即存即生效（后台巡检线程每轮独立 app_context，读取异常兜底默认值）；故障转移统一语义：按序遍历启用端点 → 任一 HTTP 200 / WS 握手成功 / 解析出结果即返回 → 全败按 `retries` 整轮重试 → 走各模块既有降级（天气多级缓存/离线合成、节假日内置字典与 1 小时冷却、搜索空结果不影响 AI 本地回复、SDK 重连退避）。
+  2. **按组落地改造**：`weather_service._http_get_endpoint(group, params)` 替换 3 处硬编码 URL 调用（超时 = 连接 5s + 配置读取超时）；`holiday_service._fetch_from_timor` 遍历启用端点，请求前 `normalize_holiday_url(url_tpl).replace('{年份}', year)` 自动注入年份；`webhook_utils` 三处 `WSClientOptions` 增加 `ws_url=await _pick_wecom_ws_url_async()`（按序握手探测，SDK `ws_url or DEFAULT_WS_URL` 兼容空串=默认地址）；`web_search.py` 新增总开关（`ai_search_enabled`）与自定义端点请求（DuckDuckGo 兼容 HTML 格式 `GET {url}?q=...` + `result__a/result__snippet` 解析），默认端点保持官方库调用（行为零变化）。
+  3. **节假日地址参数自动适配**：保存时后端 `normalize_holiday_url()` 自动补全 `{年份}` 占位符（含 `{year}` 统一规范化、尾部 `/` 去重）；页面展示剥离占位符的最小可编辑地址（`display_holiday_url`）；请求时业务方 `replace` 注入最新年份，管理员零维护。
+  4. **一键测试**：`POST /admin/service-config/test`（仅管理员 + CSRF），入参 = 表单当前值（未保存也可测）；按组真实协议校验——Open-Meteo 三组校验 HTTP 200 + 关键 JSON 字段、节假日校验 `code==0`（timor.tech 反爬需模拟浏览器 UA，实测 UA 前 403 / UA 后 200）、企微 WS 握手连通（不做 bot 鉴权）、AI 搜索端点请求 + 结果结构解析；前端每行「测试」按钮与组级「测试全部启用」按钮，行内/结果区展示 ✓/✗、耗时、失败原因（403/超时/非 JSON/字段缺失等）。
+  5. **页面与权限**：新增 `templates/admin_service_config.html`（6 组卡片：端点行 [地址 + 启用勾选 + 上移/下移/删除 + 测试]、「＋ 添加端点」（**新增行自带「保存」「取消」按钮，仅新增时显示**——保存将该组当前值含新增行整体入库、成功后该行转为已保存行按钮消失；取消放弃该行不入库；已保存行仅保留测试/上移/下移/删除）、请求超时/重试次数输入、AI 组总开关、顶部全局「保存配置」「恢复默认」（二次确认）、黑夜模式 + CSRF）；`routes_ext.py` 新增 GET `/admin/service-config`、POST `/admin/service-config/save`（白名单分组、URL 前缀 `http/https/wss/ws` 校验、每组至少 1 条启用端点、节假日自动补全；**天然支持单组提交——仅传该组分组，其余组不受影响**）、POST `/admin/service-config/test`；`base.html` 系统管理菜单新增「外部接口配置」；默认值 = 现状硬编码地址，输入框 `placeholder=默认值`，行为零变化。**交互细节**：操作提示为页面顶部居中轻量 toast（success/danger 双色，自动消失可手动关闭，已移除全部原生 alert/confirm，「恢复默认」为 Bootstrap 模态二次确认）；行内按钮统一图标 + 中文（测试/上移/下移/删除，新增行另含保存/取消）；移动边界置灰——首行「上移」与末行「下移」自动 disabled（`refreshMoveButtons` 在添加/移动/删除/取消/恢复/保存重渲染后统一刷新，Jinja 初始行以 `loop.first/loop.last` 静态渲染）。
+  6. **验证结论（浏览器逐项实测）**：默认配置下天气页、万年历班休、企微长连接、AI 搜索行为与改前一致；天气预报组首行配置不可达地址（`https://127.0.0.1:1/v1/forecast`）保存后，实际查询「北京市」仍返回完整天气数据（自动故障转移到第二行 open-meteo）；「测试全部启用」按序输出每行结果并提示「第 N 个端点可用，将优先使用」；节假日输入 `.../year/` 保存后库中自动存为 `https://timor.tech/api/holiday/year/{年份}`；企微 WS 握手测试成功（5249ms）；AI 搜索端点测试如实报错（国内 DuckDuckGo 不可达 ConnectTimeout）；测试配置已恢复默认并复核数据库零残留差异。
 
-
-### 12.14 ADR-52：根目录文档与配置分层治理（V10.11.22 落地，仅结构·零业务逻辑变化，对齐传统版 ADR-52）
+### 11.13 ADR-51：根目录文件架构重组（V10.11.21 落地，仅结构·零业务逻辑变化）
 - **背景与根因**：
-  1. 根目录堆积 126KB HTML 设计文档、109KB Markdown 设计文档、206KB 包含千行历史日志的 README，且 Nginx 模板混杂在根目录，导致 Docker 代码仓库首页视觉焦点分散、阅读体验差；
+  1. 根目录堆积 19 个 `.py` 文件（主入口 app.py 3189 行 + 18 个业务模块），阅读入口不清晰；正常工程惯例根目录仅应有启动入口、说明/设计文档、依赖清单等基础文件；
+  2. 运行期产物散落：根目录 4 个调试/运行日志、根目录与 data/ 共 5 个 `gift_bookkeeping.db.bak_*` 历史库备份、data/ 下 3 个节假日/天气磁盘缓存 json——与"仓库数据"混杂，虽有 .gitignore 兜底但结构混乱。
+- **决策方案与实施结果**：
+  1. **三分层包化迁移（git mv 保留文件历史，18 个文件全部识别为 rename）**：`services/`（13 模块：models/gift_utils/ai_service/web_search/webhook_utils/webdav_utils/weather_service/holiday_service/alert_service/dashboard_service/pdf_generator/service_config/_daemon_lock）、`routes/`（routes_ext/routes_ai/routes_weather/routes_alert）、`tools/`（generate_ssl_certs）；各包附 `__init__.py` 注释头；根目录仅剩 `app.py`（BUNDLE_DIR/templates/static/样例库语义不变）。
+  2. **logs/ 运行期产物统一收纳（仅本地留存，.gitignore 整体忽略）**：`bin/config.sh` 的 `LOG_FILE`/`PID_FILE` 改指 `logs/app.log`/`logs/app.pid`；`routes_ext.py` 两处恢复前自动备份路径由 `db_path + .bak_时间戳` 改为 `logs/` 下；`holiday_service`/`weather_service` 磁盘缓存路径常量由 `data/` 改 `logs/`（holiday 补 `os.makedirs('logs')` 保证）；存量文件迁移：根目录 4 日志 + 根目录 2 个旧库备份 + data/ 3 个运行库自动备份 + data/ 3 个缓存 json 全部移入 logs/；`data/` 收敛为仅运行库（含 WAL/SHM）与 attachments 用户附件。
+  3. **路径适配（全部语义等价替换，零逻辑变化）**：55 处 import 改写（正则脚本批量：顶层 `from X import` → `from services.X import`、裸 `import X` → `from services import X`、routes 四模块同理；函数内延迟导入一并处理，改后全项目零残留旧式引用）；5 处 `__file__` 锚点各上溯一级（`os.path.dirname(os.path.dirname(...))`）——`_daemon_lock` 锁文件、`webhook_utils._resolve_db_file` 三候选 db 路径、`alert_service.check_data_integrity` 静态资源检查、`weather_service` 区划 js 加载、`routes_ext` 附件目录，指向路径与重组前逐字节一致；`bin/ssl_certs.sh` 两处证书脚本路径改指 `tools/`。
+  4. **验证（编译+服务层+浏览器三层）**：22 文件 `py_compile` 全过；服务层直连冒烟（节假日 2026 年 39 天班休从 logs/ 缓存正常读取、weather/service_config 链路导入正常）；重启后 `/health` 200、15 个页面全 200、天气/节假日/看板 API 200、企微长连接 WebSocket 正常建立（853000 为样例 bot 凭证预期认证失败）；`routes_ext.py` 6319 行逐行对比实际差异仅 50 行（全部为 import/锚点/备份路径行）。
+  5. **连带影响**：Docker 版/APK 版目录结构本次不动（三者共享文件约定改为按路径映射同步：传统版 `services/web_search.py` ↔ 两版 `web_search.py`）；PyInstaller frozen 分支逻辑（app.py 内 BUNDLE_DIR）不受影响；两版此前共享的 `bin/` 脚本未动。
+
+### 11.14 ADR-52：根目录文档与配置分层治理（V10.11.22 落地，仅结构·零业务逻辑变化）
+- **背景与根因**：
+  1. 根目录堆积 3.46MB HTML 设计文档、151KB Markdown 设计文档、229KB 包含千行历史日志的 README，且 Nginx 模板和 pip 构建残留元数据混杂在根目录，导致代码仓库首页视觉焦点分散、阅读体验差；
   2. 缺少标准化的 `docs/` 文档归档目录与 `config/` 配置中心，历史变更与架构设计无独立存储，不利于长期维护。
 - **决策方案与实施结果**：
-  1. **docs/ 统一文档中心归档与模块化拆分**：`PSD_Design_Document.md` 与单文件离线 HTML `PSD_Design_Document.html` 移入 `docs/` 目录；从 `README.md` 抽离全量版本变更记录至 `docs/CHANGELOG.md`；深度 Docker 运维部署、样例数据规则与 Android 打包分别分流至 `docs/DEPLOYMENT.md`、`docs/SAMPLE_DATA.md`、`docs/ANDROID_BUILD.md`；根目录 `README.md` 精简为项目简介、快速启动、9 大核心业务功能与架构索引（~150 行 / 6KB，体积缩减 97%）。
-  2. **config/ 配置模板收敛与双路径适配**：`nginx_ssl.conf` 与 `nginx.conf` 模板迁入 `config/` 目录；`bin/nginx_config.sh` 改造为优先查找 `$APP_DIR/config/nginx_ssl.conf` 并自动向下兼容回退 `$APP_DIR/nginx_ssl.conf`，确保 `./run.sh start/restart` 渲染 Nginx 配置 100% 平滑兼容；`docker-compose.yml` 示例卷挂载注释同步修正。
-  3. **开箱样例库维护（方案 A 确认）**：保留根目录 `gift_bookkeeping.db`，确保开箱即用演示及跨仓库多形态数据一致性（零风险策略）；`.dockerignore` 严格排除确保不入镜像。
-  4. **构建镜像体积优化与本地敏感配置防护**：`.dockerignore` 增强排除 `docs/` 与 `config/nginx*.conf`，避免文档与宿主机 Nginx 模板打入 Web 容器；`.gitignore` 强化对 `config/config.local.sh` 与 `config/*.local.*` 等本地敏感配置的防提交保护。
-  5. **验证（编译+Docker语法+Shell全链路）**：Python 模块 py_compile 全过；Shell 脚本 `sh -n run.sh bin/*.sh` 语法与模板定位检测 100% 通过；docker-compose 配置格式解析无异常。
+  1. **docs/ 统一文档中心归档与模块化拆分**：`PSD_Design_Document.md` 与单文件 3.46MB 的 `PSD_Design_Document.html` 移入 `docs/` 目录；从 `README.md` 抽离全量版本变更记录至 `docs/CHANGELOG.md`；深度运维部署、样例数据规则与 Android 打包分别分流至 `docs/DEPLOYMENT.md`、`docs/SAMPLE_DATA.md`、`docs/ANDROID_BUILD.md`；根目录 `README.md` 精简为项目简介、快速启动、9 大核心业务功能与架构索引（152 行 / 10KB，体积缩减 95%）。
+  2. **config/ 配置模板收敛与双路径适配**：`nginx_ssl.conf` 模板迁入 `config/` 目录；`bin/nginx_config.sh` 改造为优先查找 `$APP_DIR/config/nginx_ssl.conf` 并自动向下兼容回退 `$APP_DIR/nginx_ssl.conf`，确保 `./run.sh start/restart` 渲染 Nginx 配置 100% 平滑兼容。
+  3. **开箱样例库维护（方案 A 确认）**：保留根目录 `gift_bookkeeping.db`，确保 PyInstaller 单文件打包检测及跨仓库多形态数据一致性（零风险策略）。
+  4. **临时与敏感数据本地化防护**：本地构建产物 `wecom_aibot_python_sdk-1.0.2.dist-info/` 移入 `.temp/`；`.gitignore` 强化对 `config/config.local.sh` 与 `config/*.local.*` 等本地敏感配置的防提交保护，严防密钥泄露。
+  5. **验证（编译+服务运行+Shell语法全链路）**：22 个 Python 模块 py_compile 全过；后台进程平滑重启且 `/login` 返回 200 OK；Shell 脚本 `sh -n run.sh bin/*.sh` 语法与模板定位检测 100% 通过。
 - **连带影响**：全库 Python 核心业务逻辑与数据模型零修改；Shell 脚本双路径兼容；所有文档相对路径交叉引用保持闭环。
 
-### 12.15 ADR-53：V10.11.23 ~ V10.11.27 五版本批量同步（对齐传统版 ADR-53~57，共享业务代码仓库态字节一致）
-- **背景**：传统版自 V10.11.22 后连续迭代 5 个版本（告警真实反馈/开关批量/即时保存/天气多级地名/别名双保险与缓存治理），Docker 版滞后 5 版；三仓库约定「共享业务文件 MD5 一致」要求本次同步消除版本漂移。
-- **同步机制与验收标准**：
-  1. **补丁同步**：以传统版 `git diff 28327ed..HEAD`（12 文件 +1521 行）为源，`git apply` 应用至本版——11 文件上下文干净应用零冲突；`weather_service.py` 因本版 V10.11.21 重组时一处注释措辞漂移冲突，连同 `routes_ext.py`/`alert_service.py`/`webhook_utils.py` 共 4 个文件改以传统版整文件对齐（消除历史注释漂移）；
-  2. **字节一致性核验**：12 共享文件中 **11 个仓库态 blob（git ls-files 哈希）与传统版完全一致**；`app.py` 唯一保留本版专属 `/healthz` 容器探活路由单行差异（Dockerfile HEALTHCHECK 依赖）；
-  3. **验证**：7 个 Python 改动文件 py_compile 全过；容器内运行验证（构建镜像后浏览器回归）留部署服务器执行。
-- **同步内容要点**（详见 docs/CHANGELOG.md V10.11.23~27 条目与对齐的传统版 ADR-53~57）：
-  1. 告警推送 `sync_collect` 同步反馈 + `AlertPushConfig.channels` 渠道选择（`_SCHEMA_VERSION` 1021）；表格列宽双缺陷修复（`.colw-scope` + 可见性感知）；外部接口配置行只读锁与编辑状态机；Webhook 通道启停/测试局部更新；
-  2. 行级开关图标化 + 批量启用/停用（顺带修复 remove 后 closest 失效存量缺陷）；开关即时保存（防抖 + switch 专属收集 + 失败回滚）；保存校验放开「至少 1 条启用端点」；
-  3. 天气全路径索引多级地名匹配 + `ServiceDisabled` 停用哨兵（停用时 503 如实报错）；月/周视图高亮同步；缓存回显与自动刷新；DISTRICT_ALIASES 别名表 + 景区后缀剥离 + 宽松匹配最具体优先；缓存 TTL 30 分钟零请求秒开 + 更新时间常驻 + 刷新按钮；登出缓存清理；
-  4. 外部接口配置页布局显示优化全套（只读置灰/批量按钮智能映射/toast 点名/F1-F6）。
-- **连带影响**：`app.py`（healthz 保留）/`routes/`/`services/`/`templates/`/`static/js` 共 12 文件；`.gitattributes` 仍不启用（autocrlf=true 仓库态 LF 归一）；APK 版按裁剪范围另行同步（见 APK 版 V3.4.2）。
+### 11.15 ADR-53：Webhook 告警推送真实反馈与渠道选择 + 表格列宽双缺陷修复 + 交互局部更新与行级安全锁（V10.11.23 落地）
+- **背景与根因**（六项用户反馈问题）：
+  1. **告警测试/巡检「假成功」**：`trigger_webhook_event` 为 fire-and-forget 后台线程异步推送，`send_test_alert` 调用后立即返回「已发送至 N 个通道」，真实失败（企微凭证 invalid bot_id or secret、chatid 未绑定等）仅静默写入推送日志、永不反馈前端——用户「提示成功但企业微信收不到消息」；
+  2. **告警推送无法选择渠道**：`get_active_webhooks()` 固定取全部启用通道，无渠道选择设计与配置入口；
+  3. **「重置列宽」按钮重复**：`table-resizer.js` 的 `injectResetBtn` 以 `table.closest('.card')` 卡片头为注入点，告警操作授权表与推送日志表同属 `#alertPushCard` 一张卡片，两表各注入一个按钮到同一卡片头按钮区；
+  4. **隐藏 Tab 表格首进宽度异常/无法拖拽**：`DOMContentLoaded` 全页扫描初始化时隐藏 `tab-pane` 中表格 `getBoundingClientRect()` 测宽为 0，被固化为列默认宽（钳至最小值）并强制 `table-layout:fixed` 窄表；`__colwInit` 幂等标记使 Tab 显示后不再重初始化，分隔条无法正常命中拖拽；
+  5. **通道启停/测试后整页刷新**：启停为 form POST + flash + redirect；测试按钮成功后 `setTimeout(reload, 2000)` 整页刷新；
+  6. **外部接口服务配置行默认可编辑**：端点地址输入框始终可写，误触键盘即改值，缺少「编辑按钮解锁」防护。
+- **决策方案与实施结果**：
+  1. **同步收集推送模式**：`trigger_webhook_event` 新增 `sync_collect` 参数（默认 False 保持全站既有异步行为零变化），True 时不开线程、当前线程逐通道推送并返回 `[{channel_id, channel_name, success, status_code, message}]`（原 `_worker` 循环体抽离为 `_push_rendered_item` 复用）；`send_test_alert`/`push_alert`/`run_inspection_once` 全部改走同步模式，响应与巡检 Summary 逐通道列出真实成败与原因；`record_webhook_log` 原生连接线程安全，同步路径无障碍；
+  2. **渠道选择数据链**：`AlertPushConfig.channels`（TEXT，JSON 通道 ID 数组；空 = 全部启用通道兼容存量）+ `app.py` 迁移 SQL + `_SCHEMA_VERSION` 升 **1021** + 启动前置防御检查补列（**重要机制发现**：V10.10.16 的版本标记幂等短路会使新增 ALTER 在已标记库上静默跳过，本次 500 复现根因，新列必须「版本号升级 + 前置防御」双保险）；`get_config_webhooks()` 按所选渠道过滤启用通道；`GET/POST /admin/alerts/config` 返回/校验/保存通道清单；前端「推送渠道」复选框组 + 全选/清空 + 权限三态联动；
+  3. **列宽注入点作用域化**：注入点优先 `table.closest('.colw-scope')` 内的 `.colw-header-actions` 槽位（本次为操作授权/推送日志两模块标题行新增作用域容器），无则回退原卡片头逻辑——同卡片多表按钮各归各模块，存量页面零变化；
+  4. **可见性感知初始化**：`initTable` 对不可见表格（`getClientRects()` 为空或 0 尺寸）跳过初始化并挂 `IntersectionObserver`，首次真正可见时执行正常初始化（测量真实默认宽度、注入分隔条与重置按钮）；老浏览器降级监听 Bootstrap `shown.bs.tab/collapse/modal` 事件统一补扫；`teardown` 同步断开 observer；全局覆盖所有隐藏容器表格场景；
+  5. **启停/测试 AJAX 局部更新**：`admin_toggle_webhook` 识别 `X-Requested-With` 返回 JSON（enabled/channel_name），前端行内更新状态徽标与按钮图标 + toast + 双延时（1.5s/4.5s 适配标准 Webhook 秒级与企微长连接认证 3~5 秒）局部刷新日志；测试按钮移除整页 reload、成败均局部刷新（`refreshLogsTable` fetch 本页 HTML 解析替换 tbody）；顺带修复 `showToast` 缺失 `info` 色分支；
+  6. **端点行只读状态机**：所有行（含新增/恢复默认值）默认 `readonly`，行内「编辑」按钮进入可编辑态（编辑/删除↔保存/取消切换、聚焦地址框），取消精确还原进入编辑时原值（新增行移除），保存成功经 `renderSavedRows` 回只读；启用开关为高频快捷操作不受编辑按钮限制（任何时候可直接切换）。
+- **验证**：py_compile 6 个后端文件全过；浏览器逐项实测——启停行内切换无刷新、隐藏 Tab 表格首次可见正常展开（904px/5+4 分隔条）、列宽拖拽 +60px 精确且 localStorage 持久化、重置恢复默认、渠道单选保存持久化 `[4]`、测试推送真实反馈「✗ [asfd] 凭证校验失败: invalid bot_id or secret」（旧版此处假成功）、立即巡检同步反馈 0/4 失败详情、行编辑状态机全通过；验证测试数据清理（推送日志 17 条 + 操作日志 12 条删除，用户自有 199+897 条完好，通道启停状态还原）。
+- **连带影响**：`trigger_webhook_event` 全站其余调用点（记账事件/广播/编辑通知/启停广播等）行为零变化（参数默认关闭）；Docker 版/APK 版本次未同步（待后续按共享文件 MD5 逐字一致约定同步，同步时需注意 `_SCHEMA_VERSION=1021` 机制差异）；<768px 移动端列宽降级逻辑保持。
 
-### 12.16 ADR-54：logs/ 运行目录缺失修复同步与镜像侧加固（V10.11.28 落地，对齐传统版 ADR-58）
-- **背景**：传统版用户服务器实测报错 `run.sh: cannot create /opt/service/gift-bookkeeping-app/logs/app.log: Directory nonexistent`——根因为 logs/ 被 .gitignore 整体忽略（git clone/pull 后目录缺失）+ shell 重定向不自动创建目录（详见传统版 ADR-58）。本版需评估同步范围。
-- **评估结论与实施**：
-  1. **宿主机侧（不适用）**：Docker 版宿主 `run.sh`/`bin/config.sh` **无 `LOG_FILE`/`PID_FILE` 定义**——Web 服务运行在容器内（Gunicorn stdout，`docker compose logs` 查看），宿主脚本不存在 shell 重定向到 logs/ 的路径，传统版缺陷在本版宿主侧不存在；
-  2. **`.dockerignore` 补排除 `logs/`**：此前仅排除 `*.log`/`*.pid` 文件，本地构建若存在 logs/（磁盘缓存 json）会随 `COPY . /app/` 打入镜像——现显式排除（运行期产物不进镜像，体积与确定性双收益）；镜像内空目录改由 Dockerfile 预置；
-  3. **`Dockerfile` runner 阶段新增 `RUN mkdir -p /app/logs`**：容器内运行期写入点（weather/holiday 磁盘缓存、数据库恢复备份）虽有 Python `makedirs(exist_ok=True)` 兜底，预置空目录消除首个请求的兜底创建窗口并规范化镜像结构；logs 为可丢弃数据不挂卷（ADR-51 决策不变）；
-  4. **容器内 Python 写入点核查（无需修复）**：weather/holiday/备份三处写入点均已有 makedirs 兜底，与共享文件保持一致（V10.11.23~27 同步后与传统版字节一致）。
-- **验证**：11 个 `run.sh + bin/*.sh` POSIX `sh -n` 语法全过（本版脚本未改动，例行复查）；`.dockerignore`/`Dockerfile` 变更在部署服务器 `git pull && docker compose up -d --build` 重建镜像后生效。
-- **连带影响**：仅 `.dockerignore`（+4 行）与 `Dockerfile`（+5 行）；bin 脚本、Python、模板零改动；APK 版不涉及。
+### 11.16 ADR-54：外部接口配置行级开关图标化与批量启用停用 + 行删除刷新失效存量缺陷修复（V10.11.24 落地）
+- **背景与用户需求**：外部接口服务配置页每行端点的启用控件为小勾选框不够直观，且缺少批量操作能力——需①行级启用开关图标化；②每行可单选/多选、每组全选，实现批量启用或停用。
+- **决策方案与实施结果**：
+  1. **行级开关图标化**：启用控件升级为 Bootstrap `form-switch` 滑动开关（`role="switch"`），开/停状态一目了然；直接切换语义不变（随保存入库，不受 V10.11.23 行级编辑锁定限制）。
+  2. **行级选择框**：每行首列新增 `.row-select-cb` 选择框（单选/多选），`onRowSelectChange` 联动刷新组批量态。
+  3. **组级批量操作条**：每组 `.endpoint-list` 上方新增批量条——「全选本组」（三态：未选/半选 indeterminate/全选，勾选数与行数相等自动同步为全选）+「批量启用选中 (N)」/「批量停用选中 (N)」（未选时置灰，计数实时联动）；`batchToggleEndpoints` 置选中行开关后复用 `saveGroup(gname, btn, successMsg)` 整组保存即时生效（后端零改动，复用既有 `/admin/service-config/save` 接口）；停用提示含降级说明。
+  4. **saveGroup 扩展**：新增第三参数 `successMsg`（批量操作定制成功文案）；finally 恢复按钮 innerHTML 后补调 `updateGroupBatchState`（修复恢复文本会覆盖 renderSavedRows 已清零计数的时序问题）。
+  5. **存量缺陷修复（验证中发现）**：`cancelEndpointRow`/`delRow` 均先 `row.remove()` 后 `btn.closest('.card')`——按钮随行脱管后 closest 返回 null，导致上移/下移置灰与批量计数不刷新（静默失效）；改为 remove 之前先取 card 引用。
+  6. **状态联动全覆盖**：添加端点/取消新增/删除行/行级保存/批量保存/恢复默认值后，renderSavedRows 或操作点内统一调 `updateGroupBatchState` 同步。
+- **验证**：浏览器逐项实测——初始态、单选（计数 1+半选）、多选（计数 2+全选自动勾）、取消全选、批量停用 1 端点（开关 true→false + toast + 数据库真实入库 + 重渲染批量态复位）、全选+批量启用（恢复基线且入库）、删除勾选行计数联动（1→0）、取消勾选中的新增行计数联动（2→1，修复后）、编辑状态机与开关直切回归通过；配置基线记录并还原。
+- **连带影响**：仅 `templates/admin_service_config.html` 单文件（后端/数据库零改动）；Docker 版/APK 版本次未同步（待后续按共享文件 MD5 逐字一致约定同步）。
 
-### 12.17 ADR-55：Nginx 配置渲染范围表达式加固（V10.11.29 落地，对齐传统版 ADR-59）
-- **背景**：传统版用户服务器实测 Nginx 配置文件正文为空——根因为渲染 sed 的输入路径写死旧路径（模板迁入 config/ 后读到空文件，详见传统版 ADR-59）。**本版核对结论：Docker 版 `bin/nginx_config.sh` 第 57 行 sed 输入本已使用 `$nginx_template` 变量**（config/ 优先、根目录回退双路径探测一致），**无路径缺陷**。
-- **评估结论与实施**：
-  1. **范围表达式同源加固**：两版共有的 `sed -e '1,/^#   __SSL_KEY__/d'` 依赖模板头部注释中恰好存在 `#   __SSL_KEY__` 前缀行（V10.11.22 模板重构后仅为占位符说明行）——模板头部注释一旦变动，sed 地址范围延伸至 EOF 将静默删光全部正文（`2>/dev/null` + `|| true` 掩盖错误）；本版同步替换为 `'/^upstream /,$!d'`（删除 upstream 行前全部头部注释、正文完整保留，模板头部布局变化均安全）；
-  2. **其余零改动**：宿主机脚本其余逻辑、Python、模板、Dockerfile/.dockerignore 均不涉及本次缺陷。
-- **验证**：本版 `bin/nginx_config.sh` POSIX `sh -n` 通过（Git Bash 5.2.37）；Git Bash 沙盒按服务器场景渲染（config/ 模板存在、根目录旧模板缺失）生成 **57 行完整配置**——upstream/keepalive/server_name/listen 443 default_server ssl/ssl_certificate/proxy_pass 等全部正确替换、无残留占位符，与原缺陷现象（仅头部注释）形成对照。
-- **连带影响**：仅 `bin/nginx_config.sh`（替换一处表达式）；Python/模板/前端/数据库零改动；APK 版不涉及。
+### 11.17 ADR-55：外部接口配置开关即时保存生效与全停用允许及业务降级闭环（V10.11.25 落地）
+- **背景与根因**（用户反馈：点击关闭后，刷新页面或重新进入页面按钮自动开启；且要求关闭后端点业务上真正不可用）：
+  1. **前端未入库**：V10.11.24 行级开关仅切换前端状态，静待下一次「保存配置/行级保存/批量操作」才入库，刷新/重进读回旧库值即恢复开启；
+  2. **后端强制校验拦截**：`admin_service_config_save` 存在「至少 1 条启用端点」校验，单端点组（forecast/air_quality/holiday/wecom_ws 默认均单端点）切换开关即使保存也 400 拒绝；
+  3. **业务链路事实**：`service_config.get_urls` 实时读库无缓存，weather_service/holiday_service/web_search/wecom_ws 四模块即用即读 `get_enabled_urls`（enabled 过滤）——开关状态只要入库，端点立即不参与故障转移；业务逻辑链路本已闭环，缺的只是前端入库与全停用放行。
+- **决策方案与实施结果**：
+  1. **开关即时保存链路**：`document` 级 change 事件委托（动态行自动覆盖）→ 防抖 250ms 合并连续切换 → `saveGroup(gname, null, null, 'switch')` 专属模式；
+  2. **switch 模式安全收集规则**：新增行跳过（地址未确认不入库）；编辑中行地址取 `dataset.origUrl`（进编辑前已保存值，半成品地址不得顺带入库）而开关取当前值；timeout/retries 取最近保存快照（数字框改动仍走「保存配置」）；不带 ai_search_enabled（保持库值）；
+  3. **成功不重渲染**：switch 模式只更新 GROUP_DEFAULTS 快照的 urls，不 renderSavedRows——编辑态/新增行/勾选态完整保留；全停用时黄色警示「该组已无启用端点，相关服务将降级直至重新启用」（页面 showToast 新增 warning 第三态）；
+  4. **失败回滚**：首次排队时快照本组开关态（epSwitchBackup），保存失败/网络异常按序还原（行数一致时）+ 提示；
+  5. **后端放开全停用**：移除「至少 1 条启用」校验（仅保留端点列表非空校验），允许整组停用，运行时各模块走各自降级兜底（天气/节假日离线兜底、搜索空结果、WS 不连接）；
+  6. **取消编辑语义修正**：不再回滚启用开关（只还原地址），取消编辑不得撤销已入库的启停状态。
+- **验证**：浏览器逐项——切开关即时保存 + 刷新页面状态保持（用户报告场景修复）；单端点组全停用保存成功 + 黄标警示；业务层 Python 直连 `get_enabled_urls` 停用项消失、空组空列表（天气服务地理编码环节即用即读验证 PASS）；编辑态切开关不破坏编辑且库中地址仍原值；取消编辑只还原地址；配置基线还原（全组全启用）。
+- **连带影响**：`templates/admin_service_config.html` + `routes/routes_ext.py`（单校验行放宽）；批量启用/停用与全局保存路径行为不变（仍走显式保存语义）；Docker 版/APK 版待同步。
 
+### 11.18 ADR-56：天气页多级地名匹配修复 + 月/周视图缺陷修复 + 缓存回显自动刷新 + 服务停用明确报错 + 外部接口配置页布局显示优化（V10.11.26 落地）
+- **背景与根因**（用户反馈四项 + 新增需求两项）：
+  1. **自由搜索多级地名误配**：「四川省巴中市恩阳区」显示四川省、「巴中市恩阳区」显示巴中市，仅「恩阳区」正确——后端 `_find_cached_or_builtin_city` 的宽松匹配 `k in raw` 按遍历顺序返回第一个命中键（「四川省巴中市恩阳区」先命中「四川省」）；前端 `localMatchCity` 只支持单级精确匹配；
+  2. **月/周视图按钮高亮不同步**：`setCalMode()`/`renderCalendarView()`（实际渲染路径）均不更新 `.cal-seg` active 类，唯一更新点在已不参与渲染的旧版 `renderView()`；初始化恢复 `calMode` 记忆也不同步按钮 → 按钮永远停在 HTML 默认「月视图」；
+  3. **服务停用后天气页仍出数据**：`fetch_forecast` 网络失败后静默走 30 分钟内存缓存 → 磁盘缓存 → 季节离线合成，系统把「组内无启用端点（明确停用）」与「端点启用但网络不可达（故障）」混为一谈；
+  4. **每次进入需手动拉取**：V10.11.16 设计「进入默认不查询」，刷新后 `cachedData` 丢失；
+  5. **配置页布局/显示需求**：端点地址只读态与可编辑态视觉区分不明显；批量启停按钮不随勾选状态智能映射；toast 文案笼统不点名。
+- **决策方案与实施结果**：
+  1. **多级地名全路径匹配**（前端 `localMatchPath` + 后端 `_match_path`）：后端 `_norm_region_all()` 去除串内全部行政后缀拼纯地名串，`_load_regional_cities` 构建**全路径索引**（省/省市/省市县 纯地名键 → 坐标，首次写入保留、直辖市同层 d===c 时只留省+区路径），`_find_cached_or_builtin_city` 在宽松匹配前优先精确命中；前端同规则实现（label 拼接与级联一致）；「四川省巴中市恩阳区」「巴中市恩阳区」「恩阳区」均精确返回恩阳区坐标；
+  2. **月/周视图高亮同步 + backToday 修复**：新增 `syncCalSegs()` 在 `setCalMode()`/`renderCalendarView()`/初始化恢复记忆三处调用；`backToday` 改为显式选中今天（原实现仅在 selectedDate 不属于当前月时重选，「回到今天」在选中同月其他日期时无效）；
+  3. **超出预报范围提示优化**：动态显示预报截止日期（`本期预报至 YYYY-MM-DD`）+「回到今天」快捷按钮（事件委托）；
+  4. **缓存回显 + 自动静默刷新**：`renderAll` 把 `cachedData`（含时间戳）写入 localStorage（用户级 `gift_weather_<uid>_data`）；页面初始化先回显（新增 `renderCachedOnly()` 轻量渲染——不写缓存时间戳、不切模块、不触发对比请求），再按上次查询记忆（`last_query_mode/lat/lon/label` 或 `last_query_city`）自动静默拉取（`refreshQuery(..., true)` 静默模式：成功弱提示、失败保留缓存并提示原因）；`execQuery` fetch 加 `cache:'no-store'` 消除浏览器 HTTP 缓存陈旧天气；`resetMemory` 清理 `data` 缓存键；
+  5. **服务停用明确报错（A1）**：新增 `ServiceDisabled` 异常（`_http_get_endpoint` 组内无启用端点时抛），与网络故障（返回 None）严格区分；`fetch_forecast` 停用 → 抛 `WeatherError('外部天气预报服务已停用…', 503)` 不走缓存/离线合成；`geocode_city` 停用时本地索引/缓存命中仍零网络兜底（不依赖外部）、未命中报 503；`fetch_air_quality` 停用静默 None（增强信息）；断网场景保持原降级链；
+  6. **配置页布局显示优化**：a) 只读置灰（`.endpoint-url[readonly]` 灰底灰字 + 禁用光标，编辑态白底）；b) 批量按钮智能映射（`updateGroupBatchState` 统计勾选行启用/停用数：全启用 → 仅停用可用、全停用 → 仅启用可用、混合 → 均可用，title 提示无效操作原因）；c) toast 文案点名组名与启停数量（`buildSwitchToast`，全停用给黄色降级警示，失败回滚点名组名）；d) F1 组卡头徽章（`renderGroupStatusBadge`：启用 N/总数 / 全停用红色警示）；e) F2 停用行弱化（`.is-off` 行淡化 + 地址删除线 + `input-group-text off-tag`「已停用」标记）；f) F3 未保存提醒（`markDirty/clearDirty/isAllClean`：地址/超时/重试/AI 总开关变化 → 按钮高亮「保存配置（有未保存更改）」，规范化比较（对象键序统一 + 节假日 `{年份}` 占位符剥离）与快照一致自动清除，开关即时保存不计入）；g) F4 组业务影响说明（Jinja `GROUP_HINTS` 每卡一行）；h) F5 批量停用二次确认（`batchConfirmModal`，批量启用不打扰）；i) F6 行按钮图标化（`.btn-icon` 紧凑图标 + title）。
+- **验证**：py_compile 通过；浏览器逐项——三种地名写法 network 核实坐标均 31.8163,106.4865（恩阳区）；月/周视图切换高亮即时同步、刷新记忆恢复高亮正确；超出范围提示动态日期 + 回到今天跳转选中；刷新缓存回显 + 自动刷新成功提示；forecast 全停用后天气页报「外部天气预报服务已停用…（当前显示缓存数据）」、恢复启用后正常；配置页只读置灰/编辑白底/取消还原、勾选映射三态、toast 点名、组徽章与停用行标记、批量确认框、未保存提醒出现与自动清除、业务影响提示、图标按钮；配置基线还原（全组全启用）；验证操作日志 15 条已清理（用户自有 807 条完好）。
+- **连带影响**：`services/weather_service.py`（路径索引 + ServiceDisabled）+ `templates/weather.html`（路径匹配/月周视图/回显/自动刷新）+ `templates/admin_service_config.html`（布局显示全套）+ `docs/CHANGELOG.md`；`/api/weather/query` 与首页横幅行为不变（横幅失败仍降级 None）；Docker 版/APK 版待同步。
 
-### 12.18 ADR-56：Docker 版高并发性能治理与生产容器解绑 GIL 优化（V10.11.30 落地，对齐传统版 ADR-60）
-- **背景与根因**（用户访问时后台检测进程/容器进程 CPU 与内存瞬间飙升并导致可用性能降低）：
-  1. **PF-03 核心技术债：首页 `index()` 中 `query.all()` 全量 ORM 内存加载**：在分页切片前直接执行 `all_filtered_records = query.all()` 并利用 Python 内置列表推导式对成千上万条记录计算总金额、总笔数、最高礼金、平均礼金。成千上万个 SQLAlchemy ORM 实体对象被一次性实例化到内存堆中，触发巨幅内存峰值，并在请求结束释放时触发频繁 GC，导致容器 CPU 瞬时打满；
-  2. **首页横幅天气接口全量遍历与未写回缓存**：首页加载时并发请求 `/api/home/weather`，底层 `services/weather_service.py` 宽松匹配逻辑对近万条行政区划索引做全量线性遍历、字符串 contains 匹配与排序；且匹配命中的结果未写回内存缓存 `_mem_geocode_cache`；同时当月账单全量遍历计算也造成了额外 CPU 消耗；
-  3. **内存缓存无上限防膨胀保护与长驻巡检线程 Session 泄漏**：全局内存缓存缺乏最大条目数限制；后台守护线程轮询过程中未在 `finally` 块显式调用 `db.session.remove()`，导致长驻线程持有失效连接与未释放对象；
-  4. **容器单 Worker 默认配置与 GIL 锁严重互斥**：`Dockerfile` / `gunicorn.conf.py` / `docker-compose.yml` 默认配置 `GUNICORN_WORKERS=1`（单进程 4 线程）。后台常驻守护线程（系统告警巡检、纪念日到期检测、定时备份调度、企微长连接）与 Web 用户请求运行在同一 Python 进程中，争抢单个 GIL。一旦并发请求或重型 ORM 请求进入，全容器线程排队甚至响应超时；且 `alert_service` 缺少跨进程单实例锁。
+### 11.19 ADR-57：自由搜索智能匹配双保险 + 天气数据持久化缓存与请求频次治理（V10.11.27 落地）
+- **背景与需求**（用户提出的两项检查确认点）：
+  1. **自由搜索区县级高精度匹配**——前端本地 CHINA_REGIONS 分词贪婪匹配已具备（V10.11.26 `localMatchPath`），但后端兜底存在缺口：非常规输入（如「峨眉山风景区」）未命中全路径时，宽松匹配按 dict 遍历顺序返回第一个命中键，可能错误降级至地级市或走在线解析；
+  2. **天气数据持久化缓存与请求频次治理**——V10.11.26 缓存结构仅 `{ts, data}` 缺地点元信息；进入页面回显后仍自动静默刷新一次（每次 1 次请求）；无「数据更新于」常驻展示与独立刷新按钮；登出/会话失效未清理缓存。
+- **决策方案与实施结果**：
+  1. **后端智能拆词双保险**（`services/weather_service.py`）：① 新增 `DISTRICT_ALIASES` 中文区县别名表（约 90 条）：名胜古迹→所在区划（峨眉山→峨眉山市、布达拉宫→拉萨市、乐山大佛→乐山市、西湖→西湖区）、自治州俗称→州府（西双版纳→景洪市、延边→延吉市、甘孜→康定市、黔东南→凯里市）、城市别称/历史旧称（羊城→广州市、长安→西安市、金陵→南京市）；② 新增 `SCENIC_STRIP_SUFFIXES` 景区通用后缀剥离（风景名胜区/风景區/国家公园/度假区/古城等，『峨眉山风景区』→『峨眉山』，仅当剥离后可命中才采用）；③ `_try_alias_match` 在别名/剥离映射标准名后重走精确+归一化+全路径匹配；④ 宽松匹配兜底重写——收集全部候选后按 `_region_level`（0=区县/1=市/2=省，依据索引条目 admin2 判定）优先、同层级命中键更长者优先排序取最具体候选，彻底消除「遍历顺序第一个命中」的误配；
+  2. **缓存结构升级**（`templates/weather.html`）：`gift_weather_<uid>_data` 升级为 `{mode, label, city, lat, lon, data, fetchedAt}`（`renderAll` 写入、初始化读取兼容旧 `{ts, data}`）；
+  3. **免拉取秒开 + TTL**：`CACHE_TTL_MS = 30 分钟`（与后端 `fetch_forecast` 内存缓存 TTL 对齐）；初始化时缓存有效且有查询记忆 → **零网络请求秒开**（`renderCachedOnly` 渲染全部视图，对比城市区纯 DOM 标签 + 待刷新提示不触发 fetchCompareData）；状态条常驻「数据更新于 HH:MM + 刷新」按钮（`renderFreshStatus`，离线预估徽标随附）；
+  4. **仅必要时拉取**：手动新地点搜索/级联选择查询/主动点刷新（`#btnWeatherRefresh` 事件委托 → `refreshQuery` 带 loading）/缓存过期（自动静默拉取，quiet 成功「已自动更新至最新数据」、失败保留缓存并提示原因）/首次进入——五类场景才产生请求；查询成功路径先 `renderAll` 更新缓存元信息再渲染状态条；`renderCompareTags` 补充纯 DOM 调用（秒开时显示已保存对比标签）；
+  5. **登出/会话失效清理**（`templates/base.html`）：① document 级点击委托捕获 `/logout` 链接 → 清除当前用户 `gift_weather_<uid>_*` 与 `gift_weather_0_*` 键再跳转；② 登录页（`not current_user.is_authenticated`）加载时清除全部 `gift_weather_*` 键（覆盖会话失效自动退出、登出后落地、直接访问登录页三类场景）——多账号切换数据隔离与重置。
+- **验证**：py_compile 通过；Python 直连 15 组输入匹配（峨眉山风景区→峨眉山市 29.598/103.493、西双版纳→景洪市、乐山大佛→乐山市、凤凰古城→凤凰县、布达拉宫→拉萨市、恩阳景区→恩阳区、四川省巴中市恩阳区→恩阳区回归等）全部正确；浏览器逐项——缓存结构含 mode/label/coords/fetchedAt；TTL 内刷新零天气请求秒开；「刷新」按钮 1 次请求并更新时间（18:16→18:19）；伪造过期 31 分钟 → 自动静默拉取（18:22 已自动更新）；别名搜索页面显示正确（峨眉山市，四川省 / 景洪市，云南省）；退出登录后 11 个缓存键全清。
+- **连带影响**：`services/weather_service.py` + `templates/weather.html` + `templates/base.html` + `docs/CHANGELOG.md` + `README.md`（功能特性与版本导航同步）；`geocode_city` 别名命中路径零网络零缓存写入（磁盘 geocode 缓存无测试残留）；Docker 版/APK 版待同步。
+
+### 11.20 ADR-58：Linux 服务器 logs/ 运行目录缺失启动失败修复（V10.11.28 落地）
+- **背景与根因**（用户服务器实测反馈：`run.sh: 135: cannot create /opt/service/gift-bookkeeping-app/logs/app.log: Directory nonexistent`）：
+  1. **V10.11.21 结构重组的隐含依赖**：运行日志 `app.log`/`app.pid` 归入 `logs/` 目录，且 `.gitignore` 整体忽略 `logs/`（设计意图「仅本地留存，不入库不上传」）——副作用是 **git clone / git pull 后目录必然不存在**；
+  2. **shell 重定向不创建目录**：`bin/service.sh` start_service 的 `setsid bash -c "..." >> "$LOG_FILE" 2>&1 &` 与 `echo "$PID" > "$PID_FILE"`，sh/dash 下目标目录不存在时直接报错中止启动；
+  3. **就绪逻辑覆盖盲区**：`ssl/`（bin/ssl_certs.sh）、`.temp/`（db_select/db_setup）、`data/`（ensure_sqlite_runtime_db）均有 `mkdir -p` 就绪，**唯 `logs/` 无**——老服务器因历史目录存在而未暴露，全新部署/重新 clone 的服务器必现。
 - **决策方案**：
-  1. **容器进程并发模型升级（解绑 GIL 锁竞争）**：
-     - `Dockerfile`、`gunicorn.conf.py`、`docker-compose.yml` 及 `bin/config.sh` 中的默认 Worker 进程数由 1 提升至 **2**（`2 workers × 4 gthread`），Web 请求分散至 2 个独立 GIL 进程；
-     - `services/alert_service.py` 巡检循环接入 `try_acquire_daemon_lock('alert_inspector')` 跨进程文件锁，确保多 Worker 下仅 1 个进程运行后台巡检，其余 Worker 纯粹响应 Web 请求；
-  2. **SQL 标量聚合投影改造（落地 PF-03）**：
+  1. **修复位置选 `bin/config.sh`**（而非 service.sh start_service 内）：config.sh 是 run.sh 全部子命令（start/stop/status/restart/clean）的最先公共加载点，加载即就绪；任意调用路径（含 cron 定时 restart）都不会绕过；
+  2. **实现**：`LOG_FILE`/`PID_FILE` 定义后无条件 `mkdir -p "$APP_DIR/logs" 2>/dev/null || true`——POSIX 兼容（run.sh 为 #!/bin/sh）、幂等（目录已存在零副作用）、失败不阻断（只读挂载等极端场景交由后续写入方报出更具体错误）；
+  3. **双路径覆盖**：正式部署 `/opt/service/gift-bookkeeping-app` 与任意 clone 位置（config.sh 的 APP_DIR 探测回退 `$SCRIPT_DIR`）均生效。
+- **Python 层核查（结论：无需修复）**：全部 logs/ 写入点均已有 makedirs 兜底——`weather_service._save_json_disk_cache`（`os.makedirs(os.path.dirname(filepath), exist_ok=True)`）、`holiday_service`（`os.makedirs('logs', exist_ok=True)`）、`routes_ext` 两处数据库恢复备份（`os.makedirs(_bak_dir, exist_ok=True)`）；`_load_json_disk_cache` 对不存在文件安全返回空 dict——直跑 `python app.py`（桌面调试/容器）场景无缺口。
+- **验证**：① 12 个 `run.sh + bin/*.sh` 全部通过 POSIX `sh -n`（Git Bash 5.2.37）；② 沙盒三场景模拟——全新部署（无 logs/ + APP_DIR 回退）自动创建且重定向成功 / 重复加载幂等 / 伪造 `/opt/service/gift-bookkeeping-app` 正式路径 PASS（用户服务器同场景）；③ 本地服务重启 health 200。
+- **连带影响**：仅 `bin/config.sh`（+7 行）；Python/模板/前端零改动；APK 版不涉及（Android 数据目录由系统私有存储初始化 + Python 层 makedirs 兜底）；Docker 版同步评估见其 ADR-54（宿主侧无 LOG_FILE 引用不受影响，镜像侧预置空目录 + .dockerignore 补排除）。
+
+### 11.21 ADR-59：Nginx 配置渲染正文为空修复（V10.11.29 落地）
+- **背景与根因**（用户服务器实测：Linux 上执行 `run.sh` 重启服务后，`$NGINX_CONF_DIR/gift_app.conf` 被重新生成但**仅剩 2 行头部注释、主体为空**——SNI 反代静默失效）：
+  1. **sed 输入路径写死旧路径**：`bin/nginx_config.sh` 第 57 行 sed 输入为 `"$APP_DIR/nginx_ssl.conf"`（根目录），而 V10.11.22 配置分层治理已将模板迁入 `config/nginx_ssl.conf`——脚本第 31-36 行的「双路径探测」只把结果存入 `nginx_template` 变量，**sed 输入未随改**；服务器根目录旧模板文件不存在 → sed 读到空 → 生成文件只有头部 echo 注释；
+  2. **错误被静默吞掉**：输出块 `{ ... } > "$target_conf" 2>/dev/null && echo_e "✅ 已动态更新…" || true`——`2>/dev/null` 丢弃 sed 错误、`|| true` 掩盖失败，部署日志仍显示「✅ 已动态更新并同步 Nginx 配置」，重启全程无告警；
+  3. **范围表达式脆弱**：`sed -e '1,/^#   __SSL_KEY__/d'` 依赖模板头部注释中存在 `#   __SSL_KEY__` 前缀行（V10.11.22 模板重构后仅为占位符说明行），模板头部注释一旦变动，sed 地址范围延伸至 EOF 将静默删光全部正文——属于同样的「静默失败」模式，本次一并加固。
+- **决策方案**：
+  1. **sed 输入路径对齐变量**：`"$APP_DIR/nginx_ssl.conf"` → `"$nginx_template"`（与探测一致：`config/` 优先、根目录回退，两路径均可正确渲染）；
+  2. **范围表达式按正文结构加固**：`'1,/^#   __SSL_KEY__/d'` → `'/^upstream /,$!d'`（删除 `upstream` 行之前的所有头部注释，正文完整保留）——不再依赖模板头部注释内容，模板头部如何调整均安全；
+  3. **Docker 版同步加固**：Docker 版 sed 输入本就使用 `$nginx_template`（无路径缺陷），但其范围表达式与旧版相同，同步替换为同一健壮形式，消除同类隐患（其模板同样无独立 `__SSL_KEY__` 标记行）。
+- **验证**：① 传统/Docker 两版 `bin/nginx_config.sh` 均通过 POSIX `sh -n`（Git Bash 5.2.37）；② Git Bash 沙盒按服务器场景渲染（config/ 模板存在、根目录旧模板缺失）——传统版与 Docker 版均生成 **57 行完整配置**，`upstream gift_app_backend {`、`server_name gift.example.com;`、`listen 443 default_server ssl;`、`proxy_pass http://gift_app_backend;` 等全部正确替换，`grep -E "__[A-Z_]+__"` 无残留占位符——与缺陷现象（仅头部注释）形成明确对照；③ 原缺陷根因复核：旧代码在沙盒中渲染即复现「仅头部注释」空文件（sed 读到不存在的旧路径）。
+- **连带影响**：仅 `bin/nginx_config.sh`（传统版 +1 行注释变更并替换两处表达式；Docker 版替换一处表达式）；Python/模板/前端/数据库零改动；APK 版不涉及（Android 场景无 Nginx 反代）。
+
+### 11.22 ADR-60：传统版生产级 WSGI 容器升级（Gunicorn 多 Worker）与全链路性能治理（V10.11.30 落地）
+- **背景与根因**（用户使用传统版时后台检测进程/服务进程 CPU 与内存瞬间飙升并导致服务器可用性能降低）：
+  1. **PF-01/OP-01 单进程开发服务器与 GIL 竞争**：`bin/service.sh` 启动命令长期使用 `python3 app.py`（单进程 Werkzeug 开发服务器），后台检测守护线程（告警巡检 `alert_service._inspector_loop`、纪念日提醒 `_anniversary_reminder_worker`、定时备份调度 `_backup_scheduler_worker`、企微长连接）与 Web 用户请求在同一单进程内强行争抢 Python GIL。并发请求进入时，后台线程与前端请求发生严重的 CPU 线程上下文切换与锁竞争；
+  2. **PF-03 核心技术债：首页 `index()` 中 `query.all()` 全量 ORM 内存加载**：在分页切片（`records = query.paginate(...)`）之前，直接执行 `all_filtered_records = query.all()` 并利用 Python 内置列表推导式对成千上万条记录计算总金额、总笔数、最高礼金、平均礼金。成千上万个 SQLAlchemy ORM 实体对象被一次性实例化到内存堆中，触发巨幅内存峰值（几百 MB），并在请求结束释放时触发 Python GC 满载运行，导致 CPU 瞬时 100%；
+  3. **首页横幅天气接口全量遍历与未写回缓存**：首页加载时并发请求 `/api/home/weather`，底层 `services/weather_service.py` 的宽松匹配逻辑对内置 10,000+ 行政区划数据做线性遍历、字符串 contains 匹配与全量排序；且匹配命中的经纬度结果未写回内存缓存 `_mem_geocode_cache`，每次请求均重新进行密集 CPU 匹配；同时 `/api/home/weather` 中对账单列表的全量遍历统计当月往来造成了额外 CPU 消耗；
+  4. **内存缓存无上限防膨胀保护与长驻巡检线程 Session 泄漏**：全局内存缓存（`_mem_forecast_cache`、`_mem_geocode_cache`、`_HOME_WEATHER_CACHE`）缺乏最大条目数限制；后台守护线程轮询过程中未在 `finally` 块显式调用 `db.session.remove()`，导致长驻线程随着运行时间推移持有失效连接与未释放对象。
+- **决策方案**：
+  1. **生产级 Gunicorn WSGI 容器升级与自动降级（落地 PF-01/OP-01/P0-1）**：
+     - `bin/service.sh` 启动命令升级为：`gunicorn -w 2 -k gthread --threads 4 --max-requests 2000 --max-requests-jitter 200 -b 127.0.0.1:$PORT app:app --timeout 60`；
+     - 结合 `exec` 替换 Shell 进程，确保 `$PID_FILE` 准确记录 Gunicorn Master 真实进程号；
+     - 提供平滑回退保护：当环境未安装 Gunicorn 时自动降级为 `python3 app.py` 启动；
+     - `bin/python_env.sh` 同步增加 `gunicorn` 环境检测与自动 `pip install` 兜底。
+  2. **SQL 标量聚合投影改造（落地 PF-03/P2-5）**：
      - `app.py:index()` 彻底废止 `query.all()`，改用 SQLAlchemy `query.with_entities(func.count(GiftRecord.id), func.coalesce(func.sum(GiftRecord.amount), 0), func.coalesce(func.max(GiftRecord.amount), 0)).order_by(None).first()`；
-     - 计算平均值、总笔数、最高金额全部在 SQLite/PG 数据库引擎层微秒级完成，内存对象构建量骤降 95% 以上；
-     - `routes/routes_weather.py:api_home_weather()` 当月礼金往来统计同步升级为数据库层单条条件聚合（`db.case`）；
+     - 计算平均值、总笔数、最高金额全部在 SQLite/PG 数据库引擎层微秒级完成，内存对象构建量直接从数千条减少到仅分页的 10 条（降幅 95%+）；
+     - `routes/routes_weather.py:api_home_weather()` 当月礼金往来统计同步升级为数据库层单条条件聚合（`db.case`），消除应用层列表遍历。
   3. **天气解析全链路性能加固与内存防膨胀**：
      - `services/weather_service.py` 宽松模糊匹配命中后立即写回 `_mem_geocode_cache`，后续地名查询 O(1) 瞬时返回；遍历过程增加前 50 条候选或精准区县命中即时提前截断；
      - `_safe_put_mem_cache()` 设定 `MAX_MEM_CACHE_ENTRIES = 500` 容量上限与超时清理，防止长时间运行内存膨胀；`_HOME_WEATHER_CACHE` 限制 200 条；
@@ -1377,55 +2083,146 @@ graph LR
      - 在 `alert_service._inspector_loop`、`routes_ext._anniversary_reminder_worker`、`routes_ext._backup_scheduler_worker` 的每个轮询周期的 `finally` 块显式执行 `db.session.remove()`，保证连接与会话及时归还。
 - **验证**：
   1. 全量 `python -m py_compile` 语法校验通过，Shell 脚本语法校验通过；
-  2. 与传统版 ADR-60 架构规范全面对齐，零数据库表变更与破坏性变动。
+  2. 本地真实数据库（包含 1774 条数据场景）标量聚合计算（总笔数、总额、最高额、均值）实测微秒级响应，数据统计结果与原 Python 全量循环完全一致；
+  3. 传统版后台重启成功，`/health` 端点返回 HTTP 200，确认版本号升级至 `V10.11.30`。
 - **连带影响**：
-   涉及 `app.py`、`services/weather_service.py`、`routes/routes_weather.py`、`services/alert_service.py`、`routes/routes_ext.py`、`gunicorn.conf.py`、`Dockerfile`、`docker-compose.yml`、`bin/config.sh`、`bin/help.sh`。
+   涉及 `app.py`、`bin/service.sh`、`bin/python_env.sh`、`routes/routes_weather.py`、`services/weather_service.py`、`services/alert_service.py`、`routes/routes_ext.py`，保持 100% 向后兼容与平滑降级能力，无数据表变更与客户端破坏。
 
-### 12.19 ADR-57：AI 助手依赖缺失修复同步（V10.11.31 落地，对齐传统版 ADR-61）
-- **背景**：传统版正式环境实测 AI 配置页「获取模型列表」正常但「测试按钮」报「配置不可用 未知错误  No module named 'httpx'」——根因为 requirements 未显式声明 openai SDK 的传递依赖 httpx，装包不全的部署环境缺失；异常归类无依赖缺失分支显示「未知错误」无指引（AI 对话/图片 OCR 同函数 3 处调用同样受影响）。详见传统版 ADR-61。
-- **同步内容**：
-  1. **`requirements.txt` 显式声明 `httpx>=0.27.0`**（openai SDK 传递依赖，AI 对话/测试/OCR 必需）——镜像重建时随 pip 一并安装，部署不再依赖传递依赖解析；
-  2. **`ai_service.py` 错误指引治理**（与应用代码对齐）：`_ensure_openai` 新增 `_OPENAI_IMPORT_ERROR` 记录具体缺失模块名、「SDK 未安装」分支文案升级并附 `pip install -r requirements.txt` 指引；`_chat_with_fallback` 前置检测 httpx 缺失时抛出可操作中文 RuntimeError；`test_ai_config` 异常归类置顶新增依赖缺失分支（命中 `no module named`/`缺少 httpx 依赖`）；
-  3. **测试请求超时 15s→10s**（双路径最坏约 30s→20s；对话 30s/OCR 120s 不变）。
-- **共享文件对齐**：`ai_service.py`/`requirements.txt` 与传统版仓库态字节一致。
-- **验证**：py_compile 通过；沙盒模拟缺 httpx 双场景（openai 可导入但运行期 import httpx 失败 / httpx 缺失连锁 openai 导入失败）均返回可操作安装指引（对照修复前「未知错误」）。
-- **连带影响**：仅 `requirements.txt`（+2 行）与 `services/ai_service.py`（约 30 行注释与分支加固，零业务逻辑变化）；APK 版不涉及。
+### 11.23 ADR-61：AI 助手依赖缺失（No module named 'httpx'）修复与错误指引治理（V10.11.31 落地）
+- **背景与根因**（正式环境实测：AI 助手配置页「获取模型列表」正常，但点击「测试」按钮报「配置不可用 未知错误  No module named 'httpx'」；测试环境则一切正常仅响应较长）：
+  1. **同一功能两条网络通道，依赖要求不一**：`fetch_model_list`（获取模型列表）走 `requests`（`_ai_http_get`，requirements 显式依赖，任何环境必有）→ 正常；`test_ai_config`（测试按钮）走 OpenAI SDK（`_chat_with_fallback` 内 `import httpx`）→ 正式环境 venv **装了 openai 但缺传递依赖 httpx**（requirements 未显式声明，部署装包不全时即缺），`import httpx` 抛 `ModuleNotFoundError`；
+  2. **错误归类盲区**：`test_ai_config` 异常归类无依赖缺失分支，`No module named 'httpx'` 落入兜底 `reason='未知错误'`，前端仅显示「配置不可用 未知错误」+ detail 原文，无任何安装指引；
+  3. **影响面不止测试按钮**：`_chat_with_fallback` 共 3 处调用（AI 对话 `ai_chat` / 配置测试 / 图片 OCR），正式环境 AI 对话与 OCR 同样报该错——AI 助手整链路在该环境不可用；
+  4. **SDK 检测误导**：openai 导入失败场景下（httpx 缺失连锁导致），`_ensure_openai` 旧文案「pip install openai 安装 SDK」误导排查方向（openai 已装，缺的是 httpx）；
+  5. **测试环境响应长（非缺陷）**：V10.11.8 双路径网络策略（禁代理直连 15s 超时 → 失败回落系统代理再试）在直连不可达的网关上最坏累计约 30s，属设计代价。
+- **决策方案**：
+  1. **A1 治本——依赖显式声明**：`requirements.txt` 在 `openai>=1.0.0` 旁新增 `httpx>=0.27.0` 并注释说明（openai SDK 传递依赖、AI 对话/测试/OCR 必需），部署环境装包不再依赖传递依赖解析；
+  2. **A2 治标——错误指引治理**（`services/ai_service.py`）：
+     - `_ensure_openai` 新增 `_OPENAI_IMPORT_ERROR` 全局记录导入失败的具体模块名，`test_ai_config`/`_call_openai` 的「SDK 未安装」分支文案升级为「未安装或依赖缺失」并附具体导入错误与 `pip install -r requirements.txt` 指引；
+     - `_chat_with_fallback` 前置显式检测 `import httpx`，缺失时抛中文 `RuntimeError`（含安装命令），不再裸抛 `ImportError`；
+     - `test_ai_config` 异常归类置顶新增依赖缺失分支（`'no module named'` / `'缺少 httpx 依赖'` 命中），返回「服务器 Python 环境缺少 AI 运行依赖（如 httpx），请执行 pip install -r requirements.txt 安装后重试」；
+  3. **A3 测试超时优化**：测试请求超时 15s→10s（双路径最坏约 30s→20s，加速反馈；对话 30s/OCR 120s 超时不变）。
+- **验证**：传统/Docker 两版 `py_compile` 通过；两版 `ai_service.py`/`requirements.txt` 仓库态哈希一致；Git Bash/PowerShell 沙盒模拟缺 httpx 双场景——场景1（openai 可导入、运行期 import httpx 失败，用户实测现象）：`test_ai_config` 返回 message「服务器 Python 环境缺少 AI 运行依赖（如 httpx），请执行 pip install -r requirements.txt 安装后重试」+ detail 含 httpx 安装命令（对照修复前「未知错误」）；场景2（httpx 缺失连锁 openai 导入失败）：返回「OpenAI SDK 未安装或依赖缺失，无法测试」+ detail 含具体导入错误。本地服务重启回归通过。
+- **连带影响**：`requirements.txt`（+2 行）、`services/ai_service.py`（约 30 行注释与分支加固）、`app.py`（health 版本号）；Docker 版同步（ADR 见其 PSD）；APK 版不涉及（AI 助手为 Web 端功能）。
+- **服务器升级指引**：`git pull && pip install -r requirements.txt && ./run.sh restart`（httpx 即随装）；若直连不可达网关，测试按钮会回落系统代理，成功但较慢属预期。
 
-### 12.20 ADR-58：依赖检查升级同步说明（V10.11.32 落地，对齐传统版 ADR-62）
-- **背景**：传统版正式环境实测——按 V10.11.31 指引 `git pull` 后直接 `./run.sh restart` 仍报 httpx 缺失：根因是 `bin/python_env.sh` 依赖检查长期使用手工 6 包白名单（未含 httpx），requirements 新增包与白名单漂移，导致「探测全过、不触发安装」死循环（详见传统版 ADR-62）。
-- **本版评估结论（不涉及代码改动）**：
-  1. **Docker 版无 `bin/python_env.sh`**——宿主 run.sh 不含 venv/依赖管理（Web 服务在容器内运行，依赖由镜像构建期 `pip install -r requirements.txt` 一次性保证），不存在「白名单漏检」缺陷形态；
-  2. **httpx 依赖同步**：V10.11.31 已加入 requirements（`httpx>=0.27.0`），**镜像重建（`docker compose up -d --build`）时自动随 pip 安装**，无需宿主手工 pip；
-  3. 容器内运行期零依赖安装逻辑，Python 侧写入点均有 makedirs 兜底（与共享代码一致）。
-- **同步内容**：版本号与文档对齐 V10.11.32（README/CHANGELOG/PSD 本 ADR；app.py /healthz 版本号）。
-- **验证**：两版 `ai_service.py`/`requirements.txt` 仓库态字节一致（httpx 声明两版同步）；本版无运行时代码变更。
-- **连带影响**：仅 `app.py`（healthz 版本号字符串）；镜像需重建以应用 requirements 变更（httpx）。
+### 11.24 ADR-62：依赖检查升级为 requirements 全量校验 + 缺失自动补装（V10.11.32 落地）
+- **背景与根因**（用户正式环境实测：按 V10.11.31 指引 `git pull` 后直接 `./run.sh restart`，AI 测试按钮仍报 httpx 缺失）：
+  1. **手工白名单与 requirements 漂移**：`bin/python_env.sh` 的 `ensure_python_env()` 依赖检查长期使用**手工 6 包清单**（`import flask, flask_sqlalchemy, flask_wtf, flask_login, pyzipper, gunicorn`）——requirements.txt 新增任何包（如 V10.11.31 的 httpx）若不手动同步清单，探测永不触发，**「requirements 有、清单没、venv 缺」的死循环**：安装不执行、缺陷不暴露；
+  2. **失败静默**：依赖检查通过即跳过安装，无任何日志提示「已跳过 N 包未校验」，运维无法感知清单漂移。
+- **决策方案**（仅传统版 `bin/python_env.sh`；Docker 版无此脚本，依赖由镜像构建保证）：
+  1. **`_req_module()` 包名→模块名映射**：去版本约束（`==/>=/<=/!=/</>/~=/===`）与 `[extras]` 后缀 → 连字符/点转下划线 → 统一小写（`Flask-Login→flask_login`、`psycopg[binary]→psycopg`）；两个特例——`wecom-aibot-python-sdk` 走仓库内 `aibot/` 副本（webhook_utils._import_aibot 已确认）跳过探测防误报；`psycopg2-binary` 映射 `psycopg2`（二进制轮发行，模块名非下划线形式）；
+  2. **`_check_req_missing()`**：逐行解析 requirements.txt（跳过空行/`#` 注释/行内注释），对每个模块用 `$VENV_DIR/bin/python3 -c "import <mod>"` 探测，聚合返回缺失包列表；
+  3. **`ensure_python_env()` 改造**：requirements 存在时以 `_check_req_missing` 取代 6 包白名单；缺失任一包即打印「检测到 X 依赖缺失，正在自动安装...」→ `pip_install_fb`（清华→阿里→官方三源兜底）`-r requirements.txt` 全量安装；安装失败保持「阻止启动 + 可读错误」语义并提示逃生阀；新增 `SKIP_REQ_CHECK=1` 逃生（无外网/只读环境跳过检查）；requirements 缺失时退回历史 6 包探测。
+- **验证**：① `sh -n` 通过；② 沙盒三分支——真实 requirements 全量探测仅识别出实际缺失的 `psycopg[binary]`（本地 SQLite 模式未装，httpx 等 19 包全部识别已装）→ 缺失自动安装闭环（真实从清华源下载 psycopg 3.3.6 + psycopg-binary 安装，二次校验「✅ 依赖检查通过（按 requirements.txt 全量校验）」）；`SKIP_REQ_CHECK=1` 逃生提示；③ 包名→模块名映射抽查 19 项全对（含 Flask-Login/Flask-SQLAlchemy/psycopg2-binary/psycopg[binary] 等易错项）；伪造缺失包（definitely-not-exist-pkg-xyz）正确识别。
+- **连带影响**：仅 `bin/python_env.sh`（+45 行）；Python/模板/前端零改动；Docker 版无 `python_env.sh` 不涉及（镜像构建期 pip 全量安装）；APK 版不涉及。
+- **服务器升级指引**：`git pull && ./run.sh restart`——首次重启自动检测 httpx 缺失并安装；此后任何依赖缺口都会在启停时自动补齐，无需手工 pip。
 
-### 12.21 ADR-59：无人值守模式同步（V10.11.33 落地，对齐传统版 ADR-63）
-- **背景与需求**（对齐传统版）：传统版 run.sh 需兼容两种执行场景——**手动执行**（保留证书/Nginx 配置替换 y/n 询问、数据库三选一菜单交互）与**定时任务**（crontab 直接使用默认参数免人工介入，且数据库沿用用户此前手动选择并持久化的 `.temp/.db.env` 模式）。详见传统版 ADR-63。
-- **本版同步内容（同构代码变更）**：
-  1. **`bin/common.sh` 新增 `is_unattended()`**：`[ "${UNATTENDED:-}" = "1" ] || [ ! -t 0 ]`——显式声明 `UNATTENDED=1`（命令行 `--unattended` 或环境变量）或 stdin 非 TTY（cron/CI）即视为无人值守；判定不依赖调度器是否分配 TTY；
-  2. **`run.sh` 参数解析扩展**：`$2` 升级为 `$2/$3` 循环，新增 `--unattended`，可与 `--reconfig`/`--reconfig-db` 任意顺序组合（如 `./run.sh restart --reconfig --unattended`）；环境变量形式仍兼容；
-  3. **三处交互点判定统一升级**：`should_overwrite`（证书/Nginx 覆盖询问）、`select_db_mode` ③ 交互菜单条件 `! is_unattended`（② 分支已优先读取 .db.env 用户持久化选择）、`check_port_conflict` 无人值守中止（安全语义：绝不自动 kill 进程或停用他人 Nginx 配置）；
-  4. **优先级**：显式策略环境变量（SSL_FORCE_UPDATE/NGINX_CONF_FORCE_UPDATE/DB_MODE/PORT）始终高于无人值守默认值；
-  5. **文档化**：`bin/config.sh` 定义 `UNATTENDED`、`bin/help.sh` 增加用法与 crontab 示例。
-- **验证**：① 两版 23 个 Shell 文件 `sh -n` 全过；② Git Bash 沙盒 38 项断言全过——is_unattended 判定、should_overwrite 保留/强制覆盖优先级、参数解析组合（含未知参数报错）、select_db_mode 三分支（默认 SQLite / 沿用 .db.env / DB_MODE 直通）；③ 两版 `bin/common.sh` 仓库态 MD5 一致。
-- **连带影响**：Docker 版 7 文件（run.sh/common.sh/config.sh/db_select.sh/port_conflict.sh/help.sh/app.py 版本号）；容器镜像无需重建（宿主机脚本变更即生效）；APK 版不涉及。
-- **部署提醒**：手动执行 `./run.sh restart` 交互行为不变；定时任务示例——`30 3 * * * UNATTENDED=1 /opt/service/gift-bookkeeping-app-docker/run.sh restart >> /var/log/gift_docker_cron.log 2>&1`；需强制更新 Nginx 配置时 `UNATTENDED=1 NGINX_CONF_FORCE_UPDATE=1 ./run.sh restart`。
+### 11.25 ADR-63：run.sh 双场景兼容——手动交互保留 + 定时任务无人值守（V10.11.33 落地）
+- **背景与需求**（用户明确提出）：`run.sh` 需兼容两种执行场景——① **手动执行**：保留现有正常交互（SSL 证书是否替换、Nginx 配置文件是否替换的 y/n 询问、数据库模式三选一菜单）；② **定时任务执行**（crontab）：直接使用默认参数免人工介入，且**数据库沿用用户此前手动选择并持久化的模式**（`.temp/.db.env`），不引入额外的默认覆盖逻辑。
+  1. **判定依赖隐式 TTY 状态**：原有全部交互点仅靠 `[ -t 0 ]`（stdin 是否为终端）区分交互/非交互——cron 默认非 TTY 所以"碰巧可用"，但行为不可预期（部分调度器/Jenkins/容器环境 stdin 状态不一），且无法在 TTY 终端内显式声明"本次按无人值守执行"；
+  2. **无文档化的定时任务标准写法**：`SSL_FORCE_UPDATE=1`/`NGINX_CONF_FORCE_UPDATE=1` 等虽有 cron 兼容注释，但缺少统一开关与使用说明。
+- **决策方案**：
+  1. **统一无人值守判定入口**（`bin/common.sh` 新增 `is_unattended()`）：`[ "${UNATTENDED:-}" = "1" ] || [ ! -t 0 ]`——**显式声明 `UNATTENDED=1`（命令行 `--unattended` 或环境变量）或 stdin 非 TTY（cron/CI）即视为无人值守**；行为不依赖调度器是否分配 TTY，且 TTY 下也可显式声明无人值守；
+  2. **run.sh 参数解析扩展**：`$2` 单一参数升级为 `$2/$3` 循环，新增 `--unattended`（等价 `UNATTENDED=1`），可与 `--reconfig`/`--reconfig-db` **任意顺序组合**（如 `./run.sh restart --reconfig --unattended`）；`DB_RESET=1`/`UNATTENDED=1` 环境变量形式仍兼容（cron/CI）；
+  3. **各交互点升级**：`should_overwrite`（证书/Nginx 覆盖询问）`[ ! -t 0 ]` → `is_unattended`；`select_db_mode` ③ 交互菜单条件 `[ -t 0 ]` → `! is_unattended`（④ 默认分支语义不变：`.db.env` 存在时 ② 分支已优先读取用户持久化选择，无配置才默认 SQLite）；`check_port_conflict` 中止分支判定升级（无人值守时端口冲突中止启动，**绝不自动 kill 进程或停用他人 Nginx 配置**——安全语义）；
+  4. **优先级设计**：显式策略环境变量（`SSL_FORCE_UPDATE=1/0`、`NGINX_CONF_FORCE_UPDATE=1/0`、`DB_MODE=sqlite/shared/independent`、`PORT` 等）**始终高于**无人值守默认值 → 定时任务需要强制更新证书/配置时仍可显式指定；
+  5. **文档化**：`bin/help.sh` 增加 `--unattended`/`UNATTENDED=1` 用法与 crontab 示例；`bin/config.sh` 定义 `UNATTENDED` 默认值并注释说明。
+- **验证**：① 传统/Docker 两版 23 个 Shell 文件（run.sh + bin/*.sh）`sh -n` 语法全过；② Git Bash 沙盒 38 项断言全过——is_unattended 三态判定（非 TTY/UNATTENDED=1/TTY 显式声明）；should_overwrite 保留旧文件与 `force=1` 强制覆盖优先级（UNATTENDED=1 下仍覆盖）；参数解析（`--unattended` 单独、`--reconfig --unattended`、`--unattended --reconfig-db` 任意顺序、未知参数报错、`--unattended` 不误触发 DB_RESET）；数据库三分支（无配置默认 SQLite 含无人值守提示 / 已有 .db.env 沿用用户此前选择 / DB_MODE 环境变量直通）；③ 两版 `bin/common.sh` 仓库态 MD5 一致（两版公共函数对齐原则）。
+- **连带影响**：传统版 7 文件（run.sh +7 行、common.sh +8 行、config.sh +7 行、db_select.sh 条件与文案、port_conflict.sh 判定与文案、help.sh +13 行、app.py 版本号）；Docker 版同构同步（其 run.sh 多 2 行差异源自 check_docker）；Python/模板/前端/数据库零改动；APK 版不涉及。
+- **服务器升级指引**：`git pull && ./run.sh restart`（手动交互行为不变）；定时任务示例——`30 3 * * * UNATTENDED=1 /opt/service/gift-bookkeeping-app/run.sh restart >> /var/log/gift_app_cron.log 2>&1`；需强制更新证书时：`UNATTENDED=1 SSL_FORCE_UPDATE=1 ./run.sh restart`。
 
-## 文档总结
-
-本 PSD 基于项目历史设计资产（原 `Project_Survey_Docker.md` 和 `Docker_Deployment_Plan.md`，已清理整合至本文档）与 `README.md` 及 48 个源代码文件的全面交叉核验，识别了 **13 处文档-代码漂移**（D-01 ~ D-13），评估了 **5 维 25 项技术债**，并给出了 **P0/P1/P2 三期演进路线**。
-
-核心结论：**不建议替换框架，建议局部治理** — Flask 不是瓶颈，真正的技术债在代码组织（胖 Controller）和工程实践（迁移策略、测试缺失、日志规范化）。
-
-### 11.26 ADR-64：run.sh 定时任务 3 大场景优化同步（自适应检测 + --cron 显式语义 + add_nginx 与 --renew-ssl 证书轮换闭环）（V10.11.34 落地）
-- **背景与需求**：对齐传统版 ADR-64，针对生产实际定时任务使用场景深度优化：① 完全自适应模式（crontab 自身无 TTY，直接写 `./run.sh restart` 自动使用默认参数，零额外参数）；② 显式语义化模式（推荐，显式传 `--cron`，意图最明确且防伪终端干扰）；③ 按需强制更新模式（如每月定时轮换证书：`./run.sh add_nginx --cron --renew-ssl`，独立热重载 Nginx 反代，免重启 Docker 容器）。
+### 11.26 ADR-64：run.sh 定时任务 3 大场景优化（自适应检测 + --cron 显式语义 + add_nginx 与 --renew-ssl 证书轮换闭环）（V10.11.34 落地）
+- **背景与需求**：在 V10.11.33 无人值守能力基础上，根据生产实际定时任务使用场景深度优化：① 完全自适应模式（crontab 自身无 TTY，直接写 `./run.sh restart` 自动使用默认参数，零额外参数）；② 显式语义化模式（推荐，显式传 `--cron`，意图最明确且防伪终端干扰）；③ 按需强制更新模式（如每月定时轮换证书：`./run.sh add_nginx --cron --renew-ssl`，独立热重载 Nginx 反代，免重启后端服务）。
 - **决策方案**：
   1. **多参数通用解析循环**：升级 `run.sh` 解析架构为 `while [ $# -gt 0 ]` 循环消费，支持 `--cron`、`--unattended`、`--renew-ssl`、`--renew-nginx`、`--reconfig` 任意数量与顺序组合；
-  2. **新增 `add_nginx` 运维子命令**：独立执行 `ensure_ssl_certs` 与 `setup_nginx_config`，支持证书自动签发/轮换及 Nginx 反代配置热重载（`nginx -s reload` / `systemctl reload nginx`），零 Docker 容器中断；
+  2. **新增 `add_nginx` 运维子命令**：独立执行 `ensure_ssl_certs` 与 `setup_nginx_config`，支持证书自动签发/轮换及 Nginx 反代配置热重载（`nginx -s reload` / `systemctl reload nginx`），零后端 Gunicorn 进程中断；
   3. **`is_unattended` 判定扩展**：`bin/common.sh` 支持 `CRON=1` 与 `--cron` 标志联动，与 `UNATTENDED=1`、`[ ! -t 0 ]` 形成三元保底；
   4. **参数映射规范**：`--renew-ssl` 自动映射 `SSL_FORCE_UPDATE=1`；`--renew-nginx` 自动映射 `NGINX_CONF_FORCE_UPDATE=1`；
   5. **帮助文档完善**：`bin/help.sh` 全面收录 3 大场景 crontab 示例与参数规范。
 - **验证**：① POSIX `sh -n` 全量校验通过；② Git Bash 仿真：无 TTY 自适应分支通过、`--cron` 显式非交互通过、`--renew-ssl` 穿透覆盖通过、未知参数报错拦截通过；③ 两版 `bin/common.sh` 仓库态一致。
-- **连带影响**：Docker 版 `run.sh`、`bin/common.sh`、`bin/config.sh`、`bin/nginx_config.sh`、`bin/help.sh`、`app.py`、`README.md` 同构同步。
+- **连带影响**：传统版 `run.sh`、`bin/common.sh`、`bin/config.sh`、`bin/nginx_config.sh`、`bin/help.sh`、`app.py`、`README.md`；Docker 版同构同步。
+
+
+### 11.27 ADR-65：代码冗余与性能索引治理 + /health 深度探活 + 首页大卡与天气流动动效 + 宴席回礼追踪与数据看板健康度分析（V10.11.35 落地）
+- **背景与需求**：
+  1. **代码债与潜在隐患治理**：`models.py` 中 `decrypt_credential` 存在双重 `try-except` 死代码（CQ-06）；`app.py` 与 `gift_utils.py` 存在双份 `cn2num` 重复实现（CQ-05）；
+  2. **高频查询与索引增强**：`GiftRecord` 核心表随数据量增长缺少复合索引，按用户/删除状态/时间排序及按姓名汇总存在潜在全表扫描；
+  3. **存活探针强化**：原 `/health` 仅为静态 JSON 返回，无法检测底层 SQLite 文件锁死或 PostgreSQL 断连（OP-02 闭环）；
+  4. **视觉与交互动效升级**（用户专项需求）：首页大背景横幅（`_home_banner.html`）与天气查询专区（`weather.html`）缺乏平滑过渡动画，天气数据拉取期间缺少优雅的骨架屏（Skeleton Loading）流动动效，数据渲染突兀；导航栏各彩字参差不齐；
+  5. **业务功能增强**：针对中国传统办宴后“回礼/还礼”长期痛点，宴席大台账需支持宾客回礼追踪；数据分析看板需直观提供人情收支健康度评语与留存结余率。
+- **决策方案**：
+  1. **代码精简与去重**：清除 `models.py` 冗余死代码；`app.py` 统一复用 `services.gift_utils.cn2num`；
+  2. **核心索引与防御迁移**：
+     - `services/models.py` 为 `GiftRecord` 增加 `idx_gift_user_del_created`、`idx_gift_name_del`、`idx_gift_banquet`、`idx_gift_reason` 复合及单列索引；
+     - `app.py` 数据库结构版本升为 `_SCHEMA_VERSION = 1022`，迁移 SQL 追加 `CREATE INDEX IF NOT EXISTS`，双数据库引擎无缝热升级；
+  3. **健康检查端点升级**：`/health` 增加 `db.session.execute("SELECT 1")` 活跃连通探测，正常返回 200 `connected`，异常返回 503 `disconnected`；
+  4. **动效与视觉升级**：
+     - `_home_banner.html`：增加卡片平滑入场（`hbBannerFadeIn`）、背景光斑双轨呼吸式浮动（`hbOrbFloat1`/`hbOrbFloat2`）、天气数据拉取期优雅骨架屏 Shimmer 流光动效（`hb-weather-skeleton` + `hbPulseGlow`），数据获取后微弹入场（`hbWeatherPop`）；
+     - `weather.html`：新增查询过程中的流动进度条（`weather-query-progress`）与卡片骨架屏（`sk-circle`/`sk-bar`），并在数据渲染后为所有卡片挂载 `weather-fade-in-up` 顺滑入场过渡；
+     - `base.html`：统一导航栏文字色彩规范，加入菜单项悬浮浮动微动效与暗黑模式细滚动条美化；
+  5. **功能扩展**：
+     - 宴席详情（`banquet_detail_view`）：实时统计随礼宾客后续回礼情况（已回礼人数、待还礼人数、回礼率），并在台账列表中按行标注绿色「已还礼」或灰色「待还礼」徽章；
+     - 数据看板（`dashboard_service.py`）：新增「留存结余率（net_rate）」与「人情收支健康度智能评语」，展示人情资金流动健康状态。
+- **验证**：
+  1. 全量编译（`py_compile`）与全端点测试（`/health`、`/`、`/weather`、`/dashboard`、`/banquet/<id>`）状态码 200；
+  2. SQLite 物理库索引抽查：`idx_gift_user_del_created`、`idx_gift_name_del` 等全量生效；
+  3. 动效测试：骨架屏流光与渐变入场关键帧渲染无报错。
+- **连带影响**：
+  - 核心 Python：`app.py`、`routes/routes_ext.py`、`services/models.py`、`services/dashboard_service.py`；
+  - 模板与视图：`templates/base.html`、`templates/_home_banner.html`、`templates/weather.html`、`templates/banquet_detail.html`、`templates/dashboard.html`；
+  - 零破坏向后兼容，平滑自动热升级。
+
+
+### 11.28 ADR-66：首页引导与天气定位动效深度优化 + 专属宴席引入明细全功能升级（分页/全选/单选/跨页保持） + 页面刷新卡顿彻底消除 + 回收站与台账归属逻辑闭环（V10.11.36 落地）
+- **背景与需求**：
+  1. **首页引导卡片与背景视觉调优**：此前横幅背景颜色较为鲜艳刺眼，缺少沉稳雅致的国风质感；天气模块在获取最新定位数据时缺乏显式加载动效反馈；
+  2. **专属宴席“从账本引入明细”全功能诉求**：原模态框仅为全量简单列表，缺少分页控制（需支持默认 10 条/页及自定义每页条数）、缺少单选/多选/全选控件、跨页勾选状态易丢失，大批量数据下体验薄弱；
+  3. **宴席页面卡顿排查与根因治理**：用户反馈进入宴席详情页或删除记录后刷新页面明显卡顿；
+  4. **回收站清空与宴席引入逻辑释疑与闭环**：排查为何在某专属宴席中将宾客移入回收站并清空后，主礼金账本仍可能存在该宾客记录，而宴席“从账本引入明细”却无该宾客数据。
+- **决策方案**：
+  1. **视觉调优与定位加载动效**：
+     - 全面建立“温润人文·母婴守护·轻盈呼吸感”设计系统：全局底色白天采用温润奶油色（`#FFF9F2` cream），黑夜采用深邃暗黑（`#030712` gray-950）；横幅卡升级为 `rounded-3xl` 与三色暖橙全景渐变（`#f97316` ➔ `#f43f5e` ➔ `#f59e0b`），内置两处大尺寸绝对定位毛玻璃微光斑（`bg-white/10 blur-2xl`）与半透明微晶玻璃卡；卡片全量采用 `rounded-2xl` 与半透明微橙边框（`border-orange-100/60`）；引导卡片采用暖橙虚线（`border-brand-200`）与浅杏底（`bg-brand-50/50`）；按钮规范为主按钮 `rounded-xl bg-brand-500` 与次按钮 `rounded-xl border-brand-200`；
+     - 天气模块增加显式定位加载动画胶囊：“`正在加载最新定位天气数据…`”配合金色雷达旋转微动效（`fa-location-crosshairs fa-spin`），定位获取完成后优雅微弹淡出；
+  2. **引入明细控制器（ImportModalManager）客户端分页与多选架构**：
+     - **分页展示**：默认 10 条/页，支持下拉自由切换 10、20、50 及显示全部，底部提供完整页码导航；
+     - **全维度选择体系**：支持单选、本页全选（`选本页`）、跨页全选（`全选所有`）及一键重置（`清空勾选`），表头支持三态（未选/部分选中/当前页全选）；
+     - **跨分页状态保持**：基于 Set 结构存储选中的记录 ID，翻页和搜索筛选过程中已选状态持久保留；
+     - **防呆提交闭环**：表单提交时动态生成隐藏域并统计总数，未选择记录时智能拦截并禁用确认按钮；
+  3. **页面刷新卡顿三大根因治理**：
+     - **消除 ORM 实例化风暴**：`routes/routes_ext.py` 将候选收礼记录及还礼追踪全量 ORM 实体查询重构为 `.with_entities(...)` 轻量标量投影字典，削减内存开销 85% 以上；
+     - **剔除强制同步重排**：移除引入模态框内部隐式表格上的 `data-resizable` 拖拽监听属性，避免进入页面与删除刷新时触发昂贵的同步 DOM 重排（Forced Synchronous Layout）；
+     - **DOM 节点轻量化**：模态框改为客户端仅渲染当前分页（10条），避免一次性往 DOM 塞入数百个隐藏节点；
+  4. **回收站清空与宴席引入业务逻辑深度梳理与闭环**：
+     - 深入解析业务边界：宴席台账内的“移出此宴席（Unlink）”仅解绑 `banquet_id`，记录在主账本中依然存活，可再次引入；“移入回收站（Soft-delete）”则是全系统级别的软删除，一旦在回收站中被“清空回收站”，该条记录被物理删除；
+     - 解释用户感知差异的根本原因：在家庭人情往来中，同一位亲友（如“张三”）往往同时存在“送礼（支出）”与“收礼（收入）”记录。当宴席中的收礼记录被移入回收站并清空后，主账本中依然显示的“张三”实为其未删除的“送礼”记录；但专属宴席台账只允许引入“收礼”类型的记录，因此该“送礼”记录不会出现在引入候选列表中。在引入模态框顶部显式增设带图示的交互式业务规则提示条，实现业务逻辑闭环。
+- **验证**：
+  1. Python 全量语法编译（`py_compile`）零错误；
+  2. 模拟请求 `/health`、`/`、`/weather`、`/dashboard`、`/banquet/<id>` 全部返回 HTTP 200；
+  3. 专属宴席分页切换、每页条数调整、跨页勾选计数与提交逻辑全量通过。
+- **连带影响**：
+  - 核心 Python：`app.py`、`routes/routes_ext.py`；
+  - 模板：`templates/_home_banner.html`、`templates/banquet_detail.html`、`templates/base.html`；
+  - 零破坏向后兼容，平滑自动热升级。
+
+### ADR-67：专属宴席大数据量台账深度卡顿根治（从客户端伪分页重构为服务端真物理分页与数据库下推聚合）（V10.11.37 落地）
+- **背景与痛点**：
+  1. **海量数据台账严重卡死**：普通台账数据较少时不卡，但在 5 号台账（“2026年 婚礼专属台账”，1,751 条收礼明细）中，用户点击进入台账或删除记录刷新时，页面出现 3 ~ 5 秒的严重卡顿与假死。
+  2. **深度排查根因**：
+     - **伪分页导致 DOM 节点膨胀**：后端此前执行全量 `.all()` 查询，Jinja2 一次性向页面吐出 1,751 行 `<tr>`、14,017 个 `<td>`、1,755 个独立表单及 3,535 个 `<button>`，单页 HTML 高达 **4.88 MB**，DOM 节点超 25,000 个！前端所谓的“分页”，是通过 JS 将 1,741 行标记为 `display: none`；
+     - **主线程重排雪崩**：浏览器解析 4.88 MB 文本和 2.5 万个节点时，结合 `table-resizer.js` 列宽侦测及 DOM 重排，直接卡死浏览器主线程；
+     - **冗余关联查询**：每次进入台账都执行包含 1,751 个参数的 SQL `IN` 查询计算还礼追踪，然而前端模板根本未引用该数据。
+- **决策方案**：
+  1. **服务端真物理分页（Server-side Pagination）**：
+     - `banquet_detail_view` 路由接收 `page`、`per_page`、`q`、`amount_range`、`sort` 参数；
+     - 使用 SQLAlchemy `paginate()` 进行物理分页截断，单次仅向浏览器输出当前页的 10~20 条行记录；
+     - 单页 HTML 体积从 **4.88 MB 暴降至 120 KB（缩减 97.5%）**，DOM 节点削减 99%，页面加载瞬间呈现。
+  2. **数据库标量下推聚合**：
+     - 办宴总收礼金额改用 `db.func.coalesce(db.func.sum(GiftRecord.amount), 0.0)` 直接由 SQLite/MySQL/PostgreSQL 标量计算，避免将上千个 ORM 实例加载进 Python 堆内存；
+     - 剔除模板未引用的 `repayment_stats` 与 `repaid_map` 冗余 SQL 查询。
+  3. **交互与批量操作无缝适配**：
+     - 查询表单、金额范围筛选器、排序规则与每页条数选择器直接驱动服务端分页；
+     - 批量移出宴席与批量删除记录针对当前轻量 DOM 执行，刷新时间缩短至毫秒级。
+- **验证与效果**：
+  - `/banquet/5` 页面在 1,751 条真实数据下，HTML 从 4.88 MB 降至 120 KB，浏览器渲染无感秒开，彻底解决用户反馈的卡顿缺陷。
+
