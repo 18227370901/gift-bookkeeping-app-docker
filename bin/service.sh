@@ -7,10 +7,14 @@
 print_access_info() {
     echo_e "   容器内监听端口: $PORT"
     echo_e "   宿主机映射端口: $HOST_PORT"
+    local proxy_tip=""
+    if [ -n "$NGINX_BIND_IP" ] && [ "$NGINX_BIND_IP" != "0.0.0.0" ]; then
+        proxy_tip=" (前置代理模式: 仅监听 ${NGINX_BIND_IP}:${NGINX_PORT}，请经由上层网关访问)"
+    fi
     for _sni_domain in $SNI_DOMAIN; do
         _port_suffix=""
         [ "$NGINX_PORT" != "443" ] && _port_suffix=":$NGINX_PORT"
-        echo_e "   HTTPS 访问地址: https://$_sni_domain$_port_suffix (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
+        echo_e "   HTTPS 访问地址: https://$_sni_domain$_port_suffix$proxy_tip (由 Nginx 反向代理至 127.0.0.1:$HOST_PORT)"
     done
 }
 

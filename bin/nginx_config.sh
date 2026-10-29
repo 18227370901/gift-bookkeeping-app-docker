@@ -38,15 +38,21 @@ setup_nginx_config() {
         if [ -f "$target_conf" ] && ! should_overwrite "$target_conf" "$NGINX_CONF_FORCE_UPDATE" "NGINX_CONF_FORCE_UPDATE"; then
             echo_e "${YELLOW}保留现有 Nginx 配置文件，未重新渲染: $target_conf${NC}"
         elif [ -n "$nginx_template" ]; then
-            local listen_value="$NGINX_PORT"
+            local listen_addr="$NGINX_PORT"
+            local proxy_mode="公网暴露 (0.0.0.0)"
+            if [ -n "$NGINX_BIND_IP" ] && [ "$NGINX_BIND_IP" != "0.0.0.0" ]; then
+                listen_addr="${NGINX_BIND_IP}:${NGINX_PORT}"
+                proxy_mode="前置代理 (${NGINX_BIND_IP})"
+            fi
+            local listen_value="$listen_addr"
             local default_flag="否"
             if [ "$SNI_DEFAULT_SERVER" = "1" ]; then
-                listen_value="${NGINX_PORT} default_server"
+                listen_value="${listen_addr} default_server"
                 default_flag="是"
             fi
             {
                 echo "# 本文件由 run.sh 依据 $(basename "$nginx_template") 模板自动生成，请勿手工修改（改模板请编辑源文件后重跑 start）"
-                echo "# 项目: $PROJECT_NAME | SNI域名: $SNI_DOMAIN | 监听端口: $NGINX_PORT | default_server: $default_flag | 生成时间: $(date '+%Y-%m-%d %H:%M:%S')"
+                echo "# 项目: $PROJECT_NAME | SNI域名: $SNI_DOMAIN | 监听地址: $listen_addr | 模式: $proxy_mode | default_server: $default_flag | 生成时间: $(date '+%Y-%m-%d %H:%M:%S')"
                 # V10.11.29 加固：范围表达式由 '1,/^#   __SSL_KEY__/d' 改为 '/^upstream /,$!d'（按正文结构截取，
                 # 不再依赖模板头部注释标记，避免模板头部变动时静默删光正文）
                 sed -e '/^upstream /,$!d' \
@@ -58,7 +64,7 @@ setup_nginx_config() {
                     -e "s|__SSL_KEY__|$SSL_KEY|g" \
                     "$nginx_template"
             } > "$target_conf" 2>/dev/null && \
-            echo_e "${GREEN}✅ 已动态更新并同步 Nginx 配置到 $target_conf (项目: $PROJECT_NAME, 宿主机映射端口: $HOST_PORT, Nginx监听端口: $NGINX_PORT, SNI域名: $SNI_DOMAIN, default_server: $default_flag)${NC}" || true
+            echo_e "${GREEN}✅ 已动态更新并同步 Nginx 配置到 $target_conf (项目: $PROJECT_NAME, 宿主机映射端口: $HOST_PORT, 监听: $listen_addr, 模式: $proxy_mode, SNI域名: $SNI_DOMAIN, default_server: $default_flag)${NC}" || true
         fi
         if command -v nginx > /dev/null 2>&1; then
             if nginx -t >/dev/null 2>&1; then

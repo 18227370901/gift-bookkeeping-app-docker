@@ -11,7 +11,7 @@
 
 > **简洁、安全、全能的企业级人情往来与礼金财务管理系统 (Docker 容器化版)**。支持自然语言智能记账、专属宴席独立台账、人情往来精准对账、权威万年历与节假日调休感知、AI 记账助手、多渠道 Webhook 告警与 WebDAV 加密云备份。原生提供完整 Docker Compose 多架构编排、Nginx SNI 多域名 443 端口复用反向代理与免构建镜像秒级部署。
 >
-> 📌 **当前版本**：`V10.11.42` | 📖 **[查看全量版本发布历史与更新日志 (docs/CHANGELOG.md)](docs/CHANGELOG.md)**
+> 📌 **当前版本**：`V10.11.43` | 📖 **[查看全量版本发布历史与更新日志 (docs/CHANGELOG.md)](docs/CHANGELOG.md)**
 
 <!-- 
   【AI 协作与维护规范 - 严禁违背】
@@ -106,10 +106,11 @@ docker compose logs -f web
 
 ```bash
 chmod +x run.sh
-./run.sh start      # 启动 Docker 集群并配置 Nginx SNI
-./run.sh status     # 查看容器状态、端口映射与访问地址
-./run.sh restart    # 重启服务
-./run.sh stop       # 停止服务
+./run.sh start                            # 启动 Docker 集群并配置 Nginx 反代 (默认配置)
+./run.sh start --nginx-port 3443 --local  # 前置代理模式 (监听 127.0.0.1:3443)
+./run.sh status                           # 查看容器状态、端口映射与访问地址
+./run.sh restart                          # 重启服务
+./run.sh stop                             # 停止服务
 ```
 
 > 💡 **切换数据库模式**：执行 `./run.sh restart --reconfig` 可通过交互菜单一键在 SQLite 与独立 PostgreSQL 间切换。  
