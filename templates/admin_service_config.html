@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}外部接口服务配置 - 系统管理{% endblock %}
+{% block title %}系统核心服务 - 外部接口配置 - 系统管理{% endblock %}
 
 {% set ICONS = {'geocoding':'fa-map-location-dot','forecast':'fa-cloud-sun','air_quality':'fa-wind','holiday':'fa-calendar-check','wecom_ws':'fa-comments','ai_search':'fa-magnifying-glass'} %}
 {# V10.11.26 F4 各组停用后果说明（让管理员预见服务停用对业务的影响） #}
@@ -29,17 +29,57 @@
     /* 行内图标按钮紧凑化（F6） */
     .btn-icon { padding: .22rem .45rem; }
     .btn-icon i { font-size: .8rem; }
+    /* V10.11.51 端点行两行卡片布局：第一行地址与状态，第二行操作按钮（图标+文字，不依赖悬停） */
+    .endpoint-row { border: 1px solid var(--bs-border-color); border-radius: .5rem; padding: .5rem .6rem .35rem; background: var(--bs-body-bg); }
+    .endpoint-row .endpoint-main { row-gap: .25rem; }
+    .endpoint-row .endpoint-url { flex: 1 1 300px; min-width: 0; }
+    .endpoint-row .endpoint-actions { gap: .25rem; margin-top: .35rem; padding-top: .35rem; border-top: 1px dashed var(--bs-border-color-translucent, rgba(33,37,41,.15)); }
+    .btn-act { padding: .12rem .5rem; font-size: .78rem; white-space: nowrap; }
+    .btn-act i { font-size: .72rem; }
+    .endpoint-row .row-select-cb { margin: 0; }
+    .platform-badge, .endpoint-row .switch-wrap { flex: 0 0 auto; }
+    /* 只读模式提示条（非管理员） */
+    .ro-banner { border-left: 4px solid var(--bs-primary); }
+    .ro-banner b { color: var(--bs-primary); }
     /* 未保存更改时「保存配置」按钮的强调态（F3） */
     #saveAllBtn.has-unsaved { border-color: #fd7e14; color: #fd7e14; }
     #saveAllBtn.has-unsaved:hover { background-color: #fd7e14; color: #fff; }
+    /* V10.11.49 子页签导航（系统核心服务 / 多平台接口广场） */
+    .subnav-pills .nav-link { border-radius: 50rem; padding: .35rem 1rem; font-size: .92rem; }
+    .subnav-pills .nav-link.active { font-weight: 600; }
 </style>
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0"><i class="fa-solid fa-network-wired me-2 text-primary"></i>外部接口服务配置</h4>
+
+{# V10.11.49 子页签导航：外部接口服务拆分为「系统核心服务」与「多平台接口广场与可视化调试」两个子页面 #}
+<ul class="nav nav-pills subnav-pills gap-2 mb-3">
+    <li class="nav-item">
+        <a class="nav-link active" href="{{ url_for('admin_service_config') }}">
+            <i class="fa-solid fa-server me-1"></i>系统核心服务
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link text-muted" href="{{ url_for('admin_service_platform') }}">
+            <i class="fa-solid fa-plug-circle-bolt me-1"></i>多平台接口广场与可视化调试
+        </a>
+    </li>
+</ul>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0"><i class="fa-solid fa-server me-2 text-primary"></i>系统核心服务</h4>
     <div>
+        {% if current_user.is_admin %}
         <button class="btn btn-outline-secondary rounded-pill px-3" onclick="restoreDefaults()"><i class="fa-solid fa-rotate-left me-1"></i>恢复默认值</button>
         <button class="btn btn-primary rounded-pill px-4 shadow-sm" id="saveAllBtn" onclick="saveAllConfig()"><i class="fa-solid fa-floppy-disk me-1"></i>保存配置</button>
+        {% else %}
+        <span class="badge bg-primary-subtle text-primary border px-3 py-2"><i class="fa-solid fa-user-shield me-1"></i>只读浏览模式</span>
+        {% endif %}
     </div>
 </div>
+{% if not current_user.is_admin %}
+<div class="alert alert-light border ro-banner small mb-3 rounded-3">
+    <i class="fa-solid fa-eye me-1 text-primary"></i>
+    <b>只读授权</b>：你被授权查看本页（端点组、启停状态与平台绑定）；修改、测试与增删操作仅限管理员。
+</div>
+{% endif %}
 
 <!-- 轻量提示（toast，替代原生 alert，顶部居中显示） -->
 <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 2050;">
@@ -91,18 +131,23 @@
 <div class="alert alert-info shadow-sm rounded-4 d-flex align-items-start gap-2">
     <i class="fa-solid fa-circle-info fa-lg mt-1"></i>
     <div class="small">
-        统一管理各模块内置默认的外部服务地址。每组支持<b>多个端点</b>（按顺序依次尝试，<b>启用中的端点不可用时自动向后切换</b>）、行内<b>启用开关</b>（滑动开关图标）、<b>上移/下移</b>排序、<b>重试次数</b>与<b>请求超时</b>；
-        每行可<b>一键测试</b>当前填写值（未保存也可测）。输入框 <code>占位提示=默认值</code>，保存后即时生效。<br>
-        <span class="text-danger"><i class="fa-solid fa-lock me-1"></i>V10.11.23 安全锁：端点地址默认<b>只读锁定</b>，点击行内「<b>编辑</b>」按钮解锁后才能修改；<b>V10.11.25 启用开关切换后即时保存生效</b>（停用的端点立即不参与故障转移，页面刷新/重新进入状态保持；组内全部停用时该组服务走降级兑底）。</span><br>
-        <span class="text-primary"><i class="fa-solid fa-list-check me-1"></i>V10.11.24 批量操作：每行最前方可勾选「选择框」支持<b>单选/多选</b>，每组上方「<b>全选本组</b>」一键全选；勾选后可「<b>批量启用/批量停用</b>」选中端点并整组保存即时生效。</span>
+        统一管理核心业务的外部服务地址（地理编码/天气/空气质量/节假日/企微长连接/AI 搜索）。每组支持<b>多个端点</b>按序故障转移、行内<b>启用开关</b>（即时保存）、<b>批量启停</b>、<b>重试次数</b>与<b>请求超时</b>；端点地址默认<b>只读锁定</b>，点行内「<b>编辑</b>」解锁。<br>
+        <span class="text-primary"><i class="fa-solid fa-cloud me-1"></i>天气/节假日组的端点可绑定 <b>API 平台</b>（自动携带该平台 Key 池认证）——平台的增删、Key 管理与 API 调试请到 <a href="{{ url_for('admin_service_platform') }}"><b>多平台接口广场与可视化调试</b></a> 页。</span>
     </div>
 </div>
+
+{% set PLATFORM_GROUPS = ['forecast', 'holiday'] %}
+{# V10.11.47 平台支持组：仅「天气预报」「法定节假日」两组支持 UApiPro 平台端点双协议混排 #}
 
 {% for gname, gcfg in cfg.groups.items() %}
 <div class="card shadow-sm rounded-4 mb-4" data-group="{{ gname }}">
     <div class="card-header d-flex justify-content-between align-items-center rounded-top-4">
         <span><i class="fa-solid {{ ICONS[gname] }} me-2 text-primary"></i><b>{{ gcfg.label }}</b><span class="group-status-badge ms-2"></span></span>
+        {% if current_user.is_admin %}
         <button class="btn btn-outline-info btn-sm rounded-pill" onclick="testGroup('{{ gname }}')"><i class="fa-solid fa-vial me-1"></i>测试全部启用</button>
+        {% else %}
+        <span class="small text-muted"><i class="fa-solid fa-eye me-1"></i>只读浏览</span>
+        {% endif %}
     </div>
     <div class="card-body">
         {% if gname == 'ai_search' %}
@@ -112,7 +157,8 @@
         </div>
         {% endif %}
 
-        {# V10.11.24 批量操作条：全选本组 + 批量启用/停用（勾选行级选择框后生效） #}
+        {# V10.11.24 批量操作条：全选本组 + 批量启用/停用（勾选行级选择框后生效；仅管理员） #}
+        {% if current_user.is_admin %}
         <div class="d-flex align-items-center flex-wrap gap-2 mb-2 endpoint-batch-bar">
             <div class="form-check mb-0">
                 <input type="checkbox" class="form-check-input group-select-all" id="selectAll_{{ gname }}" onchange="toggleGroupSelectAll('{{ gname }}', this)">
@@ -126,31 +172,56 @@
             </button>
             <span class="small text-muted"><i class="fa-solid fa-circle-info me-1"></i>勾选后批量切换开关并保存生效（全停用时该组服务将降级）；单行开关切换即即时保存入库</span>
         </div>
+        {% endif %}
 
         <div class="endpoint-list">
             {% for ep in gcfg.urls %}
             {# V10.11.23 行默认只读锁定：点「编辑」解锁地址输入框；启用开关可直接操作不受限 #}
-            {# V10.11.24 首列新增选择框（单选/多选）；启用开关升级为滑动开关图标（form-switch） #}
-            <div class="input-group input-group-sm mb-2 endpoint-row">
-                <span class="input-group-text" title="勾选参与批量操作（可单选/多选）">
-                    <input type="checkbox" class="form-check-input mt-0 row-select-cb" onchange="onRowSelectChange(this)">
-                </span>
-                <input type="text" class="form-control endpoint-url" value="{{ ep.url }}" placeholder="{{ gcfg.defaults[0].url if gcfg.defaults else '如：https://...' }}" readonly aria-label="端点地址" title="默认只读锁定，点击「编辑」解锁">
-                <span class="input-group-text d-flex align-items-center" title="启用该端点（停用则不参与故障转移；V10.11.25 切换后即时保存生效）">
-                    <div class="form-check form-switch mb-0">
-                        <input type="checkbox" class="form-check-input endpoint-enabled" role="switch" {% if ep.enabled %}checked{% endif %}>
-                    </div>
-                </span>
-                <button class="btn btn-outline-success btn-icon" type="button" title="测试该端点" onclick="testEndpointRow(this)"><i class="fa-solid fa-vial"></i></button>
-                <button class="btn btn-outline-secondary btn-icon btn-up" type="button" title="上移" onclick="moveRow(this, -1)" {% if loop.first %}disabled{% endif %}><i class="fa-solid fa-arrow-up"></i></button>
-                <button class="btn btn-outline-secondary btn-icon btn-down" type="button" title="下移" onclick="moveRow(this, 1)" {% if loop.last %}disabled{% endif %}><i class="fa-solid fa-arrow-down"></i></button>
-                <button class="btn btn-outline-primary btn-icon btn-edit" type="button" title="编辑此端点（解锁地址输入框）" onclick="editEndpointRow(this)"><i class="fa-solid fa-pen-to-square"></i></button>
-                <button class="btn btn-outline-danger btn-icon btn-del" type="button" title="删除" onclick="delRow(this)"><i class="fa-solid fa-trash-can"></i></button>
-                <button class="btn btn-success btn-icon btn-save text-nowrap d-none" type="button" title="保存此端点" onclick="saveEndpointRow(this)"><i class="fa-solid fa-floppy-disk"></i></button>
-                <button class="btn btn-outline-danger btn-icon btn-cancel text-nowrap d-none" type="button" title="取消编辑（还原该行）" onclick="cancelEndpointRow(this)"><i class="fa-solid fa-xmark"></i></button>
+            {# V10.11.51 两行卡片布局：第一行地址/平台/开关，第二行操作按钮（图标+文字，移动端与触屏不再依赖悬停提示） #}
+            {# 非管理员只读渲染：隐藏全部操作按钮，开关不可切换 #}
+            <div class="endpoint-row mb-2" data-platform="{{ ep.platform or '' }}">
+                <div class="d-flex align-items-center flex-wrap gap-2 endpoint-main">
+                    {% if current_user.is_admin %}
+                    <input type="checkbox" class="form-check-input row-select-cb" aria-label="勾选参与批量操作" title="勾选参与批量操作（可单选/多选）" onchange="onRowSelectChange(this)">
+                    {% endif %}
+                    <input type="text" class="form-control form-control-sm endpoint-url" value="{{ ep.url }}" placeholder="{{ gcfg.defaults[0].url if gcfg.defaults else '如：https://...' }}" readonly aria-label="端点地址" title="默认只读锁定，点击「编辑」解锁">
+                    {# V10.11.48 平台端点徽章（只读态）：端点绑定平台自动附加该平台 Key 池认证 #}
+                    {% if gname in PLATFORM_GROUPS %}
+                    <span class="badge bg-primary-subtle text-primary border platform-badge {{ '' if ep.platform else 'd-none' }}" title="平台端点（调用时自动附加该平台 Key 池认证并按 UApiPro 兼容协议解析）">
+                        <i class="fa-solid fa-cloud me-1"></i>{{ (platforms | selectattr('id', 'equalto', ep.platform) | list | first).name if (ep.platform and (platforms | selectattr('id', 'equalto', ep.platform) | list)) else '平台' }}
+                    </span>
+                    {# 编辑态平台选择（与编辑按钮联动显隐）：动态列出全部已注册平台 #}
+                    <span class="platform-edit d-none" title="端点绑定的 API 平台（认证与协议）">
+                        <select class="form-select form-select-sm endpoint-platform" style="min-width:150px" aria-label="端点平台">
+                            <option value="" {% if not ep.platform %}selected{% endif %}>直连·无认证</option>
+                            {% for p in platforms %}
+                            <option value="{{ p.id }}" {% if ep.platform == p.id %}selected{% endif %}>{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </span>
+                    {% endif %}
+                    <span class="d-flex align-items-center switch-wrap" title="启用该端点（停用则不参与故障转移；切换后即时保存生效）">
+                        <span class="small text-muted me-1">{{ '启用' if ep.enabled else '停用' }}</span>
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" class="form-check-input endpoint-enabled" role="switch" {% if ep.enabled %}checked{% endif %} {% if not current_user.is_admin %}disabled{% endif %}>
+                        </div>
+                    </span>
+                </div>
+                {% if current_user.is_admin %}
+                <div class="d-flex justify-content-end flex-wrap endpoint-actions">
+                    <button class="btn btn-outline-success btn-act" type="button" title="测试该端点" onclick="testEndpointRow(this)"><i class="fa-solid fa-vial me-1"></i>测试</button>
+                    <button class="btn btn-outline-secondary btn-act btn-up" type="button" title="上移" onclick="moveRow(this, -1)" {% if loop.first %}disabled{% endif %}><i class="fa-solid fa-arrow-up me-1"></i>上移</button>
+                    <button class="btn btn-outline-secondary btn-act btn-down" type="button" title="下移" onclick="moveRow(this, 1)" {% if loop.last %}disabled{% endif %}><i class="fa-solid fa-arrow-down me-1"></i>下移</button>
+                    <button class="btn btn-outline-primary btn-act btn-edit" type="button" title="编辑此端点（解锁地址输入框）" onclick="editEndpointRow(this)"><i class="fa-solid fa-pen-to-square me-1"></i>编辑</button>
+                    <button class="btn btn-outline-danger btn-act btn-del" type="button" title="删除" onclick="delRow(this)"><i class="fa-solid fa-trash-can me-1"></i>删除</button>
+                    <button class="btn btn-success btn-act btn-save text-nowrap d-none" type="button" title="保存此端点" onclick="saveEndpointRow(this)"><i class="fa-solid fa-floppy-disk me-1"></i>保存</button>
+                    <button class="btn btn-outline-danger btn-act btn-cancel text-nowrap d-none" type="button" title="取消编辑（还原该行）" onclick="cancelEndpointRow(this)"><i class="fa-solid fa-xmark me-1"></i>取消</button>
+                </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
+        {% if current_user.is_admin %}
         <button class="btn btn-outline-success btn-sm mt-1" type="button" onclick="addEndpointRow('{{ gname }}')"><i class="fa-solid fa-plus me-1"></i>添加端点</button>
 
         <div class="row g-2 mt-2">
@@ -166,11 +237,26 @@
                 <span class="small text-muted"><i class="fa-regular fa-lightbulb me-1"></i>全部端点失败后按重试次数整轮重试；每次请求超时按上值。</span>
             </div>
         </div>
+        {% else %}
+        <div class="row g-2 mt-2">
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1">请求超时（秒）</label>
+                <input type="number" class="form-control form-control-sm timeout-input" value="{{ gcfg.timeout }}" disabled>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1">重试次数（轮）</label>
+                <input type="number" class="form-control form-control-sm retries-input" value="{{ gcfg.retries }}" disabled>
+            </div>
+        </div>
+        {% endif %}
 
         {% if GROUP_HINTS.get(gname) %}
         <div class="small text-muted mt-2"><i class="fa-solid fa-circle-exclamation me-1"></i>{{ GROUP_HINTS[gname] }}</div>
         {% endif %}
 
+        {% if gname in PLATFORM_GROUPS %}
+        <div class="small text-primary mt-2"><i class="fa-solid fa-cloud me-1"></i>双协议混排：本组端点可绑定任意 <b>已注册 API 平台</b>（{{ '如 https://uapis.cn/api/v1/misc/weather' if gname == 'forecast' else '如 https://uapis.cn/api/v1/misc/holiday-calendar' }}）——端点行点「编辑」可选择绑定平台；平台端点调用时自动附加该平台 Key 池认证（按序轮换）并按 UApiPro 兼容协议解析，<b>组内端点顺序即协议优先级</b>（平台端点排首位时优先走平台通路，失败自动回落直连端点）。平台与 Key 管理请到 <a href="{{ url_for('admin_service_platform') }}">多平台接口广场</a> 页。</div>
+        {% endif %}
         {% if gname == 'holiday' %}
         <div class="small text-success mt-2"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>地址末尾的 <b>{年份}</b> 变量由系统自动补全（如输入到 <code>.../year/</code> 即可），无需手工填写年份。</div>
         {% endif %}
@@ -186,10 +272,16 @@
 </div>
 {% endfor %}
 
+
 <script>
     // ===== 前端状态与工具 =====
     const GROUP_DEFAULTS = {{ cfg.groups|tojson }};
     let AI_SEARCH_ENABLED = {{ 'true' if cfg.ai_search_enabled else 'false' }};
+    // V10.11.47：支持平台端点的组（天气/节假日双协议混排）与平台注册表数据
+    const PLATFORM_GROUPS = {{ PLATFORM_GROUPS|tojson }};
+    const PLATFORMS_DATA = {{ platforms|tojson }};
+    // V10.11.51：只读授权模式——非管理员动态新增行不渲染操作按钮与选择框
+    const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
 
     function getCsrfToken() {
         const m = document.querySelector('meta[name="csrf-token"]');
@@ -231,7 +323,7 @@
         }
     }
 
-    // 收集一组表单值
+    // 收集一组表单值（V10.11.47：urls 项携带 platform 字段——编辑态取下拉值，只读态取 dataset）
     function collectGroup(gname) {
         const card = document.querySelector(`.card[data-group="${gname}"]`);
         if (!card) return null;
@@ -239,7 +331,9 @@
         card.querySelectorAll('.endpoint-row').forEach(row => {
             const url = row.querySelector('.endpoint-url').value.trim();
             const enabled = row.querySelector('.endpoint-enabled').checked;
-            if (url) urls.push({ url, enabled });
+            const sel = row.querySelector('.endpoint-platform');
+            const platform = sel ? sel.value : (row.dataset.platform || '');
+            if (url) urls.push({ url, enabled, platform });
         });
         const timeout = parseInt(card.querySelector('.timeout-input').value) || 8;
         const retries = parseInt(card.querySelector('.retries-input').value) || 0;
@@ -256,7 +350,7 @@
         }
         badge.className = 'row-result small ms-1 ' + (ok ? 'text-success' : 'text-danger');
         badge.innerHTML = (ok ? '✓ ' : '✗ ') + esc(msg) + (ms != null ? `（${ms}ms）` : '');
-        btn.innerHTML = ok ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-solid fa-triangle-exclamation"></i>';
+        btn.innerHTML = ok ? '<i class="fa-solid fa-circle-check me-1"></i>测试' : '<i class="fa-solid fa-triangle-exclamation me-1"></i>测试';
         btn.classList.remove('btn-outline-success', 'btn-outline-danger');
         btn.classList.add(ok ? 'btn-outline-success' : 'btn-outline-danger');
     }
@@ -275,7 +369,7 @@
         }).join('');
     }
 
-    // 单行测试（用当前表单值）
+    // 单行测试（用当前表单值；V10.11.47 平台端点按平台协议测试）
     function testEndpointRow(btn) {
         const card = btn.closest('.card');
         const gname = card.dataset.group;
@@ -285,7 +379,9 @@
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
         const timeout = parseInt(card.querySelector('.timeout-input')?.value) || 8;
         const retries = parseInt(card.querySelector('.retries-input').value) || 0;
-        const urls = [{ url, enabled: true }];
+        const sel = row.querySelector('.endpoint-platform');
+        const platform = sel ? sel.value : (row.dataset.platform || '');
+        const urls = [{ url, enabled: true, platform }];
         postJSON('/admin/service-config/test', { group: gname, urls, timeout, retries })
             .then(data => {
                 if (data && data.results && data.results.length > 0) {
@@ -329,27 +425,60 @@
         }).join('');
     }
 
+    // 生成端点平台下拉选项（V10.11.48 动态平台列表）
+    function endpointPlatformOptionsHtml(selected) {
+        let html = '<option value=""' + (selected ? '' : ' selected') + '>直连·无认证</option>';
+        PLATFORMS_DATA.forEach(p => {
+            html += `<option value="${esc(p.id)}"${selected === p.id ? ' selected' : ''}>${esc(p.name)}</option>`;
+        });
+        return html;
+    }
+
     // 端点行构造函数（新增/恢复/取消共用）
     // V10.11.23 行状态机：所有行（含新增行）默认只读锁定（地址输入框 readonly），
     // 点「编辑」进入可编辑态（编辑/删除隐藏，保存/取消显示）；保存成功后经 renderSavedRows
     // 重渲染回只读态；启用开关为高频快捷操作，不受编辑按钮限制（任何时候可直接切换）
     // V10.11.24：首列新增选择框（单选/多选参与批量）；启用开关升级为滑动开关图标（form-switch）
-    function makeEndpointRow(url, enabled, placeholder, isNew) {
+    // V10.11.47/48：新增 platform 参数——支持平台端点的组（天气/节假日）渲染平台徽章（只读态）
+    // 与平台下拉（编辑态，动态列出全部已注册平台），其余组不渲染平台控件（后端同样拦截）
+    function makeEndpointRow(url, enabled, placeholder, isNew, platform, gname) {
+        platform = platform || '';
+        const supportPlatform = PLATFORM_GROUPS.indexOf(gname) >= 0;
+        const platName = platform
+            ? ((PLATFORMS_DATA.find(p => p.id === platform) || {}).name || platform)
+            : '';
         const row = document.createElement('div');
-        row.className = 'input-group input-group-sm mb-2 endpoint-row' + (isNew ? ' is-new-row' : '');
+        row.className = 'endpoint-row mb-2' + (isNew ? ' is-new-row' : '');
+        row.dataset.platform = platform;
+        // V10.11.51 两行卡片：第一行地址/平台/开关，第二行操作按钮（图标+文字）
+        const selectCb = IS_ADMIN
+            ? '<input type="checkbox" class="form-check-input row-select-cb" aria-label="勾选参与批量操作" title="勾选参与批量操作（可单选/多选）" onchange="onRowSelectChange(this)">' : '';
+        const platformHtml = supportPlatform ? `
+            <span class="badge bg-primary-subtle text-primary border platform-badge ${platform ? '' : 'd-none'}" title="平台端点（调用时自动附加该平台 Key 池认证并按 UApiPro 兼容协议解析）"><i class="fa-solid fa-cloud me-1"></i>${esc(platName || '平台')}</span>
+            <span class="platform-edit d-none" title="端点绑定的 API 平台（认证与协议）"><select class="form-select form-select-sm endpoint-platform" style="min-width:150px" aria-label="端点平台">${endpointPlatformOptionsHtml(platform)}</select></span>` : '';
+        const actionsHtml = IS_ADMIN ? `
+            <div class="d-flex justify-content-end flex-wrap endpoint-actions">
+                <button class="btn btn-outline-success btn-act" type="button" title="测试该端点" onclick="testEndpointRow(this)"><i class="fa-solid fa-vial me-1"></i>测试</button>
+                <button class="btn btn-outline-secondary btn-act btn-up" type="button" title="上移" onclick="moveRow(this, -1)"><i class="fa-solid fa-arrow-up me-1"></i>上移</button>
+                <button class="btn btn-outline-secondary btn-act btn-down" type="button" title="下移" onclick="moveRow(this, 1)"><i class="fa-solid fa-arrow-down me-1"></i>下移</button>
+                <button class="btn btn-outline-primary btn-act btn-edit" type="button" title="编辑此端点（解锁地址输入框）" onclick="editEndpointRow(this)"><i class="fa-solid fa-pen-to-square me-1"></i>编辑</button>
+                <button class="btn btn-outline-danger btn-act btn-del" type="button" title="删除" onclick="delRow(this)"><i class="fa-solid fa-trash-can me-1"></i>删除</button>
+                <button class="btn btn-success btn-act btn-save text-nowrap d-none" type="button" title="保存此端点" onclick="saveEndpointRow(this)"><i class="fa-solid fa-floppy-disk me-1"></i>保存</button>
+                <button class="btn btn-outline-danger btn-act btn-cancel text-nowrap d-none" type="button" title="取消编辑（还原该行）" onclick="cancelEndpointRow(this)"><i class="fa-solid fa-xmark me-1"></i>取消</button>
+            </div>` : '';
         row.innerHTML = `
-            <span class="input-group-text" title="勾选参与批量操作（可单选/多选）"><input type="checkbox" class="form-check-input mt-0 row-select-cb" onchange="onRowSelectChange(this)"></span>
-            <input type="text" class="form-control endpoint-url" value="${esc(url)}" placeholder="${esc(placeholder || '如：https://...')}" readonly aria-label="端点地址" title="默认只读锁定，点击「编辑」解锁">
-            <span class="input-group-text d-flex align-items-center" title="启用该端点（停用则不参与故障转移；V10.11.25 切换后即时保存生效）"><div class="form-check form-switch mb-0"><input type="checkbox" class="form-check-input endpoint-enabled" role="switch" ${enabled !== false ? 'checked' : ''}></div></span>
-            <button class="btn btn-outline-success btn-icon" type="button" title="测试该端点" onclick="testEndpointRow(this)"><i class="fa-solid fa-vial"></i></button>
-            <button class="btn btn-outline-secondary btn-icon btn-up" type="button" title="上移" onclick="moveRow(this, -1)"><i class="fa-solid fa-arrow-up"></i></button>
-            <button class="btn btn-outline-secondary btn-icon btn-down" type="button" title="下移" onclick="moveRow(this, 1)"><i class="fa-solid fa-arrow-down"></i></button>
-            <button class="btn btn-outline-primary btn-icon btn-edit" type="button" title="编辑此端点（解锁地址输入框）" onclick="editEndpointRow(this)"><i class="fa-solid fa-pen-to-square"></i></button>
-            <button class="btn btn-outline-danger btn-icon btn-del" type="button" title="删除" onclick="delRow(this)"><i class="fa-solid fa-trash-can"></i></button>
-            <button class="btn btn-success btn-icon btn-save d-none" type="button" title="保存此端点" onclick="saveEndpointRow(this)"><i class="fa-solid fa-floppy-disk"></i></button>
-            <button class="btn btn-outline-danger btn-icon btn-cancel d-none" type="button" title="取消编辑（还原该行）" onclick="cancelEndpointRow(this)"><i class="fa-solid fa-xmark"></i></button>`;
+            <div class="d-flex align-items-center flex-wrap gap-2 endpoint-main">
+                ${selectCb}
+                <input type="text" class="form-control form-control-sm endpoint-url" value="${esc(url)}" placeholder="${esc(placeholder || '如：https://...')}" readonly aria-label="端点地址" title="默认只读锁定，点击「编辑」解锁">${platformHtml}
+                <span class="d-flex align-items-center switch-wrap" title="启用该端点（停用则不参与故障转移；切换后即时保存生效）">
+                    <span class="small text-muted me-1">${enabled !== false ? '启用' : '停用'}</span>
+                    <div class="form-check form-switch mb-0"><input type="checkbox" class="form-check-input endpoint-enabled" role="switch" ${enabled !== false ? 'checked' : ''} ${IS_ADMIN ? '' : 'disabled'}></div>
+                </span>
+            </div>${actionsHtml}`;
         return row;
     }
+
+    function makePkeyRowLabel() { return 'Key ' + (document.querySelectorAll('.pkey-row').length + 1); }
 
     // ===== V10.11.24 批量操作（行级单选/多选 + 组级全选 + 批量启用/停用） =====
 
@@ -426,7 +555,7 @@
             let tag = row.querySelector('.off-tag');
             if (off && !tag) {
                 tag = document.createElement('span');
-                tag.className = 'input-group-text off-tag';
+                tag.className = 'badge bg-secondary-subtle text-secondary border off-tag';
                 tag.textContent = '已停用';
                 const url = row.querySelector('.endpoint-url');
                 if (url) url.parentElement.insertBefore(tag, url.nextSibling);
@@ -495,6 +624,7 @@
     });
 
     // 进入/退出编辑态：编辑 = 地址输入框解锁 + 编辑/删除隐藏 + 保存/取消显示
+    // V10.11.47：平台控件同步切换——编辑态显示协议下拉，退出后按原值恢复 UApiPro 徽章
     function setRowEditMode(row, editing) {
         const urlInput = row.querySelector('.endpoint-url');
         if (editing) urlInput.removeAttribute('readonly');
@@ -505,15 +635,32 @@
             const b = row.querySelector(sel);
             if (b) b.classList.toggle('d-none', btnMap[sel]);
         });
+        const badge = row.querySelector('.platform-badge');
+        const editWrap = row.querySelector('.platform-edit');
+        if (badge && editWrap) {
+            if (editing) {
+                badge.classList.add('d-none');
+                editWrap.classList.remove('d-none');
+            } else {
+                // 退出编辑态：下拉还原为原值，徽章按原值显隐
+                const pv = row.dataset.origPlatform || row.dataset.platform || '';
+                const sel = row.querySelector('.endpoint-platform');
+                if (sel) sel.value = pv;
+                badge.classList.toggle('d-none', !pv);
+                editWrap.classList.add('d-none');
+            }
+        }
     }
 
     // 编辑：记录进入编辑时的原地址（取消时还原）；V10.11.25 不再记录开关状态——
     // 开关即时保存生效后，取消编辑只回滚地址，不得撤销已入库的启停状态
+    // V10.11.47：同步记录原平台标识（取消时还原；开关即时保存不受影响）
     function editEndpointRow(btn) {
         const row = btn.closest('.endpoint-row');
         if (!row) return;
         if (row.dataset.origUrl === undefined) {
             row.dataset.origUrl = row.querySelector('.endpoint-url').value;
+            row.dataset.origPlatform = row.dataset.platform || '';
         }
         setRowEditMode(row, true);
         row.querySelector('.endpoint-url').focus();
@@ -537,7 +684,7 @@
         const card = document.querySelector(`.card[data-group="${gname}"]`);
         const list = card.querySelector('.endpoint-list');
         const def = (GROUP_DEFAULTS[gname] && GROUP_DEFAULTS[gname].defaults && GROUP_DEFAULTS[gname].defaults[0]) ? GROUP_DEFAULTS[gname].defaults[0].url : '';
-        const row = makeEndpointRow('', true, def, true);
+        const row = makeEndpointRow('', true, def, true, '', gname);
         list.appendChild(row);
         refreshMoveButtons(gname);
         updateGroupBatchState(gname);
@@ -553,7 +700,7 @@
         const list = card.querySelector('.endpoint-list');
         list.innerHTML = '';
         (saved.urls || []).forEach(ep => {
-            list.appendChild(makeEndpointRow(ep.url, ep.enabled, def, false));
+            list.appendChild(makeEndpointRow(ep.url, ep.enabled, def, false, ep.platform || '', gname));
         });
         card.querySelector('.timeout-input').value = saved.timeout != null ? saved.timeout : 8;
         card.querySelector('.retries-input').value = saved.retries != null ? saved.retries : 0;
@@ -587,8 +734,9 @@
         }
         row.querySelector('.endpoint-url').value = row.dataset.origUrl || '';
         // V10.11.25: 仅还原地址，不回滚开关（开关已即时入库，取消编辑不得撤销启停状态）
+        // V10.11.47: 平台标识由 setRowEditMode(false) 按原值还原（含协议下拉与徽章）
         delete row.dataset.origUrl;
-        delete row.dataset.origEnabled;
+        delete row.dataset.origPlatform;
         setRowEditMode(row, false);
         showToast('已取消编辑并还原该行地址');
     }
@@ -625,8 +773,12 @@
                 const url = row.classList.contains('is-editing')
                     ? (row.dataset.origUrl || '').trim()
                     : row.querySelector('.endpoint-url').value.trim();
+                // V10.11.47：编辑中的行平台标识也取原值（与地址同规则，不保存半成品）
+                const platform = row.classList.contains('is-editing')
+                    ? (row.dataset.origPlatform || '')
+                    : (row.querySelector('.endpoint-platform') ? row.querySelector('.endpoint-platform').value : (row.dataset.platform || ''));
                 const enabled = row.querySelector('.endpoint-enabled').checked;
-                if (url) urls.push({ url, enabled });
+                if (url) urls.push({ url, enabled, platform });
             });
             const snap = GROUP_DEFAULTS[gname] || {};
             g = { urls, timeout: snap.timeout != null ? snap.timeout : 8, retries: snap.retries != null ? snap.retries : 0 };
@@ -698,6 +850,12 @@
     document.addEventListener('change', function (e) {
         const cb = e.target;
         if (!cb || !cb.classList || !cb.classList.contains('endpoint-enabled')) return;
+        // V10.11.51：同步行内「启用/停用」可见文字（两行卡片布局）
+        const wrap = cb.closest('.switch-wrap');
+        if (wrap) {
+            const label = wrap.querySelector('.small.text-muted');
+            if (label) label.textContent = cb.checked ? '启用' : '停用';
+        }
         const card = cb.closest('.card');
         const gname = card ? card.dataset.group : '';
         if (!gname) return;
@@ -812,7 +970,7 @@
             const list = card.querySelector('.endpoint-list');
             list.innerHTML = '';
             (def.defaults || [{ url: '' }]).forEach((ep, i) => {
-                list.appendChild(makeEndpointRow(ep.url, ep.enabled));
+                list.appendChild(makeEndpointRow(ep.url, ep.enabled, '', false, '', gname));
             });
             card.querySelector('.timeout-input').value = def.timeout != null ? def.timeout : 8;
             card.querySelector('.retries-input').value = def.retries != null ? def.retries : 0;
@@ -846,10 +1004,11 @@
     }
     // 全部组表单值与已保存快照一致？
     function isAllClean() {
-        // 规范化比较：① 统一对象键序（url/enabled）；② 剥离节假日 {年份} 占位符（展示态与库态差异）
+        // 规范化比较：① 统一对象键序（url/enabled/platform）；② 剥离节假日 {年份} 占位符（展示态与库态差异）
         const normU = (list) => (list || []).map(u => ({
             url: String((u && u.url) || '').replace(/\/?\{年份\}\/?$/, ''),
-            enabled: !!(u && u.enabled)
+            enabled: !!(u && u.enabled),
+            platform: String((u && u.platform) || '')
         }));
         for (const gname of Object.keys(GROUP_DEFAULTS)) {
             const g = collectGroup(gname);

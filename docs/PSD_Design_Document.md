@@ -2452,3 +2452,143 @@ routes_ext.py 仅负责参数提取与 JSON 封装。
   - `py_compile` 通过；服务重启平稳；
   - 下拉菜单几何检测：输入框/应用按钮完整位于菜单矩形内且可交互，AI 视觉审读确认无裁剪、光斑仍被圆角裁剪无外溢；自定义档全链路可用（3 个月 → 标题/区间/回显/自动关闭全部正确）；
   - Toast 实测：24 字单行 45px、约 3 秒自动消失无需手动点击；测试数据已恢复。
+
+### ADR-77：外部接口服务多平台 API 接入——UApiPro 平台注册表、全量 110 API 目录、双协议混排与 API 试验台（V10.11.47 落地）
+- **背景与痛点**：
+  1. **仅支持免 Key 裸 URL**：外部接口配置页端点模型为 `[{url, enabled}]`，无任何认证概念，只能接「免 API Key 直连」服务（Open-Meteo/timor.tech 等），无法接入需要认证的聚合 API 平台（如 uapis.cn/UApiPro）；
+  2. **能力封闭**：系统未提供外部 API 的探索/调试入口，管理员想接入新数据源（快递跟踪/手机归属地/热榜/一言等）缺乏统一框架，需各自硬编码；
+  3. **协议单绑定**：天气/节假日服务分别锁死 Open-Meteo/timor.tech 协议，上游故障时缺乏独立的备用数据通路。
+- **决策方案**：
+  1. **平台注册表（平台级一份 Key）**：`system_settings.api_platforms` 存平台档案 `[{id, base_url, auth_type, auth_key_name, api_key, enabled}]`，认证四型白名单 `none/bearer/header/query`；内置 UApiPro 档案（访客模式免 Key）；Key 明文仅存 DB（.gitignore 保护不入库），页面脱敏回显末 4 位，「保存/清除/保持不变」三态语义由前端 `clearKeyFlags` + 后端 None 判定实现；
+  2. **端点 platform 字段（零迁移双协议）**：端点记录升级 `[{url, enabled, platform?}]`，老数据自动补空串行为不变；`get_enabled_urls` 排除平台端点（不参与直连协议遍历），组内仅有平台端点时 `_http_get_endpoint` 返回 None 而非误抛 ServiceDisabled；平台端点仅限 forecast/holiday 两组（前后端双重白名单）；
+  3. **全量静态目录 + 统一调用引擎**：`uapi_catalog.py` 收录官网 110 API（21 分类/27 免费/含参数 schema 与预置测试参数/文件型与流式与敏感标记）；`uapi_client.py` 统一调用（认证注入/双路径网络/Retry-After 指数退避/错误双格式标准化/进程级缓存控积分）；预置参数经 57 个 0/1 积分接口真实调用批量校验，修正 17 处参数名与路径；
+  4. **双协议混排与协议适配器**：组内端点顺序即协议优先级（`get_first_enabled_platform`）；UApiPro 天气响应转换为 Open-Meteo 原始 JSON 结构（含和风图标码→WMO 映射、`_uapi_city`/`_uapi_air` 随结构一并缓存零二次请求、级联标签末级地名提取），缓存/降级/前端链路全复用；节假日 `holidays` 事件表转 timor 同构 `{MM-DD: {holiday, name}}`；`_test_platform_endpoint` 按组绑定 API 做平台协议结构校验；
+  5. **试验台与安全边界**：`/admin/service-config/uapi/playground` 固定平台 base_url+目录 path 拒绝任意 URL（无 SSRF 面），参数值限长 2000 字符；高积分（>4）与敏感接口前端二次确认；文件上传型/流式接口仅收录目录不支持在线调用。
+- **验证与效果**：
+  - `py_compile` 7 文件 + Jinja 编译校验 5 模板全过（连带修复 base.html 导航 if/endif 配对缺陷）；冒烟断言（目录 110/分类 21/免费 27/城市名提取/图标映射/Key 脱敏）全过；
+  - 真实调用验证：平台连通（访客 HTTP 200 742ms）、57 个接口预置参数批量校验、试验台（13900139000→广东·东莞·移动·0769）、/tools 手机归属地（13800138000→北京·移动·010）、天气组平台端点协议测试（北京：晴 16°C，697ms）、节假日组平台端点协议测试（HTTP 200，668ms）；
+  - 兼容性实测：未保存测试行刷新即丢弃，6 组端点与用户原值逐字节一致（零污染）；老配置无 platform 字段自动补空，全部既有链路行为不变。
+
+### ADR-78：多平台多 Key 池轮换架构、参数日历选择器与响应可读化——兼修 dataset 属性名缺陷与占位符防线（V10.11.48 落地）
+- **背景与痛点**：
+  1. **单平台单 Key 局限**：V10.11.47 平台注册表仅支持「每平台一份 api_key」，无法配置多个 Key 按序容灾（额度耗尽/失效时整站降级），也无法同时接入多个 API 平台（自定义平台仅有蓝图未落地）；
+  2. **输入与展示不友好**：时间类参数需手填时间戳（lunartime 需秒级、weather_history 需日期串），普通管理员无法直观输入；多数接口返回原始 JSON，一键测试仅能看字段名，可用性差；
+  3. **官网文档与实际接口偏差**：worldtime 中文城市报 TIMEZONE_NOT_FOUND（仅英文）；lunartime 文档参数 timestamp 被 API 忽略（真实参数 ts 秒级）——不实测无法发现；
+  4. **`data-keyset` 的 dataset 访问陷阱**：`data-keyset`（无连字符）在 `element.dataset` 中映射为**全小写 `keyset`**，误写 `dataset.keySet` 读取恒为 undefined（对应的是不存在的 `data-key-set`）——导致已保存 Key 行被误判为新行，只读占位值「已保存」被当明文提交、uid 链路断裂，正式环境真实 Key 被覆盖且无备份可恢复（本轮测试实际发生后修复）。
+- **决策方案**：
+  1. **Key 池数据结构与轮换引擎**：
+     - `api_keys:[{key,label,enabled,uid}]`（MAX_KEYS_PER_PLATFORM=10）；V10.11.47 单 Key 读取时自动升级并补 uid，零迁移；`get_auth_headers(pid, key)` 支持指定具体 Key，`get_enabled_platform_endpoints` 返回 `(url, platform_id)` 元组供适配器携带平台认证；
+     - `_request_with_key_rotation`：按序尝试启用中的 Key，401/402/访客额度耗尽/网络错/5xx/429 切下一 Key，400/404 立即返回（不掩盖参数错误）；池空回退访客模式；返回实际成功 Key 标签供前端展示；
+  2. **明文不回传双保险**：
+     - 协议层：未编辑的已保存行提交 `key='__KEEP__'+uid`，后端按 uid 回填（label 兜底），明文仅存库；后端对提交值「已保存」亦按 __KEEP__ 语义处理（防前端异常提交覆盖真实 Key——V10.11.48b 防线）；
+     - 展示层：页面仅回显 `****`+末 4 位与 uid，编辑解锁后输入新值才提交明文；
+  3. **参数类型系统**：`_p()` 增加 `date/datetime` 渲染日历控件 + `convert` 协议（timestamp_ms/timestamp_s 提交转换）+ 哨兵 `__TODAY__/__NOW_MS__/__NOW_S__/__YEAR__` 双端解析（后端 resolve_test_params / 前端 resolveSentry），一键测试与试验台共用同一目录定义；
+  4. **响应可读化**：`uapi_client.FORMATTERS` 30 个格式化器（世界时间/农历/天气/热榜/手机归属/一言/翻译/万年历等），一键测试与试验台展示「可读摘要 + 可折叠原始 JSON」，未注册接口回退字段列表；
+  5. **多平台管理**：添加自定义平台（ID 白名单/认证四型/初始 Key 可选）、删除二次确认（内置不可删）；端点平台引用动态校验；平台变更推送 Webhook 系统事件；整库备份自动含平台配置（用户级备份剥离 system_settings 防管理员 Key 外泄）。
+- **验证与效果**：
+  - `py_compile` 全过 + 模板编译全过；浏览器实测：lunartime 日历→秒级 1767240000→农历冬月十三、worldtime 一键测试可读摘要+Key 标签、weather_history 哨兵预填；
+  - **HTTP 端到端断言**：明文入库/`data-uid|data-keyset` 渲染/__KEEP__（key+uid 不变、enabled 切换）/占位符防线（label 兜底不覆盖）/双 Key 排序/清空清理 全部通过；浏览器实抓第二次保存请求体为 `{"key":"__KEEP__","label":"UI冒烟","enabled":true,"uid":"2db73a1a8f5b"}`，协议闭环；
+  - **事故复盘**：测试中发现 `dataset.keySet` 缺陷曾覆盖真实 UApiPro Key（已写入「已保存」占位符），因每日自动备份停用（最后备份 10-27）且 Key 于 11-02 配置，无备份可恢复——已修复 7 处、加后端防线、清空污染池回访客模式，待管理员重新录入真实 Key。
+
+### ADR-79：外部接口服务拆分双子页——系统核心服务与多平台接口广场（V10.11.49 落地）
+- **背景与痛点**：
+  1. **单页信息过载**：V10.11.47 起「外部接口服务配置」单页同时承载 6 组核心业务端点 + API 平台注册表 + 110 个 API 目录 + API 试验台（模板 1800+ 行），管理员进入页面后信息密度过高、定位功能需滚动翻找；
+  2. **关注点混杂**：核心业务端点（天气/节假日等）与平台接入/调试（Key 管理、API 广场）属两类操作场景，混排增加误操作风险。
+- **决策方案**：
+  1. **双子页拆分**：`/admin/service-config` 保留为「系统核心服务」（6 组端点 + 保存/恢复默认，端点绑定平台的下拉与徽章保留），新增 `/admin/service-config/platform`（`admin_service_platform` 视图）承载「多平台接口广场与可视化调试」（平台注册表/Key 池/API 目录/试验台）；两页顶部统一 nav-pills 子页签互切，系统管理菜单并列双入口；
+  2. **模板等价迁移**：`admin_service_config.html` 瘦身（删除平台卡/目录卡/试验台与对应 JS，保留端点组 JS 与 `PLATFORMS_DATA`），新建 `admin_service_platform.html`（平台/目录/试验台 HTML+JS 逐函数迁移 + 工具函数副本）；后端仅拆视图函数，全部业务路由不变（零业务破坏）；
+  3. **布局优化**：目录新增搜索框（名称/路径/说明即时过滤）+「只看免费」筛选（data-free 属性标记）+ 匹配计数徽章 + 无匹配空态；说明卡精简；目录行 hover 高亮。
+- **验证与效果**：
+  - py_compile + 双模板编译全过；重启平稳；
+  - 浏览器验证全绿：核心页 6 组卡片/端点编辑解锁/平台下拉回归；平台页 110 API 搜索「农历」精确 1 条、免费筛选 27 条、无匹配空态、试验台 lunartime 日历预填、worldtime 一键测试 200/544ms（经用户重新录入的 Key「Key 1」）；菜单双入口正常。
+
+### ADR-80：新增功能三体系关联同步治理——工具页菜单门控、Webhook 矩阵补页与审计白名单双重序列化缺陷根治（V10.11.50 落地）
+- **背景与痛点**：
+  1. **工具页无权限治理**：V10.11.47 上线的 `/tools`（快递 40 积分/次/手机归属地 2 积分/次）仅 `@login_required`，未挂菜单权限、用户管理页无授权项——普通用户无需授权即可消耗全站共享的访客 IP 月额度（1500 积分），管理员无法收回，违反"普通用户只能通过管理员授权后使用"原则；
+  2. **Webhook 矩阵缺页**：外部接口/平台配置变更推送挂 `page_key='index'`（不在 PAGE_NAMES 17 页面矩阵内），Webhook 配置页无法按页订阅/静音该类事件；
+  3. **审计白名单双重序列化事故（存量重大缺陷）**：`audit_log_modules` 存出畸形值 `["['ledger', 'banquets', 'auth']"]`（列表内嵌 repr 字符串），白名单匹配永不成功，**全站审计日志自 2026-10-28 起静默丢弃**，且审计页"1 个模块已启用"与复选框全空自相矛盾。
+- **决策方案**：
+  1. **工具页接入既有菜单权限机制**：新增 `tools` 菜单键，menu_map 门控三个端点（页面跳工单页/AJAX 403 指引）；用户管理单用户/批量弹窗、权限工单申请清单（TICKET_MENU_OPTIONS）、导航显隐、全局默认权限模板（menu_tools，74→75 项 default=False）与三处 ALL_MENUS 级别字典全链同步；授权粒度为整页一项（经用户确认），新用户默认关闭（经用户确认）；
+  2. **Webhook 矩阵补页**：PAGE_NAMES/PAGE_EVENT_MATRIX 新增 `service_config`（外部接口配置，事件列 create/update/delete/status_change/system），4 处 `_push_service_config_webhook` 的 page_key 由 'index' 切换，配置页矩阵动态渲染自动出现；
+  3. **审计白名单三件套修复**：读取端 `_parse_audit_modules` 容错（畸形值二次解析展开 + 自愈回写单层 JSON 保留管理员原意图 + 解析失败回退全记录）；保存端 JSON 分支列表类型校验与字符串二次解析；AUDIT_MODULE_MAP 新增 tools 与 service_config 归组（service_config 置于 ai_assistant 之前避免 'API' 截胡）；审计页复选框回显与匹配语义对齐；
+  4. **审计与备份补齐**：手机归属地查询补脱敏 safe_log；WebDAV 备份页补备份范围说明（管理员整库含平台 Key 提示妥善保管；普通用户仅本人数据——已核实双模式均走用户级过滤库）。
+- **验证与效果**：
+  - 权限路径端到端实测：无权用户导航无入口/直访跳工单页/API 403 → 授权后入口出现/页面可用/查询成功（缓存命中零积分）；工单页可申请「实用工具」；
+  - Webhook 配置页矩阵出现「外部接口配置」行；用户管理双弹窗与默认模板渲染正确；
+  - 审计自愈实测：白名单自愈为 `["ledger","banquets","auth"]`，页面显示 3 模块勾选一致，10-28 依赖首条新日志成功落库；手机归属地/外部接口归组为新模块组，管理员按需勾选启用；
+  - 测试用户与临时脚本已清理；服务运行平稳。
+
+### ADR-81：接口广场六维升级——官方 OpenAPI 全量校正、两行卡片交互、平台编辑、Key 明文受控查看、目录一键获取与平台 API 管理（V10.11.51 落地）
+- **背景与痛点**：
+  1. **交互不可发现**：「系统核心服务」端点行与「API 平台」Key 行均为单行 input-group + 7 个纯图标按钮（仅 title 悬停提示），移动端/触屏完全不可用，用户不知道按钮功能；Key 输入框 flex:1 占满整行、挤压按钮；
+  2. **平台不可编辑**：平台注册表只有添加/删除，名称（默认名不可读）、认证方式添加后无法修改；
+  3. **官方契约漂移（核查新发现）**：实测 UApiPro 官方提供 OpenAPI 3.1.0 标准 规范（112 路径），逐条比对发现本地目录 **11 处路径/方法错误（调用直接 404）**、约 50 条接口参数缺失、15 处参数名不一致——用户实测「菜谱详情只能输入 id」即源于路径错误（官方实为 /food/recipe/detail 且 name/code 二选一）；
+  4. **目录获取无入口**：新接入平台无 API 目录，只能手填；**自定义 API 缺失**：内置 108 条之外无管理能力；
+  5. **权限粒度**：两个外部接口页面仅 is_admin 硬校验，无授权用户路径（用户要求"普通用户经授权可用指定功能"）。
+- **决策方案**：
+  1. **数据层：校正表机制**（不动 110 条原始定义，可追溯可回滚）：uapi_catalog.py 新增五张表——API_OVERRIDES（11 处路径/方法/文件型标记修正 + 2 条重复条目 hidden，可见目录 110→108）、PARAM_RENAME（15 处官方参数名对齐，test_params 同步改写）、PARAM_DROP（6 个官方不存在的无效参数剔除）、PARAM_AUGMENT（约 50 条接口缺失参数补全，全带中文标签/类型/枚举）、TEST_PARAMS_OVERRIDES（无可靠预置值的一键测试参数置 None 引导走试验台）；`_apply_correction()` 在读取时合并，`get_api/get_catalog_for_frontend/summary` 均消费校正结果；`build_full_url` 支持 `{id}` 类路径占位符替换；
+  2. **交互层：两行卡片重构**：端点行/Key 行改为两行卡片（第一行地址/Key[限宽 420px]/平台徽章/启停开关[附启用停用文字]，第二行操作按钮全图标+中文：测试/查看/上移/下移/编辑/删除/保存/取消）；目录行「文档」链接补字；行容器 class 与状态机不变，既有 JS 零改动；
+  3. **平台编辑**：新增编辑模态（ID 只读，名称/地址/认证方式/头名可改）；platform/save 路由入参扩展并白名单校验，save_platform 增量合并；
+  4. **Key 明文受控查看**（分级安全设计）：查看需二次确认模态 → key/reveal 路由（仅管理员 + 会话 10 秒 3 次频率限制）→ 前端明文 30 秒自动遮蔽（可手动隐藏）；**高敏审计直达**：直接写 OperationLog 绕过业务模块白名单（白名单未含 service_config 时安全审计不得静默丢失）；Webhook 同步推送；沿袭明文不回传协议（只读态仍只显示脱敏占位）；
+  5. **平台 API 管理**：
+     - 存储：平台档案内嵌 apis 数组（上限 200 条），_validate_api_entry 白名单校验（路径正则/参数名/类型六选/格式化器绑定）；单条增改删 save_platform_api/delete_platform_api + 批量 import_platform_apis（method+path 去重）；
+     - 一键获取三层策略（新模块 uapi_openapi.py）：内置平台提示无需导入；自定义平台探测 6 常见规范地址（{origin}/openapi.json 优先——UApiPro 实测可用；超时 4+8s/3MB/禁重定向/双路径网络）；手动粘贴 OpenAPI JSON 兜底；解析支持 query/path/body 参数 + $ref 六层 + base 前缀剥离 + multipart 跳过；前端模态预览勾选（已存在条目禁选）后导入；
+     - 调用链路：resolve_api_def 统一解析（静态目录→平台 apis）；call_platform_api/_raw 复用认证与 Key 轮换；一键测试/试验台双路由支持 platform_id+api_id（试验台下拉值编码 @pid|aid）；SSRF 三重防线（路径白名单正则 + 禁 ../\ 、//、协议 + 最终 URL origin 比对）；
+  6. **权限只读授权**：menu_service_config（75→76 项，默认关闭）挂 menu_map 双页面；授权用户只读渲染（按 is_admin 隐藏 11 类写按钮与开关，地址 readonly，页首只读横幅）；11 个写接口后端硬校验管理员；用户管理双弹窗复选框 + 工单申请 + 导航显隐三链路同步；
+  7. **三体系同步**：Webhook 复用 service_config 页面矩阵行；AUDIT_MODULE_MAP 将 service_config 前移首位（截胡纠正：避免「导入平台 API 目录」被 ledger 组命中）+ 关键词扩 4 项；备份自动含平台 API（system_settings 既有链路）。
+- **验证与效果**：
+  - py_compile 8 文件 + 全站模板编译失败 0；十一启平稳；
+  - **真实调用**：food/ingredient/detail?name=小白菜 HTTP 200（校正路径+参数实测）；worldtime 回归 200（兼容无破坏）；httpbin 导入 API query 传参与路径占位符 /delay/{sec} 双双 HTTP 200；一键测试 200/2156ms；
+  - **SSRF**：路径上跳/协议注入/双斜杠/反斜杠 4 项攻击全拦截；
+  - **明文查看**：显示 45 位与库值一致（末 4 位 2SyZ 核对）→ 隐藏恢复「已保存」；审计强制落库 id=138 完整（平台/标签记录、明文未记录）——白名单仅 3 业务模块时依然落库；
+  - **权限矩阵**：ro_test 授权用户双页 200 + 零写按钮渲染（函数定义保留无调用、开关 disabled）+ 6 写接口全 403 + admin 对照全通；审计归组 5 类 action 全部 service_config；
+  - 浏览器全项：两行卡片/按钮全中文/编辑平台回填与改名持久化/粘贴导入 2 条 API 含「导入」徽章/试验台调用/菜单门控跳转；测试平台与用户已清理，临时脚本已回收。
+
+### ADR-82：API 目录归属平台化重组与获取目录三层增强——官方目录挪入平台卡、13 候选探测与失败明细引导、格式化器中文说明（V10.11.52 落地）
+- **背景与痛点**：
+  1. **目录归属割裂**：V10.11.49 拆分双子页时官方 108 条目录作为页面级独立卡片置于平台注册表下方，UApiPro 平台卡内「平台 API 目录」按钮恒显 0 个——同一平台的目录信息与平台档案分居两处，管理员无法在平台卡内感知「该平台有哪些 API」；V10.11.51 引入平台 API 管理后割裂加剧（自定义 API 在平台卡、官方目录孤悬页底）；
+  2. **获取目录能力不足**：自动探测仅 6 个候选地址，落空时只返回一句「未发现可用文档」，管理员无从判断是「网站没有」还是「地址没找对」；实测用户点名接入的 4 个国内平台（wzapi.com/tianapi.com/api.kuleu.com/showapi.com）均无标准 OpenAPI 规范——单纯扩充候选无法根治，需要「失败可见 + 人工指定地址」的逃生通道；
+  3. **格式化器无中文说明**：「新增 API」编辑模态的「可读格式化器」下拉仅显示英文键名（如 misc_tracking_detect），管理员无从判断选择。
+- **决策方案**：
+  1. **目录归属平台化**：官方 108 条目录卡整体挪入 UApiPro 平台卡折叠区（搜索/免费筛选/分类 accordion/一键测试/试验台/文档链接全保留，默认收起），页底独立卡删除（留注释）；每平台卡「平台 API 目录」按钮徽章三口径（合计 = 官方 + 自定义），`get_platforms_for_display()` 新增 builtin_catalog_count/custom_api_count/catalog_count_total（内置平台官方计数由新增 `uapi_catalog_total()` 实时求值、自定义按平台档案 apis 数组长度）；「API 试验台」按钮挪页面顶部全局操作区（跨平台工具不再绑定 uapis 目录卡）；
+  2. **获取目录三层增强**（uapi_openapi.py）：candidate_urls 扩充 6→13（origin 级 /openapi.json 与 /swagger.json、SpringDoc /v3/api-docs、SpringFox /v2/api-docs、ASP.NET /swagger/v1/swagger.json、/api/openapi.json、/api/swagger.json、/v3/api-docs/swagger.json、/docs/*.json）；`discover(base_url, spec_url='')` 指定规范地址优先拉取（`_fetch_spec` 允许文档站子域/任意域名直链，安全边界不变：只读 GET/禁重定向/3MB/仅解析 JSON 结构不回传原始内容）；新增 `_classify_attempt` 失败原因归类（无法连接/重定向/403 拒绝/404 无文档/返回网页非 JSON/解析失败/不含 paths），全部落空返回 attempts 逐地址明细（截 13 条），前端 `renderDiscoverFailure` 渲染明细 + 三条出路引导（指定规范地址/粘贴 JSON/单条录入）；**明确不做 HTML 网页文档爬取**——国内 API 商城普遍为网页文档站、无机器可读规范，各站结构各异且反爬与改版脆弱，爬取不可维护；
+  3. **格式化器中文说明**：uapi_client.FORMATTER_LABELS 30 项（与 FORMATTERS 逐键对应，未登记键回退「（未说明）」）；routes_ext 视图 uapi_formatters 改 [{key, label}] 结构，下拉显示「键（中文说明）」。
+- **验证与效果**：
+  - py_compile 4 个改动 Python 文件 + 全站 Jinja 编译 0 失败；十二启平稳；
+  - 浏览器 9 项全过：顶部试验台按钮；三平台徽章三口径（uapis 108/官方 108/自定义 0、free-api 0、test123 万站API 1/自定义 1）；页底独立卡已删；折叠区 108 条 + 搜索「农历」精确 1 条；格式化器下拉 30 项全中文；wzapi 13 候选逐条失败原因 + 引导出现；指定 https://uapis.cn/openapi.json 成功预览 105 接口（仅预览未导入零落库）；worldtime 一键测试 200/560ms（经 Key「ghca」回归无破坏）；
+  - 实测结论沉淀：wzapi /api/openapi.json 返回 200 但内容为「接口不存在」JSON——地址在、内容非规范的假阳性最难排查，失败明细逐条归类后一眼可辨；tianapi/kuleu/showapi 全 404/HTML；4 平台均无标准规范为上游现状，新平台标准接入路径为「获取目录 → 看失败明细 → 文档站规范直链 / 粘贴 JSON 兜底」。
+
+### ADR-83：接口广场零刷新架构与表单排版精细化——局部重建、平台 ID 改名级联、认证联动与脱敏长度感知（V10.11.53 落地）
+- **背景与痛点**：
+  1. **局部操作整页刷新**：模板中 7 处 window.location.reload() 覆盖全部写操作（Key 池保存含启停切换/增删改/排序、平台增删改、API 增删改、目录导入），每次重拉全页重渲染 108 条目录，折叠区展开状态/搜索词/滚动位置全部丢失——「局部操作导致整个布局刷新、过多拉取致性能问题」；
+  2. **Key 行排版三连缺陷**：输入框 flex: 0 1 420px 过长，中窄窗口标签(180px)+输入框(420px)+开关组(110px)≈710px 必然 flex-wrap 换行，启停开关被挤成孤行（「启停按钮跟文字描述不在同一列/分隔距离较远」）；Bootstrap .form-check 默认 padding-left:1.5rem 造成文字与开关 44px 空隙；.form-switch .form-check-input 的 float:left + margin-left:-40px（特异性 0,2,0）压过 .platform-enabled{margin:0}（0,1,0），单删 padding 后负 margin 漂移致平台总开关叠字（-36px）；
+  3. **平台 ID 不可改**：作为端点绑定引用键/试验台 @pid|aid 编码/审计标识的关联主键恒只读，用户质疑「没用就去掉」——实为必需，但应支持改名并级联更新引用（经用户确认选方案 B）；
+  4. **认证方式无联动**：添加/编辑平台模态选「无认证」仍恒显示「自定义头/参数名（header/query 型必填）」；
+  5. **脱敏星号固定 4 个**：45 位真实 Key 只显 4 星+末 4 位，长度感知缺失。
+- **决策方案**：
+  1. **零刷新架构（数据层+前端局部重建）**：apis/save、apis/delete、apis/import 三路由补返回单平台完整数据（platform/save 已有，补 renamed 标志）；前端四函数分区块重建——rebuildKeyPool（按服务端 keys 重建行，新 uid 回填脱敏）、applyPlatformMeta（卡头名称/地址/认证说明）、rebuildPlatformApis（自定义条目列表+三口径徽章）、syncPlatData（同步 JS 内存 PLATFORMS_DATA——试验台下拉与编辑模态的数据源，下次打开即最新）；保留两处结构性整页刷新（添加平台、改平台 ID——新增整卡与卡内 data-pid/id/onclick 全量标识变更为低频操作）；平台启停/保存地址既有局部链路补 syncPlatData；
+  2. **排版三件套**：pkey-input 420→300px；.plat-switch/.pkey-switch flex: 0 0 auto 永不收缩换行断裂；.form-check 留白清零与 .form-check-input 负 margin 配对清零（Bootstrap float+负 margin 是成对样式，只删一侧必乱）；
+  3. **平台 ID 改名级联**：platform/save 接受 new_id（正则/内置 uapis 禁改/唯一性三重校验），save_platform 遍历 DEFAULT_GROUPS 六组替换 platform 引用（与既有 _url_key 写入路径一致）后改写档案主键；审计记「旧ID → 新ID」；前端自定义平台解锁 epId、内置只读，改 ID 成功后整页刷新；
+  4. **认证联动**：syncAuthKeyName 双模态统一——none/bearer 隐藏并清空头名输入框，header/query 显示必填；showAdd/showEditPlatformModal 打开时同步初始状态；
+  5. **星号长度感知**：mask_platform_key 输出 min(len-4, 12) 星 + 末 4 位（≤8 位短 Key 保持末 2 位逻辑）。
+- **验证与效果**：
+  - py_compile 3 文件 + 30 模板编译 0 失败；十五启平稳；
+  - 零刷新 14 项实测：Key 启停切换零刷新（存活标记保留+徽章更新+折叠区保持展开）/ Key 池保存重建（uid 保持、12 星回填）/ 编辑平台名称（卡头+认证说明+JS 内存同步）/ API 新增（行插入+三口径徽章+空态移除）/ API 删除（行移除+空态恢复+徽章回落）/ 删除平台（卡移除+数据同步）；添加平台与改 ID 保留结构性刷新（toast 说明）；
+  - 级联 SQLite 实战：临时平台绑定停用端点 → 改名 → 端点 platform 字段实测跟随 → 删除平台 → forecast 原值（3 条端点+timeout/retries）逐字节恢复；
+  - 布局实测：900px 窄窗 Key 行三元素同行（input 300px）、文字与开关 4px（Key 行 44px→4px、平台头部 -36px 叠字→4px）、垂直对齐；
+  - 联动实测：双模态初始状态正确、header/query 显示、切回 none 隐藏并清空；worldtime 回归 200/564ms（经 Key「ghca」）；
+  - 演练平台与临时脚本全清理，用户真实数据（ghca Key/三平台/forecast 端点）零污染。
+
+### ADR-84：Key 行单行紧凑布局与目录箭头动效——操作按钮并入输入框同行（窄屏自动降级）、aria-expanded 驱动箭头旋转（V10.11.54 落地）
+- **背景与痛点**：
+  1. **两行卡片浪费空间**：V10.11.51 的 Key 行两行设计（第一行 标签/Key/开关，第二行按钮组右对齐）在宽屏下垂直空间浪费且「测试等按钮与输入框不在同一行」（用户截图反馈）——按钮组与输入框视觉割裂；
+  2. **展开箭头不变向**：平台 API 目录按钮的 onclick 仅 `classList.toggle('fa-chevron-down')` 单个类，与初始 `fa-chevron-right` 共存（两个 FontAwesome content 规则冲突，渲染结果不确定）——点击展开后 `>` 未变为 `∨`（用户反馈）。
+- **决策方案**：
+  1. **单行 flex 布局**：按钮组整体移入 `.pkey-main` 行内（`ms-auto` 右对齐），删除两行虚线分隔与上边距；标签组收紧至 min 110/max 150px；输入框保持 300px 限宽；`.pkey-actions { gap:.25rem; margin-left:auto }`——宽屏一行完整显示「标签+输入框+开关+6 按钮」（1536 实测 main 1210px 内 363px 按钮组），窄屏 flex-wrap 自动降级为按钮组整体换行右对齐（900 实测 main 610px），开关组 flex:0 0 auto 永不与文字分离；只读态与编辑态按钮数均为 6（编辑/删除 ↔ 保存/取消），宽度一致布局不跳动；Jinja 渲染行与 JS makePkeyRow 双端同步改结构；
+  2. **aria-expanded + CSS 旋转**：按钮加 `.plat-api-toggle`，移除缺陷内联 onclick；Bootstrap collapse 自动维护 aria-expanded；`.plat-api-toggle[aria-expanded="true"] .arrow { transform: rotate(90deg) }` + 0.2s 过渡——展开 `>` 旋转 90° 为 `∨`、收起还原，零 JS 无类名冲突。
+- **验证与效果**：
+  - Jinja 全模板编译 0 失败；十六启平稳；
+  - 1536 宽屏：按钮组与输入框同一行（垂直区间重叠判定）；900 窄屏：按钮组整体换行右对齐（与 main 右缘偏差 <6px）、开关与输入框同行、「启用」文字与开关 4px 紧邻；
+  - 箭头实测：展开 aria="true" + transform matrix(0,1,-1,0,0,0)=旋转 90°；收起 aria="false" + transform none 还原；
+  - 编辑态实测：保存/取消与输入框同行、6 按钮不变、取消后输入框重新锁定；
+  - worldtime 回归 HTTP 200/637ms（经 Key「ghca」）。
