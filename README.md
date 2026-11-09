@@ -1,17 +1,16 @@
-# 人情礼金记账系统 (Gift Bookkeeping App - Docker 版)
+# 人情礼金记账系统 (Gift Bookkeeping App)
 
 <p align="left">
-  <img src="https://img.shields.io/badge/Python-3.11%2B-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/Docker-Compose%20v2-2496ED.svg" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/Flask-3.0.3-brightgreen.svg" alt="Flask Version">
   <img src="https://img.shields.io/badge/Database-SQLite%20%7C%20PostgreSQL-orange.svg" alt="Database">
   <img src="https://img.shields.io/badge/Frontend-Bootstrap%205%20%7C%20ECharts-purple.svg" alt="Frontend">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
 
-> **简洁、安全、全能的企业级人情往来与礼金财务管理系统 (Docker 容器化版)**。支持自然语言智能记账、专属宴席独立台账、人情往来精准对账、权威万年历与节假日调休感知、AI 记账助手、多渠道 Webhook 告警与 WebDAV 加密云备份。原生提供完整 Docker Compose 多架构编排、Nginx SNI 多域名 443 端口复用反向代理与免构建镜像秒级部署。
+> **简洁、安全、全能的人情往来与礼金财务管理系统**。支持自然语言智能记账、专属宴席独立台账、人情往来精准对账、权威万年历与节假日调休感知、AI 记账助手、多渠道 Webhook 告警与 WebDAV 加密云备份。
 >
-> 📌 **当前版本**：`V10.11.59` | 📖 **[查看全量版本发布历史与更新日志 (docs/CHANGELOG.md)](docs/CHANGELOG.md)**
+> 📌 **当前版本**：`V10.11.60` | 📖 **[查看全量版本发布历史与更新日志 (docs/CHANGELOG.md)](docs/CHANGELOG.md)**
 
 <!-- 
   【AI 协作与维护规范 - 严禁违背】
@@ -58,8 +57,7 @@
 5. 📅 **万年历与气象感知 (Perpetual Calendar & Weather)**
    - **本地权威万年历**：内置完整农历历法引擎（干支纪年、生肖、建除十二神吉相、节气）；
    - **法定节假日班休联动**：自动同步国家法定节假日放假与调休工作日数据，日历网格直观展示班/休徽章；
-   - **智能地名匹配与秒开缓存**：自由搜索支持「四川省巴中市恩阳区」「恩阳区」「西双版纳」「峨眉山风景区」等多习惯输入（本地全路径匹配 + 后端别名表双保险）；查询结果按用户隔离持久化缓存（30 分钟有效），再次进入零网络请求秒开，常驻「数据更新于 HH:MM」与主动刷新按钮；
-   - **实时天气与预报**：集成 Open-Meteo 免费气象接口，提供城市实时温湿度、空气质量与未来预报，支持多级缓存降级保障（服务全停用时明确报错不走降级链）。
+   - **实时天气与预报**：集成 Open-Meteo 免费气象接口，提供城市实时温湿度、空气质量与未来预报，支持多级缓存降级保障。
 
 6. 📊 **数据看板与专业导出 (Dashboard & Export)**
    - **首页引导快捷统计**：首页大卡片实时展示人情往来收送净结余，统计时长（本月/近一年/本自然年/自定义 1~120 月）由管理员一键配置，全站用户自动同步；
@@ -86,36 +84,29 @@
 
 ## 🚀 快速启动
 
-### 方式一：标准 Docker Compose 启动（推荐）
+### 方式一：本地直接运行 (Windows / macOS / Linux)
 
 ```bash
-# 1. 启动服务（默认使用 SQLite 数据库，数据持久化于 gift_data 卷）
-docker compose up -d
+# 1. 安装项目依赖
+pip install -r requirements.txt
 
-# 2. 查看容器运行状态与健康探针
-docker compose ps
-
-# 3. 查看实时日志
-docker compose logs -f web
+# 2. 启动应用 (默认监听 11443 端口)
+python app.py
 ```
-> 访问地址：`http://localhost:15000` 或 `http://服务器IP:15000`  
-> 默认管理员账号：`admin` / `admin123`
+> 浏览器访问：`http://127.0.0.1:11443`
 
-### 方式二：Linux 服务器一键全自动运维（推荐云服务器）
+### 方式二：生产服务器一键运行 (推荐 Linux 云服务器)
 
-根目录提供自动化管理脚本 `run.sh`（支持自动配置自签 SSL 证书、自动识别并渲染 Nginx SNI 443 端口代理、自动管理 Docker 容器）：
+系统根目录提供全自动运维脚本 `run.sh`（自动创建独立虚拟环境 `venv` + 增量安装依赖 + 自动生成 SSL 证书 + 后台守护）：
 
 ```bash
 chmod +x run.sh
-./run.sh start                            # 启动 Docker 集群并配置 Nginx 反代 (默认配置)
+./run.sh start                            # 启动服务 (默认配置)
 ./run.sh start --nginx-port 3443 --local  # 前置代理模式 (监听 127.0.0.1:3443)
-./run.sh status                           # 查看容器状态、端口映射与访问地址
+./run.sh status                           # 查看运行状态与访问信息
 ./run.sh restart                          # 重启服务
 ./run.sh stop                             # 停止服务
 ```
-
-> 💡 **切换数据库模式**：执行 `./run.sh restart --reconfig` 可通过交互菜单一键在 SQLite 与独立 PostgreSQL 间切换。  
-> 💡 **免构建镜像秒级部署**：使用 `APP_IMAGE=ghcr.io/18227370901/gift-bookkeeping-web:latest ./run.sh restart` 即可免去现场编译，秒级启动。
 
 ---
 
@@ -134,7 +125,7 @@ gift_bookkeeping_app/
 │   ├── DEPLOYMENT.md          # 详细部署与 Nginx/SSL/Git 运维手册
 │   ├── PSD_Design_Document.md # 详细设计与重构决策文档 (Markdown 原生版)
 │   ├── PSD_Design_Document.html # 设计文档图表离线 HTML 交互版
-│   ├── CHANGELOG.md           # 全量版本演进与历史变更日志 (V2 ~ V10.11.59)
+│   ├── CHANGELOG.md           # 全量版本演进与历史变更日志 (V2 ~ V10.11.60)
 │   ├── SAMPLE_DATA.md         # 样例数据体系与 9 项推送前核查规范
 │   └── ANDROID_BUILD.md       # Android 原生 APK 打包指南
 │
@@ -158,15 +149,16 @@ gift_bookkeeping_app/
 
 深入了解系统部署、架构设计或二次开发，请参阅 `docs/` 目录下的专有手册：
 
-- 🛠️ **[完整 Docker 部署与运维手册 (docs/DEPLOYMENT.md)](docs/DEPLOYMENT.md)**：包含端口配置、多项目共用 443 SNI 分流、自签名 SSL 证书定制、Nginx 自动渲染以及 Linux 服务器代码免冲突更新方案；
+- 🛠️ **[完整部署与运维手册 (docs/DEPLOYMENT.md)](docs/DEPLOYMENT.md)**：包含端口配置、多项目共用 443 SNI 分流、自签名 SSL 证书定制、Nginx 自动渲染以及 Linux 服务器代码免冲突更新方案；
 - 📐 **[PSD 架构设计与重构决策文档 (docs/PSD_Design_Document.md)](docs/PSD_Design_Document.md)**：包含系统全景技术栈审计、漂移矩阵分析、前后台完整设计规格及 ADR-01~76 全部架构决策记录（另备有包含完整图表的 [HTML 交互版](docs/PSD_Design_Document.html)）；
-- 📜 **[全量版本发布与变更日志 (docs/CHANGELOG.md)](docs/CHANGELOG.md)**：记录从 V2 至 V10.11.59 每一个版本的迭代日志与详细技术升级公告；
+- 📜 **[全量版本发布与变更日志 (docs/CHANGELOG.md)](docs/CHANGELOG.md)**：记录从 V2 至 V10.11.60 每一个版本的迭代日志与详细技术升级公告；
 - 📦 **[开箱即用样例数据体系规范 (docs/SAMPLE_DATA.md)](docs/SAMPLE_DATA.md)**：包含 151 条高仿真演示记录构成、多角色测试账号矩阵、敏感数据脱敏准则及推送前 9 项核查红线；
 - 📱 **[Android APK 打包指南 (docs/ANDROID_BUILD.md)](docs/ANDROID_BUILD.md)**：基于 GitHub Actions 与 Buildozer 的移动端离线安装包自动构建流程；
-- 🌐 **[多形态交付生态矩阵 (Ecosystem)](docs/DEPLOYMENT.md#五项目多形态交付矩阵-ecosystem)**：了解 Web 原生版、Docker Compose 版与 Android APK 版的源码仓库。
+- 🌐 **[多形态交付生态矩阵 (Ecosystem)](docs/DEPLOYMENT.md#八项目多形态交付矩阵-ecosystem)**：了解 Web 原生版、Docker Compose 版与 Android APK 版的源码仓库。
 
 ---
 
 ## 📄 开源许可证
 
 本项目基于 [MIT License](LICENSE) 开源许可协议发布。
+
